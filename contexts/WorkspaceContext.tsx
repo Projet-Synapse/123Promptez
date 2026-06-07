@@ -47,6 +47,22 @@ export interface Conversation {
   updatedAt: Date;
 }
 
+export type TaskFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface WorkspaceTask {
+  id: string;
+  title: string;
+  description: string;
+  frequency: TaskFrequency;
+  promptInjection: string;
+  enabled: boolean;
+  color: string;
+  icon: string;
+  lastCompleted: Date | null;
+  nextDue: Date | null;
+  createdAt: Date;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -55,6 +71,7 @@ export interface Workspace {
   description: string;
   systemPrompt: string;
   modes: WorkspaceMode[];
+  tasks: WorkspaceTask[];
   database: WorkspaceDatabase;
   conversations: Conversation[];
   activeConversationId: string;
@@ -66,7 +83,7 @@ interface WorkspaceContextType {
   activeWorkspaceId: string;
   activeWorkspace: Workspace;
   setActiveWorkspace: (id: string) => void;
-  addWorkspace: (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId'>) => void;
+  addWorkspace: (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId' | 'tasks'>) => void;
   updateWorkspace: (id: string, updates: Partial<Workspace>) => void;
   removeWorkspace: (id: string) => void;
   // Modes
@@ -75,6 +92,13 @@ interface WorkspaceContextType {
   removeMode: (workspaceId: string, modeId: string) => void;
   toggleMode: (workspaceId: string, modeId: string) => void;
   getActiveModes: (workspaceId: string) => WorkspaceMode[];
+  // Tasks
+  addTask: (workspaceId: string, task: Omit<WorkspaceTask, 'id' | 'createdAt' | 'lastCompleted' | 'nextDue'>) => void;
+  updateTask: (workspaceId: string, taskId: string, updates: Partial<WorkspaceTask>) => void;
+  removeTask: (workspaceId: string, taskId: string) => void;
+  toggleTask: (workspaceId: string, taskId: string) => void;
+  completeTask: (workspaceId: string, taskId: string) => void;
+  getDueTasks: (workspaceId: string) => WorkspaceTask[];
   // Conversations
   addConversation: (workspaceId: string, title?: string) => string;
   removeConversation: (workspaceId: string, conversationId: string) => void;
@@ -105,6 +129,17 @@ function makeConversation(title: string = 'Nouvelle conversation'): Conversation
   };
 }
 
+function computeNextDue(frequency: TaskFrequency, from: Date = new Date()): Date {
+  const d = new Date(from);
+  switch (frequency) {
+    case 'daily': d.setDate(d.getDate() + 1); break;
+    case 'weekly': d.setDate(d.getDate() + 7); break;
+    case 'monthly': d.setMonth(d.getMonth() + 1); break;
+    case 'yearly': d.setFullYear(d.getFullYear() + 1); break;
+  }
+  return d;
+}
+
 const DEFAULT_CONV_GENERAL = makeConversation('Conversation générale');
 const DEFAULT_CONV_DEV = makeConversation('Session de développement');
 const DEFAULT_CONV_CREATIVE = makeConversation('Brainstorming créatif');
@@ -119,6 +154,21 @@ const DEFAULT_WORKSPACES: Workspace[] = [
     systemPrompt: 'Tu es un assistant IA utile, précis et concis. Tu répondras toujours en français sauf si on te parle dans une autre langue.',
     conversations: [DEFAULT_CONV_GENERAL],
     activeConversationId: DEFAULT_CONV_GENERAL.id,
+    tasks: [
+      {
+        id: 'task-daily-brief',
+        title: 'Brief quotidien',
+        description: "Résumer les priorités du jour et proposer un plan d'action",
+        frequency: 'daily',
+        promptInjection: "TÂCHE QUOTIDIENNE: Au début de cette session, propose automatiquement un brief quotidien structuré avec: 1) Rappel des objectifs 2) Priorités du jour 3) Points d'attention.",
+        enabled: true,
+        color: '#3D7EFF',
+        icon: 'today',
+        lastCompleted: null,
+        nextDue: new Date(),
+        createdAt: new Date(),
+      },
+    ],
     database: {
       rootFiles: [
         {
@@ -184,9 +234,24 @@ const DEFAULT_WORKSPACES: Workspace[] = [
     icon: 'code',
     color: '#00FF88',
     description: 'Assistant technique pour le code',
-    systemPrompt: 'Tu es un expert développeur senior. Tu maîtrises TypeScript, React Native, Python, et les architectures modernes. Fournis toujours du code propre, commenté et testé. Signale les potentiels problèmes de sécurité et de performance.',
+    systemPrompt: 'Tu es un expert développeur senior. Tu maîtrises TypeScript, React Native, Python, et les architectures modernes. Fournis toujours du code propre, commenté et testé.',
     conversations: [DEFAULT_CONV_DEV],
     activeConversationId: DEFAULT_CONV_DEV.id,
+    tasks: [
+      {
+        id: 'task-weekly-review',
+        title: 'Revue hebdomadaire du code',
+        description: "Rappeler les bonnes pratiques et proposer une revue d'architecture",
+        frequency: 'weekly',
+        promptInjection: "TÂCHE HEBDOMADAIRE: Propose une revue hebdomadaire: rappel des bonnes pratiques, check de la dette technique, et suggestions d'amélioration.",
+        enabled: true,
+        color: '#00FF88',
+        icon: 'rate-review',
+        lastCompleted: null,
+        nextDue: new Date(),
+        createdAt: new Date(),
+      },
+    ],
     database: { ...EMPTY_DATABASE },
     createdAt: new Date(),
     modes: [
@@ -238,9 +303,10 @@ const DEFAULT_WORKSPACES: Workspace[] = [
     icon: 'brush',
     color: '#FF6B35',
     description: 'Écriture, créativité et brainstorming',
-    systemPrompt: "Tu es un assistant créatif passionné. Tu aides à la rédaction, au storytelling, à la génération d'idées et à la créativité sous toutes ses formes. Tu as un style expressif et inspirant.",
+    systemPrompt: "Tu es un assistant créatif passionné. Tu aides à la rédaction, au storytelling, à la génération d'idées et à la créativité sous toutes ses formes.",
     conversations: [DEFAULT_CONV_CREATIVE],
     activeConversationId: DEFAULT_CONV_CREATIVE.id,
+    tasks: [],
     database: { ...EMPTY_DATABASE },
     createdAt: new Date(),
     modes: [
@@ -249,7 +315,7 @@ const DEFAULT_WORKSPACES: Workspace[] = [
         label: 'Brainstorm',
         icon: 'lightbulb',
         description: 'Génère 10 idées créatives pour chaque demande',
-        promptInjection: 'BRAINSTORM MODE: Pour chaque demande, génère TOUJOURS au minimum 10 idées créatives et originales. Pense hors des sentiers battus. Inclus des idées audacieuses.',
+        promptInjection: 'BRAINSTORM MODE: Pour chaque demande, génère TOUJOURS au minimum 10 idées créatives et originales. Pense hors des sentiers battus.',
         enabled: false,
         color: '#FFB800',
         shortcut: '/idées',
@@ -288,7 +354,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const setActiveWorkspace = (id: string) => setActiveWorkspaceId(id);
 
-  const addWorkspace = (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId'>) => {
+  const addWorkspace = (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId' | 'tasks'>) => {
     const firstConv = makeConversation('Nouvelle conversation');
     const newWs: Workspace = {
       ...ws,
@@ -296,6 +362,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       createdAt: new Date(),
       conversations: [firstConv],
       activeConversationId: firstConv.id,
+      tasks: [],
     };
     setWorkspaces(prev => [...prev, newWs]);
   };
@@ -347,6 +414,71 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return ws ? ws.modes.filter(m => m.enabled) : [];
   };
 
+  // ─── Tasks ────────────────────────────────────────────────────────
+  const addTask = (workspaceId: string, task: Omit<WorkspaceTask, 'id' | 'createdAt' | 'lastCompleted' | 'nextDue'>) => {
+    const newTask: WorkspaceTask = {
+      ...task,
+      id: `task-${Date.now()}`,
+      lastCompleted: null,
+      nextDue: new Date(),
+      createdAt: new Date(),
+    };
+    setWorkspaces(prev => prev.map(w =>
+      w.id === workspaceId ? { ...w, tasks: [...w.tasks, newTask] } : w
+    ));
+  };
+
+  const updateTask = (workspaceId: string, taskId: string, updates: Partial<WorkspaceTask>) => {
+    setWorkspaces(prev => prev.map(w =>
+      w.id === workspaceId
+        ? { ...w, tasks: w.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t) }
+        : w
+    ));
+  };
+
+  const removeTask = (workspaceId: string, taskId: string) => {
+    setWorkspaces(prev => prev.map(w =>
+      w.id === workspaceId ? { ...w, tasks: w.tasks.filter(t => t.id !== taskId) } : w
+    ));
+  };
+
+  const toggleTask = (workspaceId: string, taskId: string) => {
+    setWorkspaces(prev => prev.map(w =>
+      w.id === workspaceId
+        ? { ...w, tasks: w.tasks.map(t => t.id === taskId ? { ...t, enabled: !t.enabled } : t) }
+        : w
+    ));
+  };
+
+  const completeTask = (workspaceId: string, taskId: string) => {
+    const now = new Date();
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== workspaceId) return w;
+      return {
+        ...w,
+        tasks: w.tasks.map(t => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            lastCompleted: now,
+            nextDue: computeNextDue(t.frequency, now),
+          };
+        }),
+      };
+    }));
+  };
+
+  const getDueTasks = (workspaceId: string): WorkspaceTask[] => {
+    const ws = workspaces.find(w => w.id === workspaceId);
+    if (!ws) return [];
+    const now = new Date();
+    return ws.tasks.filter(t => {
+      if (!t.enabled) return false;
+      if (!t.nextDue) return true;
+      return new Date(t.nextDue) <= now;
+    });
+  };
+
   // ─── Conversations ────────────────────────────────────────────────
   const addConversation = (workspaceId: string, title?: string): string => {
     const conv = makeConversation(title || 'Nouvelle conversation');
@@ -376,12 +508,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const renameConversation = (workspaceId: string, conversationId: string, title: string) => {
     setWorkspaces(prev => prev.map(w =>
       w.id === workspaceId
-        ? {
-            ...w,
-            conversations: w.conversations.map(c =>
-              c.id === conversationId ? { ...c, title, updatedAt: new Date() } : c
-            ),
-          }
+        ? { ...w, conversations: w.conversations.map(c => c.id === conversationId ? { ...c, title, updatedAt: new Date() } : c) }
         : w
     ));
   };
@@ -404,7 +531,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         ...w,
         conversations: w.conversations.map(c => {
           if (c.id !== conversationId) return c;
-          // Auto-title from first user message
           const isFirst = c.messages.length === 0 && msg.role === 'user';
           const title = isFirst
             ? msg.content.slice(0, 40) + (msg.content.length > 40 ? '...' : '')
@@ -418,12 +544,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const clearConversation = (workspaceId: string, conversationId: string) => {
     setWorkspaces(prev => prev.map(w =>
       w.id === workspaceId
-        ? {
-            ...w,
-            conversations: w.conversations.map(c =>
-              c.id === conversationId ? { ...c, messages: [], updatedAt: new Date() } : c
-            ),
-          }
+        ? { ...w, conversations: w.conversations.map(c => c.id === conversationId ? { ...c, messages: [], updatedAt: new Date() } : c) }
         : w
     ));
   };
@@ -564,6 +685,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       removeMode,
       toggleMode,
       getActiveModes,
+      addTask,
+      updateTask,
+      removeTask,
+      toggleTask,
+      completeTask,
+      getDueTasks,
       addConversation,
       removeConversation,
       renameConversation,

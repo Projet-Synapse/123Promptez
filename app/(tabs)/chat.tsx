@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
+import { useProfile } from '@/contexts/ProfileContext';
 import { ChatBubble } from '@/components';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { sendChatMessage } from '@/services/chatService';
@@ -39,7 +40,10 @@ export default function ChatScreen() {
     addMessageToConversation,
     clearConversation,
     getActiveConversation,
+    getDueTasks,
+    completeTask,
   } = useWorkspace();
+  const { profile } = useProfile();
   const { showAlert } = useAlert();
 
   const [input, setInput] = useState('');
@@ -93,9 +97,11 @@ export default function ChatScreen() {
       await sendChatMessage(msg, history, bot, activeWorkspace, (token) => {
         full += token;
         setStreamingText(full);
-      });
+      }, profile, getDueTasks(activeWorkspace.id));
       setStreamingText('');
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: full });
+      // Auto-complete due tasks after first assistant response
+      getDueTasks(activeWorkspace.id).forEach(t => completeTask(activeWorkspace.id, t.id));
     } catch (err: any) {
       setStreamingText('');
       showAlert('Erreur', err.message || 'Erreur lors de la génération');

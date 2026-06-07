@@ -205,6 +205,36 @@ export default function WorkspaceSettingsScreen() {
           </Pressable>
         </View>
 
+        {/* Tasks */}
+        <View style={styles.section}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionLabel}>
+              <MaterialIcons name="event-repeat" size={13} color={Colors.warning} /> Tâches planifiées
+            </Text>
+          </View>
+          <View style={styles.dbSummary}>
+            <View style={styles.dbStat}>
+              <MaterialIcons name="task-alt" size={20} color={Colors.accent} />
+              <Text style={styles.dbStatValue}>{ws.tasks.filter(t => t.enabled).length}</Text>
+              <Text style={styles.dbStatLabel}>Actives</Text>
+            </View>
+            <View style={styles.dbDivider} />
+            <View style={styles.dbStat}>
+              <MaterialIcons name="event-repeat" size={20} color={Colors.warning} />
+              <Text style={styles.dbStatValue}>{ws.tasks.length}</Text>
+              <Text style={styles.dbStatLabel}>Total</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => router.push({ pathname: '/workspace-tasks', params: { wsId: ws.id } })}
+            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: Colors.warning }, pressed && { opacity: 0.8 }]}
+          >
+            <MaterialIcons name="event-repeat" size={18} color="#fff" />
+            <Text style={styles.dbOpenBtnText}>Gérer les tâches planifiées</Text>
+            <MaterialIcons name="arrow-forward" size={16} color="#fff" />
+          </Pressable>
+        </View>
+
         {/* Modes */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>

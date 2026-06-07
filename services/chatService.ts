@@ -1,11 +1,36 @@
 // Powered by OnSpace.AI
 import { BotConfig, KBSource, FAQItem } from '@/contexts/BotContext';
 import { Workspace } from '@/contexts/WorkspaceContext';
+import type { UserProfile } from '@/contexts/ProfileContext';
 
-function buildSystemPrompt(bot: BotConfig, workspace: Workspace): string {
-  // Use workspace-specific system prompt if available, else fall back to bot's
+function buildSystemPrompt(bot: BotConfig, workspace: Workspace, profile: UserProfile | null, dueTasks: any[]): string {
   let prompt = workspace.systemPrompt || bot.llmConfig.systemPrompt;
   prompt += '\n\n';
+
+  // Inject user profile
+  if (profile && (profile.name || profile.bio || profile.role || profile.aiMemory.length > 0)) {
+    prompt += '## PROFIL UTILISATEUR\n\n';
+    if (profile.name) prompt += `Nom: ${profile.name}\n`;
+    if (profile.role) prompt += `Rôle: ${profile.role}\n`;
+    if (profile.language) prompt += `Langue préférée: ${profile.language}\n`;
+    if (profile.bio) prompt += `Biographie: ${profile.bio}\n`;
+    if (profile.aiMemory.length > 0) {
+      prompt += '\nMémoire personnalisée:\n';
+      profile.aiMemory.forEach(mem => {
+        prompt += `- [${mem.category.toUpperCase()}] ${mem.content}\n`;
+      });
+    }
+    prompt += '\n';
+  }
+
+  // Inject due tasks
+  if (dueTasks.length > 0) {
+    prompt += '## TÂCHES PLANIFIÉES DUE\n\n';
+    prompt += 'Les tâches suivantes sont dues et doivent être exécutées dans cette session:\n\n';
+    dueTasks.forEach(task => {
+      prompt += `### ${task.title} (${task.frequency})\n${task.promptInjection}\n\n`;
+    });
+  }
 
   // Inject active modes
   const activeModes = workspace.modes.filter(m => m.enabled);
@@ -21,6 +46,18 @@ function buildSystemPrompt(bot: BotConfig, workspace: Workspace): string {
     prompt += '## BASE DE CONNAISSANCES\n\n';
     bot.kbSources.forEach((src: KBSource) => {
       prompt += `### ${src.label} (${src.type})\n${src.content}\n\n`;
+    });
+  }
+
+  // Database files
+  const allFiles = [
+    ...workspace.database.rootFiles,
+    ...workspace.database.folders.flatMap(f => f.files),
+  ];
+  if (allFiles.length > 0) {
+    prompt += '## BASE DE DONNÉES DU WORKSPACE\n\n';
+    allFiles.slice(0, 10).forEach(file => {
+      prompt += `### ${file.name} (${file.type})\n${file.content}\n\n`;
     });
   }
 
@@ -64,19 +101,27 @@ export async function sendChatMessage(
   history: ChatMessage[],
   bot: BotConfig,
   workspace: Workspace,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  profile?: UserProfile | null,
+  dueTasks?: any[]
 ): Promise<string> {
+  const resolvedProfile = profile ?? null;
+  const resolvedDueTasks = dueTasks ?? [];
+
   if (!bot.apiKey) {
-    // Mock response for demo
     await new Promise(r => setTimeout(r, 1200));
     const activeModes = workspace.modes.filter(m => m.enabled);
     const modesInfo = activeModes.length > 0
       ? ` Modes actifs : ${activeModes.map(m => m.label).join(', ')}.`
       : '';
+    const profileInfo = resolvedProfile?.name ? ` Bonjour ${resolvedProfile.name} !` : '';
+    const taskInfo = resolvedDueTasks.length > 0
+      ? ` ${resolvedDueTasks.length} tâche(s) planifiée(s) en attente.`
+      : '';
     const mockResponses = [
-      `Bonjour ! Je suis **${bot.name}** dans le workspace **${workspace.name}**.${modesInfo} Ajoutez votre clé API dans les Paramètres pour activer un vrai LLM.`,
-      `Je comprends votre question. En mode démonstration, je simule des réponses.${modesInfo} Configurez votre clé API pour activer le vrai LLM.`,
-      `Excellente question ! Mon système contient ${bot.kbSources.length} sources KB, ${activeModes.length} mode(s) actif(s) et ${bot.faqItems.length} entrées FAQ.`,
+      `${profileInfo}Je suis **${bot.name}** dans le workspace **${workspace.name}**.${modesInfo}${taskInfo} Ajoutez votre clé API dans les Paramètres pour activer un vrai LLM.`,
+      `Je comprends votre question.${profileInfo} En mode démonstration, je simule des réponses.${modesInfo} Configurez votre clé API pour activer le vrai LLM.`,
+      `Excellente question ! Mon système contient ${bot.kbSources.length} sources KB, ${activeModes.length} mode(s) actif(s)${resolvedDueTasks.length > 0 ? ` et ${resolvedDueTasks.length} tâche(s) planifiée(s)` : ''}.`,
     ];
     const response = mockResponses[Math.floor(Math.random() * mockResponses.length)];
     if (onToken) {
@@ -88,7 +133,7 @@ export async function sendChatMessage(
     return response;
   }
 
-  const systemPrompt = buildSystemPrompt(bot, workspace);
+  const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks);
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...history.slice(-10),

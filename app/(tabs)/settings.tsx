@@ -8,11 +8,13 @@ import { ThemedInput, SliderRow } from '@/components';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { LLM_MODELS } from '@/constants/config';
 import { useAlert } from '@/template';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { bot, updateBot, updateLLMConfig } = useBot();
   const { showAlert } = useAlert();
+  const { mode, toggleTheme, colors: themeColors } = useTheme();
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
 
@@ -33,8 +35,56 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.screenTitle}>Paramètres LLM</Text>
-        <Text style={styles.screenSub}>Configuration avancée du modèle</Text>
+        <Text style={styles.screenTitle}>Paramètres</Text>
+        <Text style={styles.screenSub}>LLM, apparence et configuration avancée</Text>
+
+        {/* Theme Switcher */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>
+            <MaterialIcons name="palette" size={14} color={Colors.primary} /> Apparence
+          </Text>
+          <Pressable
+            onPress={toggleTheme}
+            style={({ pressed }) => [styles.themeRow, pressed && { opacity: 0.8 }]}
+          >
+            <View style={[styles.themeIconWrap, { backgroundColor: mode === 'dark' ? '#1E2535' : '#E8ECF8' }]}>
+              <MaterialIcons
+                name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
+                size={22}
+                color={mode === 'dark' ? '#A0CFFF' : '#D97706'}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.themeLabel}>{mode === 'dark' ? 'Thème sombre' : 'Thème clair'}</Text>
+              <Text style={styles.themeSub}>Appuyez pour basculer vers le thème {mode === 'dark' ? 'clair' : 'sombre'}</Text>
+            </View>
+            <View style={styles.themeToggleWrap}>
+              <View style={[styles.themeToggle, mode === 'light' ? styles.themeToggleLight : null]}>
+                <View style={[styles.themeThumb, mode === 'light' ? styles.themeThumbLight : null]}>
+                  <MaterialIcons
+                    name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
+                    size={12}
+                    color={mode === 'dark' ? '#0A0C10' : '#fff'}
+                  />
+                </View>
+              </View>
+            </View>
+          </Pressable>
+
+          <View style={styles.themePreviewRow}>
+            {([['dark', '#0A0C10', '#3D7EFF', 'Sombre'], ['light', '#F4F6FB', '#2563EB', 'Clair']] as const).map(([m, bg, acc, label]) => (
+              <Pressable
+                key={m}
+                onPress={() => m !== mode && toggleTheme()}
+                style={[styles.themePreviewCard, { backgroundColor: bg }, mode === m ? styles.themePreviewCardActive : null]}
+              >
+                <View style={[styles.themePreviewDot, { backgroundColor: acc }]} />
+                <Text style={[styles.themePreviewLabel, { color: m === 'dark' ? '#F0F4FF' : '#111827' }]}>{label}</Text>
+                {mode === m ? <MaterialIcons name="check-circle" size={14} color={acc} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        </View>
 
         {/* API Key */}
         <View style={styles.section}>
@@ -283,4 +333,34 @@ const styles = StyleSheet.create({
     padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '33',
   },
   dangerBtnText: { fontSize: FontSize.body, color: Colors.error, fontWeight: '600' },
+  // Theme
+  themeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
+  },
+  themeIconWrap: { width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
+  themeLabel: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '600' },
+  themeSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  themeToggleWrap: {},
+  themeToggle: {
+    width: 52, height: 28, borderRadius: 14,
+    backgroundColor: '#1E2535', borderWidth: 1, borderColor: Colors.border,
+    justifyContent: 'center', paddingHorizontal: 3,
+  },
+  themeToggleLight: { backgroundColor: '#D97706' },
+  themeThumb: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: '#A0CFFF', alignItems: 'center', justifyContent: 'center',
+  },
+  themeThumbLight: { backgroundColor: '#fff', alignSelf: 'flex-end' },
+  themePreviewRow: { flexDirection: 'row', gap: Spacing.sm },
+  themePreviewCard: {
+    flex: 1, borderRadius: Radius.md, padding: Spacing.md, gap: 6,
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 2, borderColor: 'transparent',
+  },
+  themePreviewCardActive: { borderColor: Colors.primary },
+  themePreviewDot: { width: 10, height: 10, borderRadius: 5 },
+  themePreviewLabel: { fontSize: FontSize.sm, fontWeight: '600', flex: 1 },
 });
