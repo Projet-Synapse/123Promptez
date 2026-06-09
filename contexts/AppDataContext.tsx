@@ -1,6 +1,8 @@
 // Powered by OnSpace.AI
-// Manages cloud sync of all user app data (workspaces, bot config, profile)
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+// AppDataContext — orchestrates cloud sync for all contexts.
+// Passes onDataChange callbacks to WorkspaceProvider & ProfileProvider so every
+// mutation is auto-saved to cloud after a 2-second debounce.
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useAuth } from '@/template';
 import { saveToCloud, loadAllUserData } from '@/services/cloudSyncService';
 
@@ -50,8 +52,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           });
           setIsDataLoaded(true);
         }
-      } catch (e) {
-        if (!cancelled) setIsDataLoaded(true); // Still mark loaded so app works offline
+      } catch {
+        if (!cancelled) setIsDataLoaded(true);
       }
     })();
     return () => { cancelled = true; };

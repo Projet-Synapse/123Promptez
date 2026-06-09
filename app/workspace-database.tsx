@@ -1,6 +1,6 @@
 // Powered by OnSpace.AI
-// Theme fix: inline styles with useThemeColors() — image file picker added for KB sources
-import React, { useState, useCallback } from 'react';
+// Workspace Database — sub-folders + file sorting system
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   Modal, KeyboardAvoidingView, Platform, TextInput,
@@ -10,13 +10,23 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useAlert } from '@/template';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import type { DBFile, DBFolder } from '@/contexts/WorkspaceContext';
+import type { DBFile, DBFolder, DBSubFolder, FileLocation } from '@/contexts/WorkspaceContext';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
+type SortKey = 'name' | 'date' | 'size' | 'type';
+type SortOrder = 'asc' | 'desc';
+
+// Navigation stack item
+type NavItem =
+  | { kind: 'root' }
+  | { kind: 'folder'; folder: DBFolder }
+  | { kind: 'subfolder'; folder: DBFolder; sub: DBSubFolder };
+
+// ─── Constants ───────────────────────────────────────────────────────────────
 const FILE_TYPES: { id: DBFile['type']; label: string; icon: string; color: string }[] = [
   { id: 'note', label: 'Note', icon: 'sticky-note-2', color: '#FFB800' },
   { id: 'markdown', label: 'Markdown', icon: 'article', color: '#3D7EFF' },
@@ -25,11 +35,20 @@ const FILE_TYPES: { id: DBFile['type']; label: string; icon: string; color: stri
   { id: 'json', label: 'JSON', icon: 'data-object', color: '#FF6B35' },
   { id: 'code', label: 'Code', icon: 'code', color: '#9B59B6' },
 ];
+
 const FOLDER_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455', '#00BFFF', '#FF69B4'];
 const FOLDER_ICONS = ['folder', 'folder-special', 'source', 'book', 'bookmark', 'archive', 'description', 'storage', 'science', 'insights'];
 
+const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
+  { key: 'name', label: 'Nom', icon: 'sort-by-alpha' },
+  { key: 'date', label: 'Date', icon: 'schedule' },
+  { key: 'size', label: 'Taille', icon: 'data-usage' },
+  { key: 'type', label: 'Type', icon: 'category' },
+];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function getFileTypeInfo(type: DBFile['type']) { return FILE_TYPES.find(t => t.id === type) ?? FILE_TYPES[0]; }
-function formatSize(size: number): string { if (size < 1000) return `${size} c`; return `${(size / 1000).toFixed(1)} Ko`; }
+function formatSize(size: number): string { return size < 1000 ? `${size} c` : `${(size / 1000).toFixed(1)} Ko`; }
 function formatDate(date: Date): string { return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); }
 function inferFileType(mimeType: string | undefined, name: string): DBFile['type'] {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -39,8 +58,18 @@ function inferFileType(mimeType: string | undefined, name: string): DBFile['type
   if (mimeType?.startsWith('text/')) return 'text';
   return 'text';
 }
+function sortFiles(files: DBFile[], key: SortKey, order: SortOrder): DBFile[] {
+  return [...files].sort((a, b) => {
+    let cmp = 0;
+    if (key === 'name') cmp = a.name.localeCompare(b.name);
+    else if (key === 'date') cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+    else if (key === 'size') cmp = a.size - b.size;
+    else if (key === 'type') cmp = a.type.localeCompare(b.type);
+    return order === 'asc' ? cmp : -cmp;
+  });
+}
 
-// ─── File Row ─────────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => void; onDelete: () => void }) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
@@ -75,9 +104,9 @@ function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => voi
   );
 }
 
-// ─── Folder Card ──────────────────────────────────────────────────────────────
-function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder; onPress: () => void; onDelete: () => void }) {
+function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder | DBSubFolder; onPress: () => void; onDelete: () => void }) {
   const C = useThemeColors();
+  const subCount = (folder as DBFolder).subFolders?.length ?? 0;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}>
       <View style={{ width: 46, height: 46, borderRadius: Radius.sm, backgroundColor: folder.color + '22', alignItems: 'center', justifyContent: 'center' }}>
@@ -86,9 +115,17 @@ function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder; onPress: 
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{folder.name}</Text>
         <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }} numberOfLines={1}>{folder.description || 'Aucune description'}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-          <MaterialIcons name="insert-drive-file" size={12} color={C.textMuted} />
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{folder.files.length} fichier{folder.files.length !== 1 ? 's' : ''}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <MaterialIcons name="insert-drive-file" size={12} color={C.textMuted} />
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{folder.files.length} fichier{folder.files.length !== 1 ? 's' : ''}</Text>
+          </View>
+          {subCount > 0 ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <MaterialIcons name="folder" size={12} color={C.textMuted} />
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{subCount} sous-dossier{subCount !== 1 ? 's' : ''}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
       <View style={{ alignItems: 'center', gap: Spacing.xs }}>
@@ -101,7 +138,6 @@ function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder; onPress: 
   );
 }
 
-// ─── Insert Options Bar ───────────────────────────────────────────────────────
 function InsertBar({ onText, onFile, onImage, onLink }: { onText: () => void; onFile: () => void; onImage: () => void; onLink: () => void }) {
   const C = useThemeColors();
   const btns = [
@@ -122,30 +158,80 @@ function InsertBar({ onText, onFile, onImage, onLink }: { onText: () => void; on
   );
 }
 
+// ─── Sort Bar ─────────────────────────────────────────────────────────────────
+function SortBar({ sortKey, sortOrder, onChange }: { sortKey: SortKey; sortOrder: SortOrder; onChange: (k: SortKey, o: SortOrder) => void }) {
+  const C = useThemeColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginRight: 2 }}>Trier :</Text>
+      {SORT_OPTIONS.map(opt => {
+        const active = sortKey === opt.key;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onChange(opt.key, active ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc')}
+            style={({ pressed }) => [{
+              flexDirection: 'row', alignItems: 'center', gap: 3,
+              paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1,
+              backgroundColor: active ? C.accent + '18' : C.bgCardAlt,
+              borderColor: active ? C.accent + '55' : C.border,
+            }, pressed && { opacity: 0.7 }]}
+          >
+            <MaterialIcons name={opt.icon as any} size={12} color={active ? C.accent : C.textMuted} />
+            <Text style={{ fontSize: 11, color: active ? C.accent : C.textMuted, fontWeight: active ? '700' : '500' }}>{opt.label}</Text>
+            {active ? <MaterialIcons name={sortOrder === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={11} color={C.accent} /> : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function WorkspaceDatabaseScreen() {
   const insets = useSafeAreaInsets();
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
-  const { workspaces, addFolder, removeFolder, addFile, updateFile, removeFile } = useWorkspace();
+  const {
+    workspaces, addFolder, removeFolder,
+    addSubFolder, removeSubFolder,
+    addFile, updateFile, removeFile,
+  } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
   const C = useThemeColors();
 
   const ws = workspaces.find(w => w.id === wsId);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
+  // ── Navigation stack ─────────────────────────────────────────────
+  const [navStack, setNavStack] = useState<NavItem[]>([{ kind: 'root' }]);
+  const currentNav = navStack[navStack.length - 1];
+
+  const pushFolder = (folder: DBFolder) => setNavStack(prev => [...prev, { kind: 'folder', folder }]);
+  const pushSubFolder = (folder: DBFolder, sub: DBSubFolder) => setNavStack(prev => [...prev, { kind: 'subfolder', folder, sub }]);
+  const goBack = () => {
+    if (navStack.length > 1) setNavStack(prev => prev.slice(0, -1));
+    else router.back();
+  };
+
+  // ── Sorting ──────────────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const handleSortChange = (k: SortKey, o: SortOrder) => { setSortKey(k); setSortOrder(o); };
+
+  // ── Modal state ──────────────────────────────────────────────────
   const [showAddFolder, setShowAddFolder] = useState(false);
+  const [showAddSubFolder, setShowAddSubFolder] = useState(false);
   const [showAddFile, setShowAddFile] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [editingFile, setEditingFile] = useState<DBFile | null>(null);
-  const [showFileEditor, setShowFileEditor] = useState(false);
 
-  // Folder form
+  // Folder/sub-folder form
   const [folderName, setFolderName] = useState('');
   const [folderDesc, setFolderDesc] = useState('');
   const [folderColor, setFolderColor] = useState(FOLDER_COLORS[0]);
   const [folderIcon, setFolderIcon] = useState(FOLDER_ICONS[0]);
 
-  // File form (text/note)
+  // File form
   const [fileName, setFileName] = useState('');
   const [fileType, setFileType] = useState<DBFile['type']>('note');
   const [fileContent, setFileContent] = useState('');
@@ -173,136 +259,172 @@ export default function WorkspaceDatabaseScreen() {
     );
   }
 
-  const currentFolder = currentFolderId ? ws.database.folders.find(f => f.id === currentFolderId) ?? null : null;
-  const displayedFiles = currentFolderId ? (currentFolder?.files ?? []) : ws.database.rootFiles;
-  const totalFiles = ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length, 0);
+  // ── Compute current location & displayed content ─────────────────
+  const currentLocation: FileLocation = useMemo(() => {
+    if (currentNav.kind === 'root') return null;
+    if (currentNav.kind === 'folder') return currentNav.folder.id;
+    return { folderId: currentNav.folder.id, subId: currentNav.sub.id };
+  }, [currentNav]);
 
+  // Keep folder/subfolder references fresh from ws state
+  const liveFolder = currentNav.kind !== 'root' ? ws.database.folders.find(f => f.id === (currentNav as any).folder.id) ?? null : null;
+  const liveSub = currentNav.kind === 'subfolder' && liveFolder ? liveFolder.subFolders?.find(s => s.id === (currentNav as any).sub.id) ?? null : null;
+
+  const rawFiles: DBFile[] = useMemo(() => {
+    if (currentNav.kind === 'root') return ws.database.rootFiles;
+    if (currentNav.kind === 'folder') return liveFolder?.files ?? [];
+    return liveSub?.files ?? [];
+  }, [currentNav, ws.database, liveFolder, liveSub]);
+
+  const displayedFiles = useMemo(() => sortFiles(rawFiles, sortKey, sortOrder), [rawFiles, sortKey, sortOrder]);
+
+  const totalFiles = ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0);
+
+  // ── Folder creation ──────────────────────────────────────────────
   const resetFolderForm = () => { setFolderName(''); setFolderDesc(''); setFolderColor(FOLDER_COLORS[0]); setFolderIcon(FOLDER_ICONS[0]); };
 
   const handleAddFolder = () => {
     if (!folderName.trim()) return;
-    addFolder(ws.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
-    resetFolderForm(); setShowAddFolder(false);
+    if (currentNav.kind === 'folder' && liveFolder) {
+      addSubFolder(ws.id, liveFolder.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
+    } else {
+      addFolder(ws.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
+    }
+    resetFolderForm(); setShowAddFolder(false); setShowAddSubFolder(false);
   };
 
-  const handleDeleteFolder = (folder: DBFolder) => {
-    showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) seront supprimés.`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
-    ]);
-  };
-
+  // ── File creation ─────────────────────────────────────────────────
   const resetFileForm = () => { setFileName(''); setFileType('note'); setFileContent(''); setFileTags(''); };
 
   const handleAddTextFile = () => {
     if (!fileName.trim() || !fileContent.trim()) return;
-    addFile(ws.id, currentFolderId, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    addFile(ws.id, currentLocation, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
     resetFileForm(); setShowAddFile(false);
   };
 
   const handleAddLink = () => {
     if (!linkUrl.trim()) return;
     const name = linkName.trim() || linkUrl.trim();
-    addFile(ws.id, currentFolderId, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
+    addFile(ws.id, currentLocation, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
     setLinkUrl(''); setLinkName(''); setShowAddLink(false);
     showAlert('Lien ajouté', `"${name}" a été ajouté à votre base de données.`);
   };
 
-  // ─── File picker ────────────────────────────────────────────────────────────
   const handlePickFile = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ['text/*', 'application/json', 'application/javascript', '*/*'], copyToCacheDirectory: true, multiple: false });
+      const result = await DocumentPicker.getDocumentAsync({ type: ['text/*', 'application/json', '*/*'], copyToCacheDirectory: true, multiple: false });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
       let content = '';
       try {
         const response = await fetch(asset.uri);
         content = await response.text();
-        if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué à 50 000 caractères]';
-      } catch { content = `[Fichier importé: ${asset.name}]\n(Contenu binaire non lisible directement)`; }
-      addFile(ws.id, currentFolderId, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
-      showAlert('Fichier importé', `"${asset.name}" a été ajouté à votre base de données.`);
-    } catch (error: any) {
-      showAlert('Erreur', `Impossible d'importer le fichier : ${error.message ?? 'Erreur inconnue'}`);
-    }
+        if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué]';
+      } catch { content = `[Fichier importé: ${asset.name}]`; }
+      addFile(ws.id, currentLocation, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
+      showAlert('Fichier importé', `"${asset.name}" a été ajouté.`);
+    } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
-  // ─── Image picker ────────────────────────────────────────────────────────────
   const handlePickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { showAlert('Permission requise', "L'accès à la galerie photo est nécessaire pour importer des images."); return; }
+      if (status !== 'granted') { showAlert('Permission requise', "L'accès à la galerie est nécessaire."); return; }
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.8 });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
-      const fileName = asset.uri.split('/').pop() ?? 'image.jpg';
-      addFile(ws.id, currentFolderId, {
-        name: fileName,
-        type: 'note',
-        content: `[IMAGE: ${fileName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`,
-        tags: ['image', 'importé'],
-      });
-      showAlert('Image ajoutée', `"${fileName}" a été ajoutée à votre base de données.`);
-    } catch (error: any) {
-      showAlert('Erreur', `Impossible d'importer l'image : ${error.message ?? 'Erreur inconnue'}`);
-    }
+      const imgName = asset.uri.split('/').pop() ?? 'image.jpg';
+      addFile(ws.id, currentLocation, { name: imgName, type: 'note', content: `[IMAGE: ${imgName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`, tags: ['image', 'importé'] });
+      showAlert('Image ajoutée', `"${imgName}" a été ajoutée.`);
+    } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
-  const handleOpenFileEditor = (file: DBFile) => { setEditingFile(file); setEditorName(file.name); setEditorContent(file.content); setEditorTags(file.tags.join(', ')); setShowFileEditor(true); };
+  const handleOpenFileEditor = (file: DBFile) => {
+    setEditingFile(file); setEditorName(file.name); setEditorContent(file.content); setEditorTags(file.tags.join(', '));
+  };
   const handleSaveFile = () => {
     if (!editingFile || !editorName.trim()) return;
-    updateFile(ws.id, currentFolderId, editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
-    setShowFileEditor(false); setEditingFile(null);
+    updateFile(ws.id, currentLocation, editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
+    setEditingFile(null);
   };
   const handleDeleteFile = (file: DBFile) => {
     showAlert(`Supprimer "${file.name}" ?`, 'Ce fichier sera définitivement supprimé.', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, currentFolderId, file.id) },
+      { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, currentLocation, file.id) },
     ]);
   };
+  const handleDeleteFolder = (folder: DBFolder) => {
+    showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) et ${folder.subFolders?.length ?? 0} sous-dossier(s) seront supprimés.`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
+    ]);
+  };
+  const handleDeleteSubFolder = (folder: DBFolder, sub: DBSubFolder) => {
+    showAlert(`Supprimer "${sub.name}" ?`, `${sub.files.length} fichier(s) seront supprimés.`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => removeSubFolder(ws.id, folder.id, sub.id) },
+    ]);
+  };
+
+  // ── Breadcrumb label ─────────────────────────────────────────────
+  const breadcrumb = navStack.map((item, i) => {
+    if (item.kind === 'root') return ws.name;
+    if (item.kind === 'folder') return item.folder.name;
+    return item.sub.name;
+  });
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       {/* Top Bar */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <Pressable onPress={() => { if (currentFolderId) { setCurrentFolderId(null); } else { router.back(); } }} hitSlop={8} style={{ padding: Spacing.xs }}>
+        <Pressable onPress={goBack} hitSlop={8} style={{ padding: Spacing.xs }}>
           <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Pressable onPress={() => setCurrentFolderId(null)}>
-              <Text style={{ fontSize: FontSize.body, color: currentFolderId ? C.textMuted : C.textPrimary, fontWeight: '600' }}>{ws.name}</Text>
-            </Pressable>
-            {currentFolder ? (
-              <>
-                <MaterialIcons name="chevron-right" size={14} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>{currentFolder.name}</Text>
-              </>
-            ) : null}
-          </View>
+          {/* Breadcrumb */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              {breadcrumb.map((crumb, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {i > 0 ? <MaterialIcons name="chevron-right" size={14} color={C.textMuted} /> : null}
+                  <Pressable onPress={() => setNavStack(navStack.slice(0, i + 1))}>
+                    <Text style={{ fontSize: FontSize.body, color: i === breadcrumb.length - 1 ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{crumb}</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
           <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
-            {currentFolder ? `${currentFolder.files.length} fichier(s)` : `${totalFiles} fichier(s) · ${ws.database.folders.length} dossier(s)`}
+            {currentNav.kind === 'root'
+              ? `${totalFiles} fichier(s) · ${ws.database.folders.length} dossier(s)`
+              : currentNav.kind === 'folder'
+                ? `${liveFolder?.files.length ?? 0} fichier(s) · ${liveFolder?.subFolders?.length ?? 0} sous-dossier(s)`
+                : `${liveSub?.files.length ?? 0} fichier(s)`
+            }
           </Text>
         </View>
-        {currentFolderId === null ? (
-          <Pressable onPress={() => { resetFolderForm(); setShowAddFolder(true); }} style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
-            <MaterialIcons name="create-new-folder" size={20} color={C.primary} />
+        {/* Add folder button */}
+        {currentNav.kind !== 'subfolder' ? (
+          <Pressable
+            onPress={() => { resetFolderForm(); currentNav.kind === 'folder' ? setShowAddSubFolder(true) : setShowAddFolder(true); }}
+            style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
+          >
+            <MaterialIcons name={currentNav.kind === 'folder' ? 'create-new-folder' : 'create-new-folder'} size={20} color={C.primary} />
           </Pressable>
         ) : null}
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
-        {/* Stats */}
-        {currentFolderId === null ? (
+
+        {/* Stats (root only) */}
+        {currentNav.kind === 'root' ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: ws.color + '33', backgroundColor: ws.color + '0A', padding: Spacing.md }}>
             <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
               <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>Base de données — {ws.name}</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>
-                {ws.database.folders.length} dossier(s) · {totalFiles} fichier(s)
-              </Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{ws.database.folders.length} dossier(s) · {totalFiles} fichier(s)</Text>
             </View>
           </View>
         ) : null}
@@ -311,33 +433,55 @@ export default function WorkspaceDatabaseScreen() {
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
           <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Insérer</Text>
           <InsertBar
-            onText={() => { resetFileForm(); setFileType('note'); setShowAddFile(true); }}
+            onText={() => { resetFileForm(); setShowAddFile(true); }}
             onFile={handlePickFile}
             onImage={handlePickImage}
             onLink={() => { setLinkUrl(''); setLinkName(''); setShowAddLink(true); }}
           />
         </View>
 
-        {/* Folders */}
-        {currentFolderId === null && ws.database.folders.length > 0 ? (
+        {/* Folders (root level) */}
+        {currentNav.kind === 'root' && ws.database.folders.length > 0 ? (
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
             {ws.database.folders.map(folder => (
-              <FolderCard key={folder.id} folder={folder} onPress={() => setCurrentFolderId(folder.id)} onDelete={() => handleDeleteFolder(folder)} />
+              <FolderCard key={folder.id} folder={folder} onPress={() => pushFolder(folder)} onDelete={() => handleDeleteFolder(folder)} />
             ))}
           </View>
         ) : null}
 
-        {/* Files */}
+        {/* Sub-folders (inside a folder) */}
+        {currentNav.kind === 'folder' && liveFolder && (liveFolder.subFolders?.length ?? 0) > 0 ? (
+          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 2 }}>
+              <MaterialIcons name="account-tree" size={14} color={C.textSecondary} />
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Sous-dossiers</Text>
+            </View>
+            {(liveFolder.subFolders ?? []).map(sub => (
+              <FolderCard key={sub.id} folder={sub} onPress={() => pushSubFolder(liveFolder, sub)} onDelete={() => handleDeleteSubFolder(liveFolder, sub)} />
+            ))}
+          </View>
+        ) : null}
+
+        {/* Files with sort bar */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>
-            {currentFolderId ? 'Fichiers du dossier' : 'Fichiers racine'}
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: Spacing.xs }}>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+              {currentNav.kind === 'root' ? 'Fichiers racine' : 'Fichiers'}
+              {displayedFiles.length > 0 ? ` (${displayedFiles.length})` : ''}
+            </Text>
+          </View>
+          {/* Sort bar */}
+          {rawFiles.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <SortBar sortKey={sortKey} sortOrder={sortOrder} onChange={handleSortChange} />
+            </ScrollView>
+          ) : null}
           {displayedFiles.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md }}>
               <MaterialIcons name="folder-open" size={40} color={C.textMuted} />
               <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Aucun fichier</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Créez une note, importez un fichier, une image ou ajoutez un lien</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Créez une note, importez un fichier ou ajoutez un lien</Text>
             </View>
           ) : (
             displayedFiles.map(file => (
@@ -347,19 +491,26 @@ export default function WorkspaceDatabaseScreen() {
         </View>
       </ScrollView>
 
-      {/* ─── Add Folder Modal ──────────────────────────────────────── */}
-      <Modal visible={showAddFolder} transparent animationType="slide">
+      {/* ─── Add Folder / Sub-folder Modal ────────────────────────── */}
+      <Modal visible={showAddFolder || showAddSubFolder} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau dossier</Text>
-              <Pressable onPress={() => setShowAddFolder(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <MaterialIcons name="create-new-folder" size={20} color={C.accent} />
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>
+                  {showAddSubFolder ? 'Nouveau sous-dossier' : 'Nouveau dossier'}
+                </Text>
+              </View>
+              <Pressable onPress={() => { setShowAddFolder(false); setShowAddSubFolder(false); }} hitSlop={8}>
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
+              </Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 460 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.sm }}>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderName} onChangeText={setFolderName} placeholder="Ex: Références..." placeholderTextColor={C.textMuted} />
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderName} onChangeText={setFolderName} placeholder="Ex: Références..." placeholderTextColor={C.textMuted} autoFocus />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Description</Text>
@@ -385,18 +536,18 @@ export default function WorkspaceDatabaseScreen() {
             </ScrollView>
             <Pressable onPress={handleAddFolder} disabled={!folderName.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: !folderName.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="create-new-folder" size={18} color={C.bg} />
-              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Créer le dossier</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Créer</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── Add Text/Note File Modal ──────────────────────────────── */}
+      {/* ─── Add Text/Note File Modal ───────────────────────────────── */}
       <Modal visible={showAddFile} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau fichier texte{currentFolder ? ` — ${currentFolder.name}` : ''}</Text>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau fichier texte</Text>
               <Pressable onPress={() => setShowAddFile(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
@@ -415,7 +566,7 @@ export default function WorkspaceDatabaseScreen() {
                   </ScrollView>
                 </View>
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom du fichier</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom</Text>
                   <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={fileName} onChangeText={setFileName} placeholder="Mon fichier..." placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
@@ -424,12 +575,7 @@ export default function WorkspaceDatabaseScreen() {
                 </View>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu</Text>
-                  <TextInput
-                    style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: (fileType === 'code' || fileType === 'json') ? C.textMono : C.textPrimary, fontSize: (fileType === 'code' || fileType === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 120, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: (fileType === 'code' || fileType === 'json') ? 'monospace' : undefined }}
-                    value={fileContent} onChangeText={setFileContent}
-                    placeholder={fileType === 'json' ? '{\n  "key": "value"\n}' : fileType === 'code' ? '// Code ici...' : fileType === 'markdown' ? '# Titre\n\nContenu...' : 'Écrivez votre contenu ici...'}
-                    placeholderTextColor={C.textMuted} multiline textAlignVertical="top"
-                  />
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 120, textAlignVertical: 'top', paddingTop: Spacing.sm }} value={fileContent} onChangeText={setFileContent} placeholder="Écrivez votre contenu ici..." placeholderTextColor={C.textMuted} multiline textAlignVertical="top" />
                 </View>
               </View>
             </ScrollView>
@@ -441,7 +587,7 @@ export default function WorkspaceDatabaseScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── Add Link Modal ────────────────────────────────────────── */}
+      {/* ─── Add Link Modal ─────────────────────────────────────────── */}
       <Modal visible={showAddLink} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
@@ -470,8 +616,8 @@ export default function WorkspaceDatabaseScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── File Editor Modal ─────────────────────────────────────── */}
-      <Modal visible={showFileEditor} transparent animationType="slide">
+      {/* ─── File Editor Modal ──────────────────────────────────────── */}
+      <Modal visible={editingFile !== null} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '92%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -483,7 +629,7 @@ export default function WorkspaceDatabaseScreen() {
                 ) : null}
                 <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Éditeur de fichier</Text>
               </View>
-              <Pressable onPress={() => setShowFileEditor(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
+              <Pressable onPress={() => setEditingFile(null)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.sm }}>
@@ -498,12 +644,9 @@ export default function WorkspaceDatabaseScreen() {
                 <View style={{ gap: Spacing.xs }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu</Text>
-                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{editorContent.length} caractères</Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{editorContent.length} c</Text>
                   </View>
-                  <TextInput
-                    style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? C.textMono : C.textPrimary, fontSize: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 220, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? 'monospace' : undefined }}
-                    value={editorContent} onChangeText={setEditorContent} multiline textAlignVertical="top" placeholderTextColor={C.textMuted}
-                  />
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 220, textAlignVertical: 'top', paddingTop: Spacing.sm }} value={editorContent} onChangeText={setEditorContent} multiline textAlignVertical="top" placeholderTextColor={C.textMuted} />
                 </View>
               </View>
             </ScrollView>

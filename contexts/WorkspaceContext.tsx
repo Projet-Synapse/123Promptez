@@ -1,5 +1,5 @@
 // Powered by OnSpace.AI
-import React, { createContext, useState, ReactNode } from 'react';
+import React, { createContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import type { ChatMessage } from '@/contexts/BotContext';
 
 export interface DBFile {
@@ -13,6 +13,16 @@ export interface DBFile {
   updatedAt: Date;
 }
 
+export interface DBSubFolder {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+  files: DBFile[];
+  createdAt: Date;
+}
+
 export interface DBFolder {
   id: string;
   name: string;
@@ -20,6 +30,7 @@ export interface DBFolder {
   color: string;
   description: string;
   files: DBFile[];
+  subFolders: DBSubFolder[];
   createdAt: Date;
 }
 
@@ -86,6 +97,7 @@ interface WorkspaceContextType {
   addWorkspace: (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId' | 'tasks'>) => void;
   updateWorkspace: (id: string, updates: Partial<Workspace>) => void;
   removeWorkspace: (id: string) => void;
+  hydrateFromCloud: (data: unknown) => void;
   // Modes
   addMode: (workspaceId: string, mode: Omit<WorkspaceMode, 'id'>) => void;
   updateMode: (workspaceId: string, modeId: string, updates: Partial<WorkspaceMode>) => void;
@@ -107,26 +119,27 @@ interface WorkspaceContextType {
   addMessageToConversation: (workspaceId: string, conversationId: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearConversation: (workspaceId: string, conversationId: string) => void;
   getActiveConversation: (workspaceId: string) => Conversation | undefined;
-  // Database
-  addFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'createdAt'>) => void;
+  // Database — folders
+  addFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) => void;
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
-  addFile: (workspaceId: string, folderId: string | null, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => void;
-  updateFile: (workspaceId: string, folderId: string | null, fileId: string, updates: Partial<DBFile>) => void;
-  removeFile: (workspaceId: string, folderId: string | null, fileId: string) => void;
-  moveFile: (workspaceId: string, fileId: string, fromFolderId: string | null, toFolderId: string | null) => void;
+  // Database — sub-folders
+  addSubFolder: (workspaceId: string, folderId: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>) => void;
+  updateSubFolder: (workspaceId: string, folderId: string, subId: string, updates: Partial<DBSubFolder>) => void;
+  removeSubFolder: (workspaceId: string, folderId: string, subId: string) => void;
+  // Database — files  (location: null=root, string=folderId, {folderId,subId}=subfolder)
+  addFile: (workspaceId: string, location: FileLocation, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => void;
+  updateFile: (workspaceId: string, location: FileLocation, fileId: string, updates: Partial<DBFile>) => void;
+  removeFile: (workspaceId: string, location: FileLocation, fileId: string) => void;
+  moveFile: (workspaceId: string, fileId: string, from: FileLocation, to: FileLocation) => void;
 }
+
+export type FileLocation = null | string | { folderId: string; subId: string };
 
 const EMPTY_DATABASE: WorkspaceDatabase = { rootFiles: [], folders: [] };
 
 function makeConversation(title: string = 'Nouvelle conversation'): Conversation {
-  return {
-    id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    title,
-    messages: [],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  return { id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title, messages: [], createdAt: new Date(), updatedAt: new Date() };
 }
 
 function computeNextDue(frequency: TaskFrequency, from: Date = new Date()): Date {
@@ -140,215 +153,121 @@ function computeNextDue(frequency: TaskFrequency, from: Date = new Date()): Date
   return d;
 }
 
+// ── revive dates after JSON parse ───────────────────────────────────────────
+function reviveDates(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(reviveDates);
+  const result: any = {};
+  for (const key of Object.keys(obj)) {
+    const v = obj[key];
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+      result[key] = new Date(v);
+    } else if (v && typeof v === 'object') {
+      result[key] = reviveDates(v);
+    } else {
+      result[key] = v;
+    }
+  }
+  return result;
+}
+
+// ── ensure subFolders exist on legacy data ───────────────────────────────────
+function normalizeFolders(folders: DBFolder[]): DBFolder[] {
+  return folders.map(f => ({ ...f, subFolders: f.subFolders ?? [] }));
+}
+
 const DEFAULT_CONV_GENERAL = makeConversation('Conversation générale');
 const DEFAULT_CONV_DEV = makeConversation('Session de développement');
 const DEFAULT_CONV_CREATIVE = makeConversation('Brainstorming créatif');
 
 const DEFAULT_WORKSPACES: Workspace[] = [
   {
-    id: 'ws-default',
-    name: 'Général',
-    icon: 'home',
-    color: '#3D7EFF',
+    id: 'ws-default', name: 'Général', icon: 'home', color: '#3D7EFF',
     description: 'Workspace polyvalent par défaut',
     systemPrompt: 'Tu es un assistant IA utile, précis et concis. Tu répondras toujours en français sauf si on te parle dans une autre langue.',
-    conversations: [DEFAULT_CONV_GENERAL],
-    activeConversationId: DEFAULT_CONV_GENERAL.id,
-    tasks: [
-      {
-        id: 'task-daily-brief',
-        title: 'Brief quotidien',
-        description: "Résumer les priorités du jour et proposer un plan d'action",
-        frequency: 'daily',
-        promptInjection: "TÂCHE QUOTIDIENNE: Au début de cette session, propose automatiquement un brief quotidien structuré avec: 1) Rappel des objectifs 2) Priorités du jour 3) Points d'attention.",
-        enabled: true,
-        color: '#3D7EFF',
-        icon: 'today',
-        lastCompleted: null,
-        nextDue: new Date(),
-        createdAt: new Date(),
-      },
-    ],
+    conversations: [DEFAULT_CONV_GENERAL], activeConversationId: DEFAULT_CONV_GENERAL.id,
+    tasks: [{ id: 'task-daily-brief', title: 'Brief quotidien', description: "Résumer les priorités du jour", frequency: 'daily', promptInjection: "TÂCHE QUOTIDIENNE: Propose un brief quotidien structuré.", enabled: true, color: '#3D7EFF', icon: 'today', lastCompleted: null, nextDue: new Date(), createdAt: new Date() }],
     database: {
-      rootFiles: [
-        {
-          id: 'file-demo-1',
-          name: 'Bienvenue.md',
-          type: 'markdown',
-          content: '# Bienvenue dans votre base de données\n\nAjoutez ici vos documents, notes et références utilisés par votre assistant IA.',
-          tags: ['intro'],
-          size: 120,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
-      folders: [
-        {
-          id: 'folder-docs',
-          name: 'Documentation',
-          icon: 'folder-special',
-          color: '#3D7EFF',
-          description: 'Documents de référence',
-          files: [],
-          createdAt: new Date(),
-        },
-      ],
+      rootFiles: [{ id: 'file-demo-1', name: 'Bienvenue.md', type: 'markdown', content: '# Bienvenue dans votre base de données\n\nAjoutez ici vos documents, notes et références.', tags: ['intro'], size: 120, createdAt: new Date(), updatedAt: new Date() }],
+      folders: [{ id: 'folder-docs', name: 'Documentation', icon: 'folder-special', color: '#3D7EFF', description: 'Documents de référence', files: [], subFolders: [], createdAt: new Date() }],
     },
     createdAt: new Date(),
     modes: [
-      {
-        id: 'mode-concis',
-        label: 'Mode Concis',
-        icon: 'compress',
-        description: 'Réponses courtes et directes, sans fioritures',
-        promptInjection: 'IMPORTANT: Tes réponses doivent être TRÈS courtes (max 3 phrases). Va droit au but. Pas de listes longues.',
-        enabled: false,
-        color: '#3D7EFF',
-        shortcut: '/court',
-      },
-      {
-        id: 'mode-expert',
-        label: 'Mode Expert',
-        icon: 'school',
-        description: 'Réponses détaillées avec explications techniques',
-        promptInjection: 'Tu es en mode EXPERT. Fournis des explications détaillées, des exemples concrets, des références techniques. Structure tes réponses avec des titres et listes.',
-        enabled: false,
-        color: '#9B59B6',
-        shortcut: '/détail',
-      },
-      {
-        id: 'mode-traduction',
-        label: 'Traducteur',
-        icon: 'translate',
-        description: 'Traduit automatiquement chaque réponse en anglais',
-        promptInjection: 'TRADUCTEUR ACTIF: Après chaque réponse normale, ajoute automatiquement une section "🇬🇧 English:" avec la traduction anglaise complète.',
-        enabled: false,
-        color: '#00CC6A',
-        shortcut: '/traduis',
-      },
+      { id: 'mode-concis', label: 'Mode Concis', icon: 'compress', description: 'Réponses courtes et directes', promptInjection: 'IMPORTANT: Réponses très courtes (max 3 phrases).', enabled: false, color: '#3D7EFF', shortcut: '/court' },
+      { id: 'mode-expert', label: 'Mode Expert', icon: 'school', description: 'Réponses détaillées avec explications techniques', promptInjection: "Tu es en mode EXPERT. Fournis des explications détaillées.", enabled: false, color: '#9B59B6', shortcut: '/détail' },
+      { id: 'mode-traduction', label: 'Traducteur', icon: 'translate', description: 'Traduit chaque réponse en anglais', promptInjection: 'TRADUCTEUR ACTIF: Ajoute une section "🇬🇧 English:" après chaque réponse.', enabled: false, color: '#00CC6A', shortcut: '/traduis' },
     ],
   },
   {
-    id: 'ws-dev',
-    name: 'Développement',
-    icon: 'code',
-    color: '#00FF88',
+    id: 'ws-dev', name: 'Développement', icon: 'code', color: '#00FF88',
     description: 'Assistant technique pour le code',
-    systemPrompt: 'Tu es un expert développeur senior. Tu maîtrises TypeScript, React Native, Python, et les architectures modernes. Fournis toujours du code propre, commenté et testé.',
-    conversations: [DEFAULT_CONV_DEV],
-    activeConversationId: DEFAULT_CONV_DEV.id,
-    tasks: [
-      {
-        id: 'task-weekly-review',
-        title: 'Revue hebdomadaire du code',
-        description: "Rappeler les bonnes pratiques et proposer une revue d'architecture",
-        frequency: 'weekly',
-        promptInjection: "TÂCHE HEBDOMADAIRE: Propose une revue hebdomadaire: rappel des bonnes pratiques, check de la dette technique, et suggestions d'amélioration.",
-        enabled: true,
-        color: '#00FF88',
-        icon: 'rate-review',
-        lastCompleted: null,
-        nextDue: new Date(),
-        createdAt: new Date(),
-      },
-    ],
-    database: { ...EMPTY_DATABASE },
+    systemPrompt: 'Tu es un expert développeur senior. Fournis toujours du code propre, commenté et testé.',
+    conversations: [DEFAULT_CONV_DEV], activeConversationId: DEFAULT_CONV_DEV.id,
+    tasks: [{ id: 'task-weekly-review', title: 'Revue hebdomadaire du code', description: "Rappeler les bonnes pratiques", frequency: 'weekly', promptInjection: "TÂCHE HEBDOMADAIRE: Propose une revue hebdomadaire.", enabled: true, color: '#00FF88', icon: 'rate-review', lastCompleted: null, nextDue: new Date(), createdAt: new Date() }],
+    database: { ...EMPTY_DATABASE, folders: [] },
     createdAt: new Date(),
     modes: [
-      {
-        id: 'mode-review',
-        label: 'Code Review',
-        icon: 'rate-review',
-        description: 'Analyse le code pour bugs, perf et sécurité',
-        promptInjection: 'MODE CODE REVIEW: Analyse systématiquement tout code soumis. Identifie: 1) Bugs potentiels 2) Problèmes de performance 3) Failles de sécurité 4) Mauvaises pratiques. Note sur 10.',
-        enabled: false,
-        color: '#FF6B35',
-        shortcut: '/review',
-      },
-      {
-        id: 'mode-doc',
-        label: 'Auto-Documentation',
-        icon: 'description',
-        description: 'Génère automatiquement la doc JSDoc/docstring',
-        promptInjection: 'AUTO-DOC ACTIF: Pour chaque fonction/classe soumise, génère automatiquement la documentation complète (JSDoc, paramètres, retours, exemples).',
-        enabled: false,
-        color: '#3D7EFF',
-        shortcut: '/doc',
-      },
-      {
-        id: 'mode-debug',
-        label: 'Debugger',
-        icon: 'bug-report',
-        description: "Mode investigation d'erreurs et stack traces",
-        promptInjection: "MODE DEBUG: Analyse les erreurs de façon systématique. Donne: 1) Cause racine 2) Explication simple 3) Solution step-by-step 4) Comment éviter à l'avenir.",
-        enabled: false,
-        color: '#FF4455',
-        shortcut: '/debug',
-      },
-      {
-        id: 'mode-refactor',
-        label: 'Refactoring',
-        icon: 'auto-fix-high',
-        description: 'Propose des refactorisations propres',
-        promptInjection: 'MODE REFACTORING: Propose systématiquement une version refactorisée améliorée du code avec explication des changements et leurs bénéfices.',
-        enabled: false,
-        color: '#9B59B6',
-        shortcut: '/refactor',
-      },
+      { id: 'mode-review', label: 'Code Review', icon: 'rate-review', description: 'Analyse le code', promptInjection: 'MODE CODE REVIEW: Analyse le code. Bugs, perf, sécurité, note /10.', enabled: false, color: '#FF6B35', shortcut: '/review' },
+      { id: 'mode-doc', label: 'Auto-Documentation', icon: 'description', description: 'Génère la doc JSDoc/docstring', promptInjection: 'AUTO-DOC: Génère la documentation complète.', enabled: false, color: '#3D7EFF', shortcut: '/doc' },
+      { id: 'mode-debug', label: 'Debugger', icon: 'bug-report', description: "Mode investigation d'erreurs", promptInjection: "MODE DEBUG: Cause racine, explication, solution step-by-step.", enabled: false, color: '#FF4455', shortcut: '/debug' },
     ],
   },
   {
-    id: 'ws-creative',
-    name: 'Créatif',
-    icon: 'brush',
-    color: '#FF6B35',
+    id: 'ws-creative', name: 'Créatif', icon: 'brush', color: '#FF6B35',
     description: 'Écriture, créativité et brainstorming',
-    systemPrompt: "Tu es un assistant créatif passionné. Tu aides à la rédaction, au storytelling, à la génération d'idées et à la créativité sous toutes ses formes.",
-    conversations: [DEFAULT_CONV_CREATIVE],
-    activeConversationId: DEFAULT_CONV_CREATIVE.id,
+    systemPrompt: "Tu es un assistant créatif passionné.",
+    conversations: [DEFAULT_CONV_CREATIVE], activeConversationId: DEFAULT_CONV_CREATIVE.id,
     tasks: [],
-    database: { ...EMPTY_DATABASE },
+    database: { rootFiles: [], folders: [] },
     createdAt: new Date(),
     modes: [
-      {
-        id: 'mode-brainstorm',
-        label: 'Brainstorm',
-        icon: 'lightbulb',
-        description: 'Génère 10 idées créatives pour chaque demande',
-        promptInjection: 'BRAINSTORM MODE: Pour chaque demande, génère TOUJOURS au minimum 10 idées créatives et originales. Pense hors des sentiers battus.',
-        enabled: false,
-        color: '#FFB800',
-        shortcut: '/idées',
-      },
-      {
-        id: 'mode-storytelling',
-        label: 'Narrateur',
-        icon: 'auto-stories',
-        description: 'Répond sous forme de récit narratif immersif',
-        promptInjection: 'MODE NARRATEUR: Transforme tes réponses en récit narratif immersif. Utilise des métaphores, des anecdotes et un style littéraire engageant.',
-        enabled: false,
-        color: '#9B59B6',
-        shortcut: '/raconte',
-      },
-      {
-        id: 'mode-critique',
-        label: 'Critique Constructif',
-        icon: 'thumbs-up-down',
-        description: 'Analyse critique bienveillante de tout contenu',
-        promptInjection: 'MODE CRITIQUE: Analyse tout contenu soumis de façon constructive. Structure: Points forts → Points à améliorer → Suggestions concrètes.',
-        enabled: false,
-        color: '#00CC6A',
-        shortcut: '/critique',
-      },
+      { id: 'mode-brainstorm', label: 'Brainstorm', icon: 'lightbulb', description: 'Génère 10 idées pour chaque demande', promptInjection: 'BRAINSTORM: Génère toujours minimum 10 idées créatives.', enabled: false, color: '#FFB800', shortcut: '/idées' },
+      { id: 'mode-storytelling', label: 'Narrateur', icon: 'auto-stories', description: 'Répond sous forme narrative', promptInjection: 'MODE NARRATEUR: Transforme tes réponses en récit immersif.', enabled: false, color: '#9B59B6', shortcut: '/raconte' },
     ],
   },
 ];
 
 export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(DEFAULT_WORKSPACES);
+interface Props { children: ReactNode; onDataChange?: (workspaces: Workspace[]) => void; }
+
+export function WorkspaceProvider({ children, onDataChange }: Props) {
+  const [workspaces, setWorkspacesRaw] = useState<Workspace[]>(DEFAULT_WORKSPACES);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('ws-default');
+  const isHydrating = useRef(false);
+
+  const setWorkspaces = useCallback((updater: Workspace[] | ((prev: Workspace[]) => Workspace[])) => {
+    setWorkspacesRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (!isHydrating.current) {
+        onDataChange?.(next);
+      }
+      return next;
+    });
+  }, [onDataChange]);
+
+  const hydrateFromCloud = useCallback((data: unknown) => {
+    if (!data) return;
+    try {
+      isHydrating.current = true;
+      const parsed = reviveDates(data) as Workspace[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map(ws => ({
+          ...ws,
+          database: {
+            ...ws.database,
+            folders: normalizeFolders(ws.database?.folders ?? []),
+          },
+        }));
+        setWorkspacesRaw(normalized);
+        setActiveWorkspaceId(normalized[0].id);
+      }
+    } catch (e) {
+      console.warn('[WorkspaceContext] hydrateFromCloud failed:', e);
+    } finally {
+      isHydrating.current = false;
+    }
+  }, []);
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
 
@@ -356,355 +275,208 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const addWorkspace = (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId' | 'tasks'>) => {
     const firstConv = makeConversation('Nouvelle conversation');
-    const newWs: Workspace = {
-      ...ws,
-      id: `ws-${Date.now()}`,
-      createdAt: new Date(),
-      conversations: [firstConv],
-      activeConversationId: firstConv.id,
-      tasks: [],
-    };
+    const newWs: Workspace = { ...ws, id: `ws-${Date.now()}`, createdAt: new Date(), conversations: [firstConv], activeConversationId: firstConv.id, tasks: [] };
     setWorkspaces(prev => [...prev, newWs]);
   };
 
-  const updateWorkspace = (id: string, updates: Partial<Workspace>) => {
+  const updateWorkspace = (id: string, updates: Partial<Workspace>) =>
     setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
-  };
 
   const removeWorkspace = (id: string) => {
     if (workspaces.length <= 1) return;
     setWorkspaces(prev => prev.filter(w => w.id !== id));
-    if (activeWorkspaceId === id) {
+    if (activeWorkspaceId === id)
       setActiveWorkspaceId(workspaces.find(w => w.id !== id)?.id || 'ws-default');
-    }
   };
 
   // ─── Modes ───────────────────────────────────────────────────────
-  const addMode = (workspaceId: string, mode: Omit<WorkspaceMode, 'id'>) => {
-    const newMode: WorkspaceMode = { ...mode, id: `mode-${Date.now()}` };
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, modes: [...w.modes, newMode] } : w
-    ));
-  };
+  const addMode = (wid: string, mode: Omit<WorkspaceMode, 'id'>) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, modes: [...w.modes, { ...mode, id: `mode-${Date.now()}` }] } : w));
 
-  const updateMode = (workspaceId: string, modeId: string, updates: Partial<WorkspaceMode>) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, modes: w.modes.map(m => m.id === modeId ? { ...m, ...updates } : m) }
-        : w
-    ));
-  };
+  const updateMode = (wid: string, mid: string, updates: Partial<WorkspaceMode>) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, modes: w.modes.map(m => m.id === mid ? { ...m, ...updates } : m) } : w));
 
-  const removeMode = (workspaceId: string, modeId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, modes: w.modes.filter(m => m.id !== modeId) } : w
-    ));
-  };
+  const removeMode = (wid: string, mid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, modes: w.modes.filter(m => m.id !== mid) } : w));
 
-  const toggleMode = (workspaceId: string, modeId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, modes: w.modes.map(m => m.id === modeId ? { ...m, enabled: !m.enabled } : m) }
-        : w
-    ));
-  };
+  const toggleMode = (wid: string, mid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, modes: w.modes.map(m => m.id === mid ? { ...m, enabled: !m.enabled } : m) } : w));
 
-  const getActiveModes = (workspaceId: string) => {
-    const ws = workspaces.find(w => w.id === workspaceId);
-    return ws ? ws.modes.filter(m => m.enabled) : [];
-  };
+  const getActiveModes = (wid: string) => (workspaces.find(w => w.id === wid)?.modes ?? []).filter(m => m.enabled);
 
-  // ─── Tasks ────────────────────────────────────────────────────────
-  const addTask = (workspaceId: string, task: Omit<WorkspaceTask, 'id' | 'createdAt' | 'lastCompleted' | 'nextDue'>) => {
-    const newTask: WorkspaceTask = {
-      ...task,
-      id: `task-${Date.now()}`,
-      lastCompleted: null,
-      nextDue: new Date(),
-      createdAt: new Date(),
-    };
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, tasks: [...w.tasks, newTask] } : w
-    ));
-  };
+  // ─── Tasks ───────────────────────────────────────────────────────
+  const addTask = (wid: string, task: Omit<WorkspaceTask, 'id' | 'createdAt' | 'lastCompleted' | 'nextDue'>) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, tasks: [...w.tasks, { ...task, id: `task-${Date.now()}`, lastCompleted: null, nextDue: new Date(), createdAt: new Date() }] } : w));
 
-  const updateTask = (workspaceId: string, taskId: string, updates: Partial<WorkspaceTask>) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, tasks: w.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t) }
-        : w
-    ));
-  };
+  const updateTask = (wid: string, tid: string, updates: Partial<WorkspaceTask>) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, tasks: w.tasks.map(t => t.id === tid ? { ...t, ...updates } : t) } : w));
 
-  const removeTask = (workspaceId: string, taskId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, tasks: w.tasks.filter(t => t.id !== taskId) } : w
-    ));
-  };
+  const removeTask = (wid: string, tid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, tasks: w.tasks.filter(t => t.id !== tid) } : w));
 
-  const toggleTask = (workspaceId: string, taskId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, tasks: w.tasks.map(t => t.id === taskId ? { ...t, enabled: !t.enabled } : t) }
-        : w
-    ));
-  };
+  const toggleTask = (wid: string, tid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, tasks: w.tasks.map(t => t.id === tid ? { ...t, enabled: !t.enabled } : t) } : w));
 
-  const completeTask = (workspaceId: string, taskId: string) => {
+  const completeTask = (wid: string, tid: string) => {
     const now = new Date();
-    setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      return {
-        ...w,
-        tasks: w.tasks.map(t => {
-          if (t.id !== taskId) return t;
-          return {
-            ...t,
-            lastCompleted: now,
-            nextDue: computeNextDue(t.frequency, now),
-          };
-        }),
-      };
-    }));
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, tasks: w.tasks.map(t => t.id !== tid ? t : { ...t, lastCompleted: now, nextDue: computeNextDue(t.frequency, now) }) }));
   };
 
-  const getDueTasks = (workspaceId: string): WorkspaceTask[] => {
-    const ws = workspaces.find(w => w.id === workspaceId);
+  const getDueTasks = (wid: string): WorkspaceTask[] => {
+    const ws = workspaces.find(w => w.id === wid);
     if (!ws) return [];
     const now = new Date();
-    return ws.tasks.filter(t => {
-      if (!t.enabled) return false;
-      if (!t.nextDue) return true;
-      return new Date(t.nextDue) <= now;
-    });
+    return ws.tasks.filter(t => t.enabled && (!t.nextDue || new Date(t.nextDue) <= now));
   };
 
-  // ─── Conversations ────────────────────────────────────────────────
-  const addConversation = (workspaceId: string, title?: string): string => {
+  // ─── Conversations ───────────────────────────────────────────────
+  const addConversation = (wid: string, title?: string): string => {
     const conv = makeConversation(title || 'Nouvelle conversation');
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id }
-        : w
-    ));
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id } : w));
     return conv.id;
   };
 
-  const removeConversation = (workspaceId: string, conversationId: string) => {
+  const removeConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      const remaining = w.conversations.filter(c => c.id !== conversationId);
-      if (remaining.length === 0) {
-        const fallback = makeConversation('Nouvelle conversation');
-        return { ...w, conversations: [fallback], activeConversationId: fallback.id };
-      }
-      const newActive = w.activeConversationId === conversationId
-        ? remaining[remaining.length - 1].id
-        : w.activeConversationId;
+      if (w.id !== wid) return w;
+      const remaining = w.conversations.filter(c => c.id !== cid);
+      if (remaining.length === 0) { const fb = makeConversation('Nouvelle conversation'); return { ...w, conversations: [fb], activeConversationId: fb.id }; }
+      const newActive = w.activeConversationId === cid ? remaining[remaining.length - 1].id : w.activeConversationId;
       return { ...w, conversations: remaining, activeConversationId: newActive };
     }));
-  };
 
-  const renameConversation = (workspaceId: string, conversationId: string, title: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, conversations: w.conversations.map(c => c.id === conversationId ? { ...c, title, updatedAt: new Date() } : c) }
-        : w
-    ));
-  };
+  const renameConversation = (wid: string, cid: string, title: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, title, updatedAt: new Date() } : c) } : w));
 
-  const setActiveConversation = (workspaceId: string, conversationId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, activeConversationId: conversationId } : w
-    ));
-  };
+  const setActiveConversation = (wid: string, cid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, activeConversationId: cid } : w));
 
-  const addMessageToConversation = (
-    workspaceId: string,
-    conversationId: string,
-    msg: Omit<ChatMessage, 'id' | 'timestamp'>
-  ) => {
+  const addMessageToConversation = (wid: string, cid: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const newMsg: ChatMessage = { ...msg, id: `msg-${Date.now()}`, timestamp: new Date() };
-    setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      return {
-        ...w,
-        conversations: w.conversations.map(c => {
-          if (c.id !== conversationId) return c;
-          const isFirst = c.messages.length === 0 && msg.role === 'user';
-          const title = isFirst
-            ? msg.content.slice(0, 40) + (msg.content.length > 40 ? '...' : '')
-            : c.title;
-          return { ...c, title, messages: [...c.messages, newMsg], updatedAt: new Date() };
-        }),
-      };
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, conversations: w.conversations.map(c => {
+        if (c.id !== cid) return c;
+        const isFirst = c.messages.length === 0 && msg.role === 'user';
+        const title = isFirst ? msg.content.slice(0, 40) + (msg.content.length > 40 ? '...' : '') : c.title;
+        return { ...c, title, messages: [...c.messages, newMsg], updatedAt: new Date() };
+      })
     }));
   };
 
-  const clearConversation = (workspaceId: string, conversationId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, conversations: w.conversations.map(c => c.id === conversationId ? { ...c, messages: [], updatedAt: new Date() } : c) }
-        : w
-    ));
-  };
+  const clearConversation = (wid: string, cid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, messages: [], updatedAt: new Date() } : c) } : w));
 
-  const getActiveConversation = (workspaceId: string): Conversation | undefined => {
-    const ws = workspaces.find(w => w.id === workspaceId);
+  const getActiveConversation = (wid: string) => {
+    const ws = workspaces.find(w => w.id === wid);
     return ws?.conversations.find(c => c.id === ws.activeConversationId);
   };
 
-  // ─── Database ─────────────────────────────────────────────────────
-  const addFolder = (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'createdAt'>) => {
-    const newFolder: DBFolder = { ...folder, id: `folder-${Date.now()}`, files: [], createdAt: new Date() };
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, database: { ...w.database, folders: [...w.database.folders, newFolder] } }
-        : w
-    ));
-  };
+  // ─── Helpers for file operations ─────────────────────────────────
+  function getFilesAt(db: WorkspaceDatabase, loc: FileLocation): DBFile[] {
+    if (loc === null) return db.rootFiles;
+    if (typeof loc === 'string') return db.folders.find(f => f.id === loc)?.files ?? [];
+    return db.folders.find(f => f.id === loc.folderId)?.subFolders?.find(s => s.id === loc.subId)?.files ?? [];
+  }
 
-  const updateFolder = (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id === folderId ? { ...f, ...updates } : f) } }
-        : w
-    ));
-  };
-
-  const removeFolder = (workspaceId: string, folderId: string) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId
-        ? { ...w, database: { ...w.database, folders: w.database.folders.filter(f => f.id !== folderId) } }
-        : w
-    ));
-  };
-
-  const addFile = (workspaceId: string, folderId: string | null, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => {
-    const newFile: DBFile = {
-      ...file,
-      id: `file-${Date.now()}`,
-      size: file.content.length,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+  function setFilesAt(db: WorkspaceDatabase, loc: FileLocation, files: DBFile[]): WorkspaceDatabase {
+    if (loc === null) return { ...db, rootFiles: files };
+    if (typeof loc === 'string') return { ...db, folders: db.folders.map(f => f.id === loc ? { ...f, files } : f) };
+    return {
+      ...db, folders: db.folders.map(f => f.id === loc.folderId
+        ? { ...f, subFolders: (f.subFolders ?? []).map(s => s.id === loc.subId ? { ...s, files } : s) }
+        : f),
     };
-    setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      if (folderId === null) {
-        return { ...w, database: { ...w.database, rootFiles: [...w.database.rootFiles, newFile] } };
+  }
+
+  // ─── Database — Folders ──────────────────────────────────────────
+  const addFolder = (wid: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: { ...w.database, folders: [...w.database.folders, { ...folder, id: `folder-${Date.now()}`, files: [], subFolders: [], createdAt: new Date() }] }
+    }));
+
+  const updateFolder = (wid: string, fid: string, updates: Partial<DBFolder>) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id === fid ? { ...f, ...updates } : f) }
+    }));
+
+  const removeFolder = (wid: string, fid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: { ...w.database, folders: w.database.folders.filter(f => f.id !== fid) }
+    }));
+
+  // ─── Database — Sub-Folders ──────────────────────────────────────
+  const addSubFolder = (wid: string, fid: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: {
+        ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : {
+          ...f, subFolders: [...(f.subFolders ?? []), { ...sub, id: `sub-${Date.now()}`, files: [], createdAt: new Date() }]
+        })
       }
-      return {
-        ...w,
-        database: {
-          ...w.database,
-          folders: w.database.folders.map(f =>
-            f.id === folderId ? { ...f, files: [...f.files, newFile] } : f
-          ),
-        },
-      };
+    }));
+
+  const updateSubFolder = (wid: string, fid: string, sid: string, updates: Partial<DBSubFolder>) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: {
+        ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : {
+          ...f, subFolders: (f.subFolders ?? []).map(s => s.id === sid ? { ...s, ...updates } : s)
+        })
+      }
+    }));
+
+  const removeSubFolder = (wid: string, fid: string, sid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, database: {
+        ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : {
+          ...f, subFolders: (f.subFolders ?? []).filter(s => s.id !== sid)
+        })
+      }
+    }));
+
+  // ─── Database — Files ────────────────────────────────────────────
+  const addFile = (wid: string, location: FileLocation, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => {
+    const newFile: DBFile = { ...file, id: `file-${Date.now()}`, size: file.content.length, createdAt: new Date(), updatedAt: new Date() };
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      const files = getFilesAt(w.database, location);
+      return { ...w, database: setFilesAt(w.database, location, [...files, newFile]) };
     }));
   };
 
-  const updateFile = (workspaceId: string, folderId: string | null, fileId: string, updates: Partial<DBFile>) => {
-    const patch = { ...updates, updatedAt: new Date(), size: updates.content?.length };
+  const updateFile = (wid: string, location: FileLocation, fileId: string, updates: Partial<DBFile>) =>
     setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      if (folderId === null) {
-        return { ...w, database: { ...w.database, rootFiles: w.database.rootFiles.map(f => f.id === fileId ? { ...f, ...patch } : f) } };
-      }
-      return {
-        ...w,
-        database: {
-          ...w.database,
-          folders: w.database.folders.map(folder =>
-            folder.id === folderId
-              ? { ...folder, files: folder.files.map(f => f.id === fileId ? { ...f, ...patch } : f) }
-              : folder
-          ),
-        },
-      };
+      if (w.id !== wid) return w;
+      const files = getFilesAt(w.database, location).map(f => f.id === fileId ? { ...f, ...updates, updatedAt: new Date(), size: (updates.content ?? f.content).length } : f);
+      return { ...w, database: setFilesAt(w.database, location, files) };
     }));
-  };
 
-  const removeFile = (workspaceId: string, folderId: string | null, fileId: string) => {
+  const removeFile = (wid: string, location: FileLocation, fileId: string) =>
     setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      if (folderId === null) {
-        return { ...w, database: { ...w.database, rootFiles: w.database.rootFiles.filter(f => f.id !== fileId) } };
-      }
-      return {
-        ...w,
-        database: {
-          ...w.database,
-          folders: w.database.folders.map(folder =>
-            folder.id === folderId
-              ? { ...folder, files: folder.files.filter(f => f.id !== fileId) }
-              : folder
-          ),
-        },
-      };
+      if (w.id !== wid) return w;
+      const files = getFilesAt(w.database, location).filter(f => f.id !== fileId);
+      return { ...w, database: setFilesAt(w.database, location, files) };
     }));
-  };
 
-  const moveFile = (workspaceId: string, fileId: string, fromFolderId: string | null, toFolderId: string | null) => {
+  const moveFile = (wid: string, fileId: string, from: FileLocation, to: FileLocation) =>
     setWorkspaces(prev => prev.map(w => {
-      if (w.id !== workspaceId) return w;
-      let file: DBFile | undefined;
-      if (fromFolderId === null) {
-        file = w.database.rootFiles.find(f => f.id === fileId);
-      } else {
-        file = w.database.folders.find(f => f.id === fromFolderId)?.files.find(f => f.id === fileId);
-      }
+      if (w.id !== wid) return w;
+      const file = getFilesAt(w.database, from).find(f => f.id === fileId);
       if (!file) return w;
-      let db = { ...w.database };
-      if (fromFolderId === null) {
-        db = { ...db, rootFiles: db.rootFiles.filter(f => f.id !== fileId) };
-      } else {
-        db = { ...db, folders: db.folders.map(folder => folder.id === fromFolderId ? { ...folder, files: folder.files.filter(f => f.id !== fileId) } : folder) };
-      }
-      if (toFolderId === null) {
-        db = { ...db, rootFiles: [...db.rootFiles, file] };
-      } else {
-        db = { ...db, folders: db.folders.map(folder => folder.id === toFolderId ? { ...folder, files: [...folder.files, file!] } : folder) };
-      }
+      let db = setFilesAt(w.database, from, getFilesAt(w.database, from).filter(f => f.id !== fileId));
+      db = setFilesAt(db, to, [...getFilesAt(db, to), file]);
       return { ...w, database: db };
     }));
-  };
 
   return (
     <WorkspaceContext.Provider value={{
-      workspaces,
-      activeWorkspaceId,
-      activeWorkspace,
-      setActiveWorkspace,
-      addWorkspace,
-      updateWorkspace,
-      removeWorkspace,
-      addMode,
-      updateMode,
-      removeMode,
-      toggleMode,
-      getActiveModes,
-      addTask,
-      updateTask,
-      removeTask,
-      toggleTask,
-      completeTask,
-      getDueTasks,
-      addConversation,
-      removeConversation,
-      renameConversation,
-      setActiveConversation,
-      addMessageToConversation,
-      clearConversation,
-      getActiveConversation,
-      addFolder,
-      updateFolder,
-      removeFolder,
-      addFile,
-      updateFile,
-      removeFile,
-      moveFile,
+      workspaces, activeWorkspaceId, activeWorkspace,
+      setActiveWorkspace, addWorkspace, updateWorkspace, removeWorkspace, hydrateFromCloud,
+      addMode, updateMode, removeMode, toggleMode, getActiveModes,
+      addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
+      addConversation, removeConversation, renameConversation, setActiveConversation,
+      addMessageToConversation, clearConversation, getActiveConversation,
+      addFolder, updateFolder, removeFolder,
+      addSubFolder, updateSubFolder, removeSubFolder,
+      addFile, updateFile, removeFile, moveFile,
     }}>
       {children}
     </WorkspaceContext.Provider>
