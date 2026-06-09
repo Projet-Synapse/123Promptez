@@ -224,6 +224,7 @@ export default function WorkspaceDatabaseScreen() {
   const [showAddFile, setShowAddFile] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [editingFile, setEditingFile] = useState<DBFile | null>(null);
+  const [viewingFile, setViewingFile] = useState<DBFile | null>(null);
 
   // Folder/sub-folder form
   const [folderName, setFolderName] = useState('');
@@ -339,7 +340,11 @@ export default function WorkspaceDatabaseScreen() {
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
+  const handleOpenFileViewer = (file: DBFile) => {
+    setViewingFile(file);
+  };
   const handleOpenFileEditor = (file: DBFile) => {
+    setViewingFile(null);
     setEditingFile(file); setEditorName(file.name); setEditorContent(file.content); setEditorTags(file.tags.join(', '));
   };
   const handleSaveFile = () => {
@@ -485,7 +490,7 @@ export default function WorkspaceDatabaseScreen() {
             </View>
           ) : (
             displayedFiles.map(file => (
-              <FileRow key={file.id} file={file} onPress={() => handleOpenFileEditor(file)} onDelete={() => handleDeleteFile(file)} />
+              <FileRow key={file.id} file={file} onPress={() => handleOpenFileViewer(file)} onDelete={() => handleDeleteFile(file)} />
             ))
           )}
         </View>
@@ -612,6 +617,57 @@ export default function WorkspaceDatabaseScreen() {
               <MaterialIcons name="link" size={18} color="#fff" />
               <Text style={{ fontSize: FontSize.body, color: '#fff', fontWeight: '700' }}>Ajouter le lien</Text>
             </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ─── File Viewer Modal (read-only) ─────────────────────────── */}
+      <Modal visible={viewingFile !== null} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '92%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 }}>
+                {viewingFile ? (
+                  <View style={{ width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: getFileTypeInfo(viewingFile.type).color + '22', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <MaterialIcons name={getFileTypeInfo(viewingFile.type).icon as any} size={16} color={getFileTypeInfo(viewingFile.type).color} />
+                  </View>
+                ) : null}
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700', flex: 1 }} numberOfLines={1}>{viewingFile?.name}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexShrink: 0 }}>
+                <Pressable
+                  onPress={() => viewingFile && handleOpenFileEditor(viewingFile)}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary + '22', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.primary + '55' }, pressed && { opacity: 0.7 }]}
+                >
+                  <MaterialIcons name="edit" size={14} color={C.primary} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.primary, fontWeight: '600' }}>Modifier</Text>
+                </Pressable>
+                <Pressable onPress={() => setViewingFile(null)} hitSlop={8}>
+                  <MaterialIcons name="close" size={22} color={C.textSecondary} />
+                </Pressable>
+              </View>
+            </View>
+            {viewingFile ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' }}>
+                <View style={{ backgroundColor: getFileTypeInfo(viewingFile.type).color + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill }}>
+                  <Text style={{ fontSize: FontSize.xs, color: getFileTypeInfo(viewingFile.type).color, fontWeight: '700' }}>{getFileTypeInfo(viewingFile.type).label}</Text>
+                </View>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatSize(viewingFile.size)}</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatDate(viewingFile.updatedAt)}</Text>
+                {viewingFile.tags.map(tag => (
+                  <View key={tag} style={{ backgroundColor: C.bgCardAlt, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border }}>
+                    <Text style={{ fontSize: 10, color: C.textMuted }}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, minHeight: 200 }}>
+                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, lineHeight: 24, fontFamily: viewingFile?.type === 'code' || viewingFile?.type === 'json' ? 'monospace' : undefined }}>
+                  {viewingFile?.content || '(Contenu vide)'}
+                </Text>
+              </View>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>

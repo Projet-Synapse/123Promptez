@@ -1,10 +1,25 @@
 // Powered by OnSpace.AI
+// chatService — routes to OnSpace AI via Edge Function with streaming support
 import { BotConfig, KBSource, FAQItem } from '@/contexts/BotContext';
 import { Workspace } from '@/contexts/WorkspaceContext';
 import type { UserProfile } from '@/contexts/ProfileContext';
+import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
-function buildSystemPrompt(bot: BotConfig, workspace: Workspace, profile: UserProfile | null, dueTasks: any[]): string {
+export function buildSystemPrompt(
+  bot: BotConfig,
+  workspace: Workspace,
+  profile: UserProfile | null,
+  dueTasks: any[],
+  langInjection?: string
+): string {
   let prompt = workspace.systemPrompt || bot.llmConfig.systemPrompt;
+
+  // Inject language instruction first (highest priority)
+  if (langInjection) {
+    prompt = langInjection + '\n\n' + prompt;
+  }
+
   prompt += '\n\n';
 
   // Inject user profile
@@ -52,7 +67,10 @@ function buildSystemPrompt(bot: BotConfig, workspace: Workspace, profile: UserPr
   // Database files
   const allFiles = [
     ...workspace.database.rootFiles,
-    ...workspace.database.folders.flatMap(f => f.files),
+    ...workspace.database.folders.flatMap(f => [
+      ...f.files,
+      ...(f.subFolders ?? []).flatMap(s => s.files),
+    ]),
   ];
   if (allFiles.length > 0) {
     prompt += '## BASE DE DONNÉES DU WORKSPACE\n\n';
@@ -96,6 +114,25 @@ interface ChatMessage {
   content: string;
 }
 
+// Parse a single SSE data line and extract content delta
+function parseSSEChunk(raw: string): string {
+  const lines = raw.split('\n');
+  let result = '';
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (payload === '[DONE]') continue;
+    try {
+      const json = JSON.parse(payload);
+      const delta = json.choices?.[0]?.delta?.content ?? '';
+      result += delta;
+    } catch {
+      // Skip malformed lines
+    }
+  }
+  return result;
+}
+
 export async function sendChatMessage(
   userMessage: string,
   history: ChatMessage[],
@@ -103,73 +140,116 @@ export async function sendChatMessage(
   workspace: Workspace,
   onToken?: (token: string) => void,
   profile?: UserProfile | null,
-  dueTasks?: any[]
+  dueTasks?: any[],
+  langInjection?: string
 ): Promise<string> {
   const resolvedProfile = profile ?? null;
   const resolvedDueTasks = dueTasks ?? [];
 
-  if (!bot.apiKey) {
-    await new Promise(r => setTimeout(r, 1200));
-    const activeModes = workspace.modes.filter(m => m.enabled);
-    const modesInfo = activeModes.length > 0
-      ? ` Modes actifs : ${activeModes.map(m => m.label).join(', ')}.`
-      : '';
-    const profileInfo = resolvedProfile?.name ? ` Bonjour ${resolvedProfile.name} !` : '';
-    const taskInfo = resolvedDueTasks.length > 0
-      ? ` ${resolvedDueTasks.length} tâche(s) planifiée(s) en attente.`
-      : '';
-    const mockResponses = [
-      `${profileInfo}Je suis **${bot.name}** dans le workspace **${workspace.name}**.${modesInfo}${taskInfo} Ajoutez votre clé API dans les Paramètres pour activer un vrai LLM.`,
-      `Je comprends votre question.${profileInfo} En mode démonstration, je simule des réponses.${modesInfo} Configurez votre clé API pour activer le vrai LLM.`,
-      `Excellente question ! Mon système contient ${bot.kbSources.length} sources KB, ${activeModes.length} mode(s) actif(s)${resolvedDueTasks.length > 0 ? ` et ${resolvedDueTasks.length} tâche(s) planifiée(s)` : ''}.`,
-    ];
-    const response = mockResponses[Math.floor(Math.random() * mockResponses.length)];
-    if (onToken) {
-      for (const char of response) {
-        onToken(char);
-        await new Promise(r => setTimeout(r, 10));
-      }
-    }
-    return response;
-  }
-
-  const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks);
+  const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks, langInjection);
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...history.slice(-10),
+    ...history.slice(-12), // keep last 12 messages for context
     { role: 'user', content: userMessage },
   ];
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${bot.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: bot.llmConfig.model,
-      messages,
-      temperature: bot.llmConfig.temperature,
-      max_tokens: bot.llmConfig.maxTokens,
-      top_p: bot.llmConfig.topP,
-      stream: false,
-    }),
-  });
+  // Determine model: map local model names to OnSpace AI provider/model format
+  const modelMap: Record<string, string> = {
+    'gpt-4o': 'openai/gpt-5.1',
+    'gpt-4-turbo': 'openai/gpt-5.1',
+    'gpt-3.5-turbo': 'openai/gpt-5-mini',
+    'claude-3-5-sonnet': 'openai/gpt-5.1',
+    'claude-3-opus': 'openai/gpt-5.1',
+    'gemini-1.5-pro': 'google/gemini-3-flash-preview',
+    'llama-3.1-70b': 'google/gemini-3-flash-preview',
+    'mistral-large': 'google/gemini-3-flash-preview',
+  };
+  const model = modelMap[bot.llmConfig.model] ?? 'google/gemini-3-flash-preview';
 
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || 'Erreur API');
-  }
+  try {
+    // Use raw fetch for streaming support
+    const supabase = getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const authHeader = session?.access_token ? `Bearer ${session.access_token}` : '';
 
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || '';
+    // Get the supabase URL for constructing the edge function URL
+    const supabaseUrl = (supabase as any).supabaseUrl as string ?? '';
+    const fnUrl = `${supabaseUrl}/functions/v1/chat`;
 
-  if (onToken) {
-    for (const char of content) {
-      onToken(char);
-      await new Promise(r => setTimeout(r, 5));
+    const response = await fetch(fnUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authHeader,
+        'apikey': (supabase as any).supabaseKey as string ?? '',
+      },
+      body: JSON.stringify({
+        messages,
+        model,
+        temperature: bot.llmConfig.temperature,
+        maxTokens: bot.llmConfig.maxTokens,
+        topP: bot.llmConfig.topP,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Erreur IA: ${errText}`);
     }
-  }
 
-  return content;
+    let fullText = '';
+    const reader = response.body?.getReader();
+
+    if (reader) {
+      // Streaming path
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Process complete SSE events (split on double newlines)
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const chunk = parseSSEChunk(part);
+          if (chunk) {
+            fullText += chunk;
+            if (onToken) onToken(fullText);
+          }
+        }
+      }
+      // Process remaining buffer
+      if (buffer.trim()) {
+        const chunk = parseSSEChunk(buffer);
+        if (chunk) {
+          fullText += chunk;
+          if (onToken) onToken(fullText);
+        }
+      }
+    } else {
+      // Non-streaming fallback
+      const text = await response.text();
+      // Try to parse as SSE
+      const chunk = parseSSEChunk(text);
+      if (chunk) {
+        fullText = chunk;
+      } else {
+        // Try plain JSON
+        try {
+          const json = JSON.parse(text);
+          fullText = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.delta?.content ?? '';
+        } catch {
+          fullText = text;
+        }
+      }
+      if (onToken && fullText) onToken(fullText);
+    }
+
+    return fullText || 'Aucune réponse reçue.';
+  } catch (error: any) {
+    console.error('[chatService] Error:', error.message);
+    throw error;
+  }
 }

@@ -12,17 +12,18 @@ import { useThemeColors } from '@/hooks/useThemeColors';
 import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/config';
 import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { bot, updateBot, updateLLMConfig } = useBot();
   const { showAlert } = useAlert();
   const { mode, toggleTheme } = useTheme();
+  const { lang, setLang, t } = useLanguage();
   const C = useThemeColors();
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedSearchEngine, setSelectedSearchEngine] = useState('google');
-  const [selectedLang, setSelectedLang] = useState('fr');
 
   const selectedModel = LLM_MODELS.find(m => m.id === bot.llmConfig.model) || LLM_MODELS[0];
 
@@ -41,13 +42,13 @@ export default function SettingsScreen() {
         contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: insets.bottom + 100 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Paramètres</Text>
+        <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>{t('settings')}</Text>
         <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>LLM, langue, apparence et configuration avancée</Text>
 
         {/* ── Theme ──────────────────────────────────────────────────── */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
           <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Apparence
+            {t('appearance')}
           </Text>
 
           <Pressable
@@ -104,24 +105,24 @@ export default function SettingsScreen() {
         {/* ── Interface Language ──────────────────────────────────────── */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
           <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Langue de l'interface
+            {t('interfaceLanguage')}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-              {APP_LANGUAGES.map(lang => (
+              {APP_LANGUAGES.map(l => (
                 <Pressable
-                  key={lang.code}
-                  onPress={() => setSelectedLang(lang.code)}
+                  key={l.code}
+                  onPress={() => setLang(l.code as LangCode)}
                   style={{
                     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
                     borderRadius: Radius.pill, borderWidth: 1,
-                    borderColor: selectedLang === lang.code ? C.primaryLight : C.border,
-                    backgroundColor: selectedLang === lang.code ? C.primary : C.bgCardAlt,
+                    borderColor: lang === l.code ? C.primaryLight : C.border,
+                    backgroundColor: lang === l.code ? C.primary : C.bgCardAlt,
                     flexDirection: 'row', alignItems: 'center', gap: 6,
                   }}
                 >
-                  <Text style={{ fontSize: 16 }}>{lang.flag}</Text>
-                  <Text style={{ fontSize: FontSize.sm, color: selectedLang === lang.code ? '#fff' : C.textSecondary, fontWeight: '600' }}>{lang.label}</Text>
+                  <Text style={{ fontSize: 16 }}>{l.flag}</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: lang === l.code ? '#fff' : C.textSecondary, fontWeight: '600' }}>{l.label}</Text>
                 </Pressable>
               ))}
             </View>

@@ -8,6 +8,7 @@ import { WorkspaceProvider, type Workspace } from '@/contexts/WorkspaceContext';
 import { ProfileProvider, type UserProfile } from '@/contexts/ProfileContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AppDataProvider, useAppData } from '@/contexts/AppDataContext';
+import { LanguageProvider } from '@/contexts/LanguageContext';
 import { useRef, useEffect, useCallback } from 'react';
 
 // ── Inner layout: has access to AppDataContext + contexts that need cloud sync ─
@@ -72,11 +73,13 @@ export default function RootLayout() {
     <AlertProvider>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AuthProvider>
-            <AppDataProvider>
-              <InnerLayout />
-            </AppDataProvider>
-          </AuthProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <AppDataProvider>
+                <InnerLayout />
+              </AppDataProvider>
+            </AuthProvider>
+          </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </AlertProvider>

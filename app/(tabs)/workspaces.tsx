@@ -1,5 +1,5 @@
 // Powered by OnSpace.AI
-// Theme fix: all styles use inline C (useThemeColors) — no static StyleSheet.create() with Colors
+// Workspaces screen — adds workspace rename functionality + conversation rename
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
@@ -13,7 +13,8 @@ import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAlert } from '@/template';
 import { useRouter } from 'expo-router';
-import type { Workspace, Conversation } from '@/contexts/WorkspaceContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { Workspace } from '@/contexts/WorkspaceContext';
 
 const WORKSPACE_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455', '#00BFFF', '#FF69B4'];
 const WORKSPACE_ICONS = ['home', 'code', 'brush', 'science', 'business', 'school', 'favorite', 'star', 'rocket-launch', 'psychology'];
@@ -33,7 +34,12 @@ function formatRelativeTime(date: Date): string {
 export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
-  const { workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace, removeWorkspace, addConversation, removeConversation, setActiveConversation } = useWorkspace();
+  const { t } = useLanguage();
+  const {
+    workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace,
+    updateWorkspace, removeWorkspace, addConversation, removeConversation,
+    renameConversation, setActiveConversation,
+  } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
 
@@ -45,6 +51,14 @@ export default function WorkspacesScreen() {
   const [newColor, setNewColor] = useState(WORKSPACE_COLORS[0]);
   const [newIcon, setNewIcon] = useState(WORKSPACE_ICONS[0]);
 
+  // Workspace rename state
+  const [renamingWsId, setRenamingWsId] = useState<string | null>(null);
+  const [wsRenameValue, setWsRenameValue] = useState('');
+
+  // Conversation rename state
+  const [renamingConvKey, setRenamingConvKey] = useState<{ wsId: string; convId: string } | null>(null);
+  const [convRenameValue, setConvRenameValue] = useState('');
+
   const handleCreate = () => {
     if (!newName.trim()) return;
     addWorkspace({ name: newName.trim(), description: newDesc.trim(), icon: newIcon, color: newColor, systemPrompt: newPrompt.trim() || "Tu es un assistant IA utile et précis.", modes: [], database: { rootFiles: [], folders: [] } });
@@ -54,9 +68,9 @@ export default function WorkspacesScreen() {
 
   const handleDelete = (ws: Workspace) => {
     if (workspaces.length <= 1) { showAlert('Impossible', 'Vous devez conserver au moins un workspace.'); return; }
-    showAlert(`Supprimer "${ws.name}" ?`, 'Ce workspace et toutes ses conversations seront supprimés.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeWorkspace(ws.id) },
+    showAlert(`${t('deleteWorkspace')}`, t('deleteWorkspaceMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('delete'), style: 'destructive', onPress: () => removeWorkspace(ws.id) },
     ]);
   };
 
@@ -64,6 +78,32 @@ export default function WorkspacesScreen() {
     setActiveWorkspace(wsId);
     if (convId) setActiveConversation(wsId, convId);
     router.push('/(tabs)/chat');
+  };
+
+  // Workspace rename
+  const startRenameWs = (ws: Workspace) => {
+    setRenamingWsId(ws.id);
+    setWsRenameValue(ws.name);
+  };
+  const confirmRenameWs = () => {
+    if (renamingWsId && wsRenameValue.trim()) {
+      updateWorkspace(renamingWsId, { name: wsRenameValue.trim() });
+    }
+    setRenamingWsId(null);
+    setWsRenameValue('');
+  };
+
+  // Conversation rename
+  const startRenameConv = (wsId: string, convId: string, title: string) => {
+    setRenamingConvKey({ wsId, convId });
+    setConvRenameValue(title);
+  };
+  const confirmRenameConv = () => {
+    if (renamingConvKey && convRenameValue.trim()) {
+      renameConversation(renamingConvKey.wsId, renamingConvKey.convId, convRenameValue.trim());
+    }
+    setRenamingConvKey(null);
+    setConvRenameValue('');
   };
 
   return (
@@ -75,12 +115,12 @@ export default function WorkspacesScreen() {
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
-            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Workspaces</Text>
+            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>{t('workspaces')}</Text>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{workspaces.length} espace{workspaces.length > 1 ? 's' : ''} de travail</Text>
           </View>
           <Pressable onPress={() => setShowCreate(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
             <MaterialIcons name="add" size={20} color="#fff" />
-            <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Nouveau</Text>
+            <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>{t('new')}</Text>
           </Pressable>
         </View>
 
@@ -96,89 +136,145 @@ export default function WorkspacesScreen() {
         {workspaces.map(ws => {
           const isActive = ws.id === activeWorkspaceId;
           const isExpanded = expandedWsId === ws.id;
+          const isRenamingThis = renamingWsId === ws.id;
           const activeModeCount = ws.modes.filter(m => m.enabled).length;
           const totalMessages = ws.conversations.reduce((acc, c) => acc + c.messages.length, 0);
 
           return (
             <View key={ws.id} style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: isActive ? ws.color + '55' : C.border, overflow: 'hidden' }}>
-              <Pressable onPress={() => setExpandedWsId(isExpanded ? null : ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md }, pressed && { opacity: 0.85 }]}>
+              <Pressable onPress={() => !isRenamingThis && setExpandedWsId(isExpanded ? null : ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md }, pressed && !isRenamingThis && { opacity: 0.85 }]}>
                 <View style={{ width: 48, height: 48, borderRadius: Radius.md, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={ws.icon as any} size={22} color={ws.color} />
                 </View>
                 <View style={{ flex: 1, gap: 3 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                    <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{ws.name}</Text>
-                    {isActive ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' }}>
+                    {isRenamingThis ? (
+                      <TextInput
+                        style={{ flex: 1, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: ws.color, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.sm, paddingVertical: 4, fontWeight: '700', minWidth: 120 }}
+                        value={wsRenameValue}
+                        onChangeText={setWsRenameValue}
+                        onBlur={confirmRenameWs}
+                        onSubmitEditing={confirmRenameWs}
+                        autoFocus
+                        selectTextOnFocus
+                      />
+                    ) : (
+                      <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{ws.name}</Text>
+                    )}
+                    {isActive && !isRenamingThis ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: ws.color + '22' }}>
                         <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: ws.color }} />
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: ws.color }}>Actif</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: ws.color }}>{t('activeWorkspace')}</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }} numberOfLines={1}>{ws.description || 'Aucune description'}</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: 2 }}>
-                    {[
-                      { icon: 'chat-bubble-outline', text: `${ws.conversations.length} conv.` },
-                      { icon: 'forum', text: `${totalMessages} msg` },
-                      { icon: 'widgets', text: `${ws.modes.length} modes` },
-                    ].map(s => (
-                      <View key={s.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <MaterialIcons name={s.icon as any} size={11} color={C.textMuted} />
-                        <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{s.text}</Text>
+                  {!isRenamingThis ? (
+                    <>
+                      <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }} numberOfLines={1}>{ws.description || 'Aucune description'}</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: 2 }}>
+                        {[
+                          { icon: 'chat-bubble-outline', text: `${ws.conversations.length} conv.` },
+                          { icon: 'forum', text: `${totalMessages} msg` },
+                          { icon: 'widgets', text: `${ws.modes.length} modes` },
+                        ].map(s => (
+                          <View key={s.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                            <MaterialIcons name={s.icon as any} size={11} color={C.textMuted} />
+                            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{s.text}</Text>
+                          </View>
+                        ))}
+                        {activeModeCount > 0 ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                            <MaterialIcons name="bolt" size={11} color={C.accent} />
+                            <Text style={{ fontSize: FontSize.xs, color: C.accent }}>{activeModeCount} actif{activeModeCount !== 1 ? 's' : ''}</Text>
+                          </View>
+                        ) : null}
                       </View>
-                    ))}
-                    {activeModeCount > 0 ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <MaterialIcons name="bolt" size={11} color={C.accent} />
-                        <Text style={{ fontSize: FontSize.xs, color: C.accent }}>{activeModeCount} actif{activeModeCount !== 1 ? 's' : ''}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-                <View style={{ flexDirection: 'column', gap: Spacing.xs, alignItems: 'center' }}>
-                  <Pressable onPress={() => router.push({ pathname: '/workspace-settings', params: { wsId: ws.id } })} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
-                    <MaterialIcons name="settings" size={17} color={C.textSecondary} />
-                  </Pressable>
-                  {workspaces.length > 1 ? (
-                    <Pressable onPress={() => handleDelete(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
-                      <MaterialIcons name="delete-outline" size={17} color={C.textMuted} />
-                    </Pressable>
+                    </>
                   ) : null}
-                  <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={20} color={C.textMuted} />
                 </View>
+                {!isRenamingThis ? (
+                  <View style={{ flexDirection: 'column', gap: Spacing.xs, alignItems: 'center' }}>
+                    <Pressable onPress={() => startRenameWs(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
+                      <MaterialIcons name="edit" size={17} color={C.textSecondary} />
+                    </Pressable>
+                    <Pressable onPress={() => router.push({ pathname: '/workspace-settings', params: { wsId: ws.id } })} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
+                      <MaterialIcons name="settings" size={17} color={C.textSecondary} />
+                    </Pressable>
+                    {workspaces.length > 1 ? (
+                      <Pressable onPress={() => handleDelete(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
+                        <MaterialIcons name="delete-outline" size={17} color={C.textMuted} />
+                      </Pressable>
+                    ) : null}
+                    <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={20} color={C.textMuted} />
+                  </View>
+                ) : (
+                  <Pressable onPress={confirmRenameWs} style={{ padding: Spacing.sm, backgroundColor: ws.color + '22', borderRadius: Radius.sm }}>
+                    <MaterialIcons name="check" size={18} color={ws.color} />
+                  </Pressable>
+                )}
               </Pressable>
 
               {/* Conversations */}
-              {isExpanded ? (
+              {isExpanded && !isRenamingThis ? (
                 <View style={{ borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bgCardAlt, padding: Spacing.md, gap: Spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs }}>
-                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Conversations</Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>{t('conversations')}</Text>
                     <Pressable onPress={() => addConversation(ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: C.bgCard }, pressed && { opacity: 0.8 }]}>
                       <MaterialIcons name="add" size={14} color={ws.color} />
-                      <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: ws.color }}>Nouvelle</Text>
+                      <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: ws.color }}>{t('new')}</Text>
                     </Pressable>
                   </View>
                   {[...ws.conversations].reverse().map(conv => {
                     const isActiveConv = conv.id === ws.activeConversationId && ws.id === activeWorkspaceId;
                     const lastMsg = conv.messages[conv.messages.length - 1];
+                    const isRenamingConv = renamingConvKey?.wsId === ws.id && renamingConvKey?.convId === conv.id;
                     return (
-                      <Pressable key={conv.id} onPress={() => handleSelectAndNavigate(ws.id, conv.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: isActiveConv ? ws.color + '66' : C.border, padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && { opacity: 0.75 }]}>
+                      <Pressable
+                        key={conv.id}
+                        onPress={() => !isRenamingConv && handleSelectAndNavigate(ws.id, conv.id)}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: isActiveConv ? ws.color + '66' : C.border, padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && !isRenamingConv && { opacity: 0.75 }]}
+                      >
                         <View style={{ width: 34, height: 34, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
                           <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={16} color={isActiveConv ? ws.color : C.textMuted} />
                         </View>
                         <View style={{ flex: 1, gap: 2 }}>
-                          <Text style={{ fontSize: FontSize.sm, color: isActiveConv ? C.textPrimary : C.textSecondary, fontWeight: '600' }} numberOfLines={1}>{conv.title}</Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{conv.messages.length} msg</Text>
-                            {conv.messages.length > 0 ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatRelativeTime(conv.updatedAt)}</Text> : null}
-                          </View>
-                          {lastMsg ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }} numberOfLines={1}>{lastMsg.role === 'user' ? 'Vous: ' : 'IA: '}{lastMsg.content}</Text> : null}
+                          {isRenamingConv ? (
+                            <TextInput
+                              style={{ backgroundColor: C.bg, borderRadius: Radius.sm, borderWidth: 1, borderColor: ws.color, color: C.textPrimary, fontSize: FontSize.sm, paddingHorizontal: Spacing.sm, paddingVertical: 4, fontWeight: '600' }}
+                              value={convRenameValue}
+                              onChangeText={setConvRenameValue}
+                              onBlur={confirmRenameConv}
+                              onSubmitEditing={confirmRenameConv}
+                              autoFocus
+                              selectTextOnFocus
+                            />
+                          ) : (
+                            <Text style={{ fontSize: FontSize.sm, color: isActiveConv ? C.textPrimary : C.textSecondary, fontWeight: '600' }} numberOfLines={1}>{conv.title}</Text>
+                          )}
+                          {!isRenamingConv ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{conv.messages.length} msg</Text>
+                              {conv.messages.length > 0 ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatRelativeTime(conv.updatedAt)}</Text> : null}
+                            </View>
+                          ) : null}
+                          {lastMsg && !isRenamingConv ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }} numberOfLines={1}>{lastMsg.role === 'user' ? 'Vous: ' : 'IA: '}{lastMsg.content}</Text> : null}
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Pressable onPress={() => removeConversation(ws.id, conv.id)} hitSlop={10} style={{ padding: Spacing.xs }}>
-                            <MaterialIcons name="delete-outline" size={15} color={C.textMuted} />
-                          </Pressable>
-                          <MaterialIcons name="chevron-right" size={18} color={ws.color + '88'} />
+                          {isRenamingConv ? (
+                            <Pressable onPress={confirmRenameConv} style={{ padding: Spacing.xs, backgroundColor: ws.color + '22', borderRadius: Radius.sm }}>
+                              <MaterialIcons name="check" size={14} color={ws.color} />
+                            </Pressable>
+                          ) : (
+                            <>
+                              <Pressable onPress={() => startRenameConv(ws.id, conv.id, conv.title)} hitSlop={10} style={{ padding: Spacing.xs }}>
+                                <MaterialIcons name="edit" size={14} color={C.textMuted} />
+                              </Pressable>
+                              <Pressable onPress={() => removeConversation(ws.id, conv.id)} hitSlop={10} style={{ padding: Spacing.xs }}>
+                                <MaterialIcons name="delete-outline" size={15} color={C.textMuted} />
+                              </Pressable>
+                              <MaterialIcons name="chevron-right" size={18} color={ws.color + '88'} />
+                            </>
+                          )}
                         </View>
                       </Pressable>
                     );
@@ -199,7 +295,7 @@ export default function WorkspacesScreen() {
           <MaterialIcons name="tips-and-updates" size={18} color={C.warning} />
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: FontSize.sm, color: C.warning, fontWeight: '600', marginBottom: 4 }}>Conversations multi-contexte</Text>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Créez plusieurs conversations par workspace pour isoler vos sujets.</Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Créez plusieurs conversations par workspace pour isoler vos sujets. Appuyez sur ✏️ pour renommer.</Text>
           </View>
         </View>
       </ScrollView>
@@ -209,7 +305,7 @@ export default function WorkspacesScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau workspace</Text>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>{t('newWorkspace')}</Text>
               <Pressable onPress={() => setShowCreate(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
@@ -249,7 +345,7 @@ export default function WorkspacesScreen() {
             </View>
             <Pressable onPress={handleCreate} disabled={!newName.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: !newName.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="add-circle" size={18} color={C.bg} />
-              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Créer le workspace</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>{t('create')} le workspace</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

@@ -1,5 +1,5 @@
 // Powered by OnSpace.AI
-// Theme fix: all dynamic styles use inline C from useThemeColors(), no static StyleSheet with Colors
+// Chat screen — OnSpace AI integration + language injection + conversation rename
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
@@ -15,6 +15,7 @@ import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { sendChatMessage } from '@/services/chatService';
 import { useAlert } from '@/template';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -34,6 +35,7 @@ export default function ChatScreen() {
   const { activeWorkspace, toggleMode, addConversation, removeConversation, renameConversation, setActiveConversation, addMessageToConversation, clearConversation, getActiveConversation, getDueTasks, completeTask } = useWorkspace();
   const { profile } = useProfile();
   const { showAlert } = useAlert();
+  const { t, systemInjection } = useLanguage();
   const C = useThemeColors();
 
   const [input, setInput] = useState('');
@@ -60,7 +62,13 @@ export default function ChatScreen() {
     const history = chatMessages.map(m => ({ role: m.role, content: m.content }));
     try {
       let full = '';
-      await sendChatMessage(msg, history, bot, activeWorkspace, (token) => { full += token; setStreamingText(full); }, profile, getDueTasks(activeWorkspace.id));
+      await sendChatMessage(
+        msg, history, bot, activeWorkspace,
+        (token) => { full = token; setStreamingText(full); },
+        profile,
+        getDueTasks(activeWorkspace.id),
+        systemInjection
+      );
       setStreamingText('');
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: full });
       getDueTasks(activeWorkspace.id).forEach(t => completeTask(activeWorkspace.id, t.id));
@@ -91,13 +99,13 @@ export default function ChatScreen() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
-              <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700', maxWidth: 140 }} numberOfLines={1}>{activeConversation?.title || 'Conversation'}</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700', maxWidth: 140 }} numberOfLines={1}>{activeConversation?.title || t('newConversation')}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: activeWorkspace.color + '22' }}>
                 <MaterialIcons name={activeWorkspace.icon as any} size={11} color={activeWorkspace.color} />
                 <Text style={{ fontSize: 10, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
               </View>
             </View>
-            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · {bot.llmConfig.model}</Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · OnSpace AI</Text>
           </View>
           <Pressable onPress={() => setShowModesPanel(true)} style={({ pressed }) => [{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: activeModes.length > 0 ? C.accentGlow : C.bgCardAlt, borderWidth: 1, borderColor: activeModes.length > 0 ? C.accent + '55' : C.border, flexDirection: 'row', gap: 2 }, pressed && { opacity: 0.7 }]}>
             <MaterialIcons name="bolt" size={16} color={activeModes.length > 0 ? C.accent : C.textMuted} />
@@ -105,9 +113,9 @@ export default function ChatScreen() {
           </Pressable>
           <Pressable onPress={() => {
             if (!activeConversation) return;
-            showAlert('Effacer la conversation ?', 'Tous les messages seront supprimés.', [
-              { text: 'Annuler', style: 'cancel' },
-              { text: 'Effacer', style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
+            showAlert(t('clearConversation'), t('clearConversationMsg'), [
+              { text: t('cancel'), style: 'cancel' },
+              { text: t('delete'), style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
             ]);
           }} hitSlop={8}>
             <MaterialIcons name="delete-outline" size={22} color={C.textMuted} />
@@ -136,13 +144,12 @@ export default function ChatScreen() {
               <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
                 <MaterialIcons name="smart-toy" size={32} color="#fff" />
               </View>
-              <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>Nouvelle conversation</Text>
+              <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>{t('newConversation')}</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center', lineHeight: 20, maxWidth: 280 }}>
-                Workspace <Text style={{ color: activeWorkspace.color, fontWeight: '600' }}>{activeWorkspace.name}</Text> · {bot.name}
+                {t('workspace')} <Text style={{ color: activeWorkspace.color, fontWeight: '600' }}>{activeWorkspace.name}</Text> · {bot.name}
               </Text>
               {activeWorkspace.modes.filter(m => m.shortcut).length > 0 ? (
                 <View style={{ alignItems: 'center', gap: Spacing.xs, width: '100%' }}>
-                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Raccourcis disponibles :</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, justifyContent: 'center' }}>
                     {activeWorkspace.modes.filter(m => m.shortcut).map(m => (
                       <Pressable key={m.id} onPress={() => setInput(m.shortcut || '')} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.bgCardAlt, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1, borderColor: m.color + '55' }}>
@@ -155,10 +162,10 @@ export default function ChatScreen() {
               ) : null}
               {enabledTools.length > 0 ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, justifyContent: 'center' }}>
-                  {enabledTools.map(t => (
-                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accentGlow, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '33' }}>
+                  {enabledTools.map(tool => (
+                    <View key={tool.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accentGlow, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '33' }}>
                       <MaterialIcons name="bolt" size={12} color={C.accent} />
-                      <Text style={{ fontSize: FontSize.xs, color: C.accent, fontFamily: 'monospace' }}>{t.id}</Text>
+                      <Text style={{ fontSize: FontSize.xs, color: C.accent, fontFamily: 'monospace' }}>{tool.id}</Text>
                     </View>
                   ))}
                 </View>
@@ -192,7 +199,7 @@ export default function ChatScreen() {
           {isLoading && !streamingText ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.sm }}>
               <ActivityIndicator size="small" color={C.accent} />
-              <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Génération en cours...</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>{t('generating')}</Text>
             </View>
           ) : null}
         </ScrollView>
@@ -202,7 +209,7 @@ export default function ChatScreen() {
           <TextInput
             style={{ flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
             value={input} onChangeText={setInput}
-            placeholder="Message ou /raccourci..." placeholderTextColor={C.textMuted}
+            placeholder={t('typeMessage')} placeholderTextColor={C.textMuted}
             multiline maxLength={4000} onSubmitEditing={handleSend}
           />
           <Pressable onPress={handleSend} disabled={isLoading || !input.trim()} style={({ pressed }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: input.trim() && !isLoading ? C.accent : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
@@ -222,13 +229,13 @@ export default function ChatScreen() {
                 <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Historique des conversations</Text>
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>{t('conversationHistory')}</Text>
                 <Pressable onPress={() => { addConversation(activeWorkspace.id); setShowHistoryPanel(false); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
                   <MaterialIcons name="add" size={16} color="#fff" />
-                  <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Nouvelle</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>{t('new')}</Text>
                 </Pressable>
               </View>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{activeWorkspace.conversations.length} conversation(s)</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{activeWorkspace.conversations.length} {t('conversations').toLowerCase()}</Text>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
               {[...activeWorkspace.conversations].reverse().map(conv => {
@@ -247,14 +254,14 @@ export default function ChatScreen() {
                         <Text style={{ fontSize: FontSize.body, color: isActive ? C.textPrimary : C.textSecondary, fontWeight: '600' }} numberOfLines={1}>{conv.title}</Text>
                       )}
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                        <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{conv.messages.length} message(s)</Text>
+                        <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{conv.messages.length} msg</Text>
                         {conv.messages.length > 0 ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatRelativeTime(conv.updatedAt)}</Text> : null}
                       </View>
                       {lastMsg && !isRenaming ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }} numberOfLines={1}>{lastMsg.role === 'user' ? 'Vous: ' : 'IA: '}{lastMsg.content}</Text> : null}
                     </View>
                     <View style={{ flexDirection: 'column', gap: Spacing.xs }}>
                       <Pressable onPress={() => startRename(conv.id, conv.title)} hitSlop={8} style={{ padding: Spacing.xs }}><MaterialIcons name="edit" size={15} color={C.textMuted} /></Pressable>
-                      <Pressable onPress={() => showAlert(`Supprimer "${conv.title}" ?`, '', [{ text: 'Annuler', style: 'cancel' }, { text: 'Supprimer', style: 'destructive', onPress: () => removeConversation(activeWorkspace.id, conv.id) }])} hitSlop={8} style={{ padding: Spacing.xs }}><MaterialIcons name="delete-outline" size={15} color={C.textMuted} /></Pressable>
+                      <Pressable onPress={() => showAlert(`Supprimer "${conv.title}" ?`, '', [{ text: t('cancel'), style: 'cancel' }, { text: t('delete'), style: 'destructive', onPress: () => removeConversation(activeWorkspace.id, conv.id) }])} hitSlop={8} style={{ padding: Spacing.xs }}><MaterialIcons name="delete-outline" size={15} color={C.textMuted} /></Pressable>
                     </View>
                   </Pressable>
                 );
@@ -274,14 +281,13 @@ export default function ChatScreen() {
                 <MaterialIcons name={activeWorkspace.icon as any} size={16} color={activeWorkspace.color} />
                 <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
               </View>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Modes d'interaction</Text>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>{t('modes')}</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Activez des comportements automatiques pour ce workspace</Text>
             </View>
             {activeWorkspace.modes.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm }}>
                 <MaterialIcons name="widgets" size={32} color={C.textMuted} />
                 <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucun mode configuré</Text>
-                <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Configurez des modes dans les Paramètres du workspace</Text>
               </View>
             ) : null}
             <ScrollView showsVerticalScrollIndicator={false}>
