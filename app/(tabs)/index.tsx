@@ -9,7 +9,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useBot } from '@/hooks/useBot';
 import { KBSourceCard, AgentToolRow, ThemedInput } from '@/components';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { AGENT_TOOLS, KB_SOURCE_TYPES } from '@/constants/config';
 

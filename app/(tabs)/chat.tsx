@@ -11,7 +11,7 @@ import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
 import { ChatBubble } from '@/components';
-import { Spacing, Radius, FontSize } from '@/constants/theme';
+import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { sendChatMessage } from '@/services/chatService';
 import { useAlert } from '@/template';

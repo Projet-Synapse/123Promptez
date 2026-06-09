@@ -9,7 +9,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useAlert } from '@/template';
 import * as DocumentPicker from 'expo-document-picker';
 import type { DBFile, DBFolder } from '@/contexts/WorkspaceContext';

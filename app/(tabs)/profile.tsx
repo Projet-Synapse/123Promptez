@@ -9,7 +9,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
 import { useAuth, useAlert } from '@/template';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useAppData } from '@/contexts/AppDataContext';
 import { useEffect, useRef } from 'react';
 
