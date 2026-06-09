@@ -11,17 +11,68 @@ export const LLM_MODELS = [
 ];
 
 export const AGENT_TOOLS = [
-  { id: 'web_search', label: 'Recherche Web', icon: 'search', description: 'Recherche en temps réel via DuckDuckGo / Serper' },
-  { id: 'db_access', label: 'Accès Base de données', icon: 'storage', description: 'Lire / écrire dans une base de données structurée' },
-  { id: 'automation', label: 'Automatisations', icon: 'bolt', description: 'Déclencher des webhooks et intégrations externes' },
-  { id: 'code_exec', label: 'Exécution de code', icon: 'code', description: 'Exécuter du Python / JS dans un sandbox sécurisé' },
-  { id: 'file_read', label: 'Lecture de fichiers', icon: 'folder-open', description: 'Accéder aux fichiers uploadés dans la knowledge base' },
+  {
+    id: 'web_search',
+    label: 'Recherche Web',
+    icon: 'search',
+    description: 'Recherche en temps réel · Google, Brave, DuckDuckGo, Bing au choix',
+  },
+  {
+    id: 'image_analysis',
+    label: "Analyse d'image",
+    icon: 'image-search',
+    description: "Analyse et décrit le contenu d'images (vision IA via GPT-4V / Gemini Vision)",
+  },
+  {
+    id: 'db_access',
+    label: 'Accès Base de données',
+    icon: 'storage',
+    description: 'Lire / écrire dans une base de données structurée',
+  },
+  {
+    id: 'automation',
+    label: 'Automatisations',
+    icon: 'bolt',
+    description: 'Déclencher des webhooks et intégrations externes',
+  },
+  {
+    id: 'code_exec',
+    label: 'Exécution de code',
+    icon: 'code',
+    description: 'Exécuter du Python / JS dans un sandbox sécurisé',
+  },
+  {
+    id: 'file_read',
+    label: 'Lecture de fichiers',
+    icon: 'folder-open',
+    description: 'Accéder aux fichiers uploadés dans la knowledge base',
+  },
+];
+
+export const WEB_SEARCH_ENGINES = [
+  { id: 'google', label: 'Google', icon: 'language', color: '#4285F4' },
+  { id: 'brave', label: 'Brave Search', icon: 'shield', color: '#FB542B' },
+  { id: 'duckduckgo', label: 'DuckDuckGo', icon: 'search', color: '#DE5833' },
+  { id: 'bing', label: 'Bing', icon: 'travel-explore', color: '#008373' },
 ];
 
 export const KB_SOURCE_TYPES = [
   { id: 'text', label: 'Texte libre', icon: 'text-fields' },
-  { id: 'file', label: 'Fichier (PDF/TXT/DOCX)', icon: 'upload-file' },
+  { id: 'file', label: 'Fichier joint', icon: 'upload-file' },
+  { id: 'image', label: 'Image', icon: 'image' },
   { id: 'url', label: 'URL / Lien web', icon: 'link' },
   { id: 'faq', label: 'FAQ structurée', icon: 'question-answer' },
   { id: 'schema', label: 'Schéma de données', icon: 'account-tree' },
+];
+
+export const APP_LANGUAGES = [
+  { code: 'fr', label: 'Français', flag: '🇫🇷' },
+  { code: 'en', label: 'English', flag: '🇬🇧' },
+  { code: 'es', label: 'Español', flag: '🇪🇸' },
+  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+  { code: 'it', label: 'Italiano', flag: '🇮🇹' },
+  { code: 'pt', label: 'Português', flag: '🇵🇹' },
+  { code: 'zh', label: '中文', flag: '🇨🇳' },
+  { code: 'ja', label: '日本語', flag: '🇯🇵' },
+  { code: 'ar', label: 'العربية', flag: '🇸🇦' },
 ];

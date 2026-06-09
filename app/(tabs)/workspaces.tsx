@@ -1,14 +1,15 @@
 // Powered by OnSpace.AI
+// Theme fix: all styles use inline C (useThemeColors) — no static StyleSheet.create() with Colors
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Modal,
-  KeyboardAvoidingView, Platform,
+  View, Text, ScrollView, Pressable,
+  Modal, KeyboardAvoidingView, Platform, TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { ThemedInput } from '@/components';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAlert } from '@/template';
 import { useRouter } from 'expo-router';
@@ -31,17 +32,8 @@ function formatRelativeTime(date: Date): string {
 
 export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
-  const Colors = useThemeColors();
-  const {
-    workspaces,
-    activeWorkspaceId,
-    setActiveWorkspace,
-    addWorkspace,
-    removeWorkspace,
-    addConversation,
-    removeConversation,
-    setActiveConversation,
-  } = useWorkspace();
+  const C = useThemeColors();
+  const { workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace, removeWorkspace, addConversation, removeConversation, setActiveConversation } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
 
@@ -55,36 +47,17 @@ export default function WorkspacesScreen() {
 
   const handleCreate = () => {
     if (!newName.trim()) return;
-    addWorkspace({
-      name: newName.trim(),
-      description: newDesc.trim(),
-      icon: newIcon,
-      color: newColor,
-      systemPrompt: newPrompt.trim() || "Tu es un assistant IA utile et précis.",
-      modes: [],
-      database: { rootFiles: [], folders: [] },
-    });
-    setNewName('');
-    setNewDesc('');
-    setNewPrompt('');
-    setNewColor(WORKSPACE_COLORS[0]);
-    setNewIcon(WORKSPACE_ICONS[0]);
+    addWorkspace({ name: newName.trim(), description: newDesc.trim(), icon: newIcon, color: newColor, systemPrompt: newPrompt.trim() || "Tu es un assistant IA utile et précis.", modes: [], database: { rootFiles: [], folders: [] } });
+    setNewName(''); setNewDesc(''); setNewPrompt(''); setNewColor(WORKSPACE_COLORS[0]); setNewIcon(WORKSPACE_ICONS[0]);
     setShowCreate(false);
   };
 
   const handleDelete = (ws: Workspace) => {
-    if (workspaces.length <= 1) {
-      showAlert('Impossible', 'Vous devez conserver au moins un workspace.');
-      return;
-    }
-    showAlert(
-      `Supprimer "${ws.name}" ?`,
-      'Ce workspace et toutes ses conversations seront supprimés.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => removeWorkspace(ws.id) },
-      ]
-    );
+    if (workspaces.length <= 1) { showAlert('Impossible', 'Vous devez conserver au moins un workspace.'); return; }
+    showAlert(`Supprimer "${ws.name}" ?`, 'Ce workspace et toutes ses conversations seront supprimés.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => removeWorkspace(ws.id) },
+    ]);
   };
 
   const handleSelectAndNavigate = (wsId: string, convId?: string) => {
@@ -93,50 +66,29 @@ export default function WorkspacesScreen() {
     router.push('/(tabs)/chat');
   };
 
-  const handleAddConversation = (wsId: string) => {
-    const newId = addConversation(wsId);
-    setExpandedWsId(wsId);
-  };
-
-  const handleDeleteConversation = (ws: Workspace, conv: Conversation) => {
-    showAlert(
-      `Supprimer "${conv.title}" ?`,
-      conv.messages.length > 0
-        ? `Cette conversation contient ${conv.messages.length} message(s).`
-        : 'Cette conversation est vide.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => removeConversation(ws.id, conv.id) },
-      ]
-    );
-  };
-
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
-            <Text style={styles.title}>Workspaces</Text>
-            <Text style={styles.subtitle}>{workspaces.length} espace{workspaces.length > 1 ? 's' : ''} de travail</Text>
+            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Workspaces</Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{workspaces.length} espace{workspaces.length > 1 ? 's' : ''} de travail</Text>
           </View>
-          <Pressable
-            onPress={() => setShowCreate(true)}
-            style={({ pressed }) => [styles.createBtn, pressed && { opacity: 0.8 }]}
-          >
+          <Pressable onPress={() => setShowCreate(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
             <MaterialIcons name="add" size={20} color="#fff" />
-            <Text style={styles.createBtnText}>Nouveau</Text>
+            <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Nouveau</Text>
           </Pressable>
         </View>
 
         {/* Info Banner */}
-        <View style={styles.infoBanner}>
-          <MaterialIcons name="info-outline" size={16} color={Colors.primary} />
-          <Text style={styles.infoText}>
-            Chaque workspace possède ses propres conversations, modes et base de données. Appuyez sur une conversation pour la rejoindre.
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-start', backgroundColor: C.primary + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: C.primary + '33', padding: Spacing.md }}>
+          <MaterialIcons name="info-outline" size={16} color={C.primary} />
+          <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 19 }}>
+            Chaque workspace possède ses propres conversations, modes et base de données.
           </Text>
         </View>
 
@@ -148,155 +100,92 @@ export default function WorkspacesScreen() {
           const totalMessages = ws.conversations.reduce((acc, c) => acc + c.messages.length, 0);
 
           return (
-            <View key={ws.id} style={[styles.wsBlock, isActive ? { borderColor: ws.color + '55' } : null]}>
-              {/* Workspace header row */}
-              <Pressable
-                onPress={() => setExpandedWsId(isExpanded ? null : ws.id)}
-                style={({ pressed }) => [styles.wsHeader, pressed && { opacity: 0.85 }]}
-              >
-                <View style={[styles.wsIcon, { backgroundColor: ws.color + '22' }]}>
+            <View key={ws.id} style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: isActive ? ws.color + '55' : C.border, overflow: 'hidden' }}>
+              <Pressable onPress={() => setExpandedWsId(isExpanded ? null : ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md }, pressed && { opacity: 0.85 }]}>
+                <View style={{ width: 48, height: 48, borderRadius: Radius.md, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={ws.icon as any} size={22} color={ws.color} />
                 </View>
-                <View style={styles.wsInfo}>
-                  <View style={styles.wsNameRow}>
-                    <Text style={styles.wsName}>{ws.name}</Text>
+                <View style={{ flex: 1, gap: 3 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                    <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{ws.name}</Text>
                     {isActive ? (
-                      <View style={[styles.activePill, { backgroundColor: ws.color + '22' }]}>
-                        <View style={[styles.activeDot, { backgroundColor: ws.color }]} />
-                        <Text style={[styles.activeText, { color: ws.color }]}>Actif</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: ws.color + '22' }}>
+                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: ws.color }} />
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: ws.color }}>Actif</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={styles.wsDesc} numberOfLines={1}>{ws.description || 'Aucune description'}</Text>
-                  <View style={styles.wsStats}>
-                    <View style={styles.wsStat}>
-                      <MaterialIcons name="chat-bubble-outline" size={11} color={Colors.textMuted} />
-                      <Text style={styles.wsStatText}>{ws.conversations.length} conv.</Text>
-                    </View>
-                    <View style={styles.wsStat}>
-                      <MaterialIcons name="forum" size={11} color={Colors.textMuted} />
-                      <Text style={styles.wsStatText}>{totalMessages} msg</Text>
-                    </View>
-                    <View style={styles.wsStat}>
-                      <MaterialIcons name="widgets" size={11} color={Colors.textMuted} />
-                      <Text style={styles.wsStatText}>{ws.modes.length} modes</Text>
-                    </View>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }} numberOfLines={1}>{ws.description || 'Aucune description'}</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: 2 }}>
+                    {[
+                      { icon: 'chat-bubble-outline', text: `${ws.conversations.length} conv.` },
+                      { icon: 'forum', text: `${totalMessages} msg` },
+                      { icon: 'widgets', text: `${ws.modes.length} modes` },
+                    ].map(s => (
+                      <View key={s.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <MaterialIcons name={s.icon as any} size={11} color={C.textMuted} />
+                        <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{s.text}</Text>
+                      </View>
+                    ))}
                     {activeModeCount > 0 ? (
-                      <View style={styles.wsStat}>
-                        <MaterialIcons name="bolt" size={11} color={Colors.accent} />
-                        <Text style={[styles.wsStatText, { color: Colors.accent }]}>{activeModeCount} actif{activeModeCount !== 1 ? 's' : ''}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <MaterialIcons name="bolt" size={11} color={C.accent} />
+                        <Text style={{ fontSize: FontSize.xs, color: C.accent }}>{activeModeCount} actif{activeModeCount !== 1 ? 's' : ''}</Text>
                       </View>
                     ) : null}
                   </View>
                 </View>
-                <View style={styles.wsActions}>
-                  <Pressable
-                    onPress={() => router.push({ pathname: '/workspace-settings', params: { wsId: ws.id } })}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-                  >
-                    <MaterialIcons name="settings" size={17} color={Colors.textSecondary} />
+                <View style={{ flexDirection: 'column', gap: Spacing.xs, alignItems: 'center' }}>
+                  <Pressable onPress={() => router.push({ pathname: '/workspace-settings', params: { wsId: ws.id } })} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
+                    <MaterialIcons name="settings" size={17} color={C.textSecondary} />
                   </Pressable>
                   {workspaces.length > 1 ? (
-                    <Pressable
-                      onPress={() => handleDelete(ws)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-                    >
-                      <MaterialIcons name="delete-outline" size={17} color={Colors.textMuted} />
+                    <Pressable onPress={() => handleDelete(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
+                      <MaterialIcons name="delete-outline" size={17} color={C.textMuted} />
                     </Pressable>
                   ) : null}
-                  <MaterialIcons
-                    name={isExpanded ? 'expand-less' : 'expand-more'}
-                    size={20}
-                    color={Colors.textMuted}
-                  />
+                  <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={20} color={C.textMuted} />
                 </View>
               </Pressable>
 
-              {/* Conversations list (expanded) */}
+              {/* Conversations */}
               {isExpanded ? (
-                <View style={styles.convSection}>
-                  <View style={styles.convSectionHeader}>
-                    <Text style={styles.convSectionTitle}>Conversations</Text>
-                    <Pressable
-                      onPress={() => handleAddConversation(ws.id)}
-                      style={({ pressed }) => [styles.addConvBtn, pressed && { opacity: 0.8 }]}
-                    >
+                <View style={{ borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bgCardAlt, padding: Spacing.md, gap: Spacing.sm }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs }}>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Conversations</Text>
+                    <Pressable onPress={() => addConversation(ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: C.bgCard }, pressed && { opacity: 0.8 }]}>
                       <MaterialIcons name="add" size={14} color={ws.color} />
-                      <Text style={[styles.addConvBtnText, { color: ws.color }]}>Nouvelle</Text>
+                      <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: ws.color }}>Nouvelle</Text>
                     </Pressable>
                   </View>
-
                   {[...ws.conversations].reverse().map(conv => {
                     const isActiveConv = conv.id === ws.activeConversationId && ws.id === activeWorkspaceId;
                     const lastMsg = conv.messages[conv.messages.length - 1];
                     return (
-                      <Pressable
-                        key={conv.id}
-                        onPress={() => handleSelectAndNavigate(ws.id, conv.id)}
-                        style={({ pressed }) => [
-                          styles.convRow,
-                          isActiveConv ? { borderColor: ws.color + '66', backgroundColor: ws.color + '0C' } : null,
-                          pressed && { opacity: 0.75 },
-                        ]}
-                      >
-                        <View style={[styles.convIcon, { backgroundColor: isActiveConv ? ws.color + '22' : Colors.bgCard }]}>
-                          <MaterialIcons
-                            name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'}
-                            size={16}
-                            color={isActiveConv ? ws.color : Colors.textMuted}
-                          />
+                      <Pressable key={conv.id} onPress={() => handleSelectAndNavigate(ws.id, conv.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: isActiveConv ? ws.color + '66' : C.border, padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && { opacity: 0.75 }]}>
+                        <View style={{ width: 34, height: 34, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                          <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={16} color={isActiveConv ? ws.color : C.textMuted} />
                         </View>
-                        <View style={styles.convInfo}>
-                          <View style={styles.convTitleRow}>
-                            <Text style={[styles.convTitle, isActiveConv ? { color: Colors.textPrimary } : null]} numberOfLines={1}>
-                              {conv.title}
-                            </Text>
-                            {isActiveConv ? (
-                              <View style={[styles.activeConvPill, { backgroundColor: ws.color + '22' }]}>
-                                <View style={[styles.activeDot, { backgroundColor: ws.color }]} />
-                                <Text style={[styles.activeText, { color: ws.color }]}>En cours</Text>
-                              </View>
-                            ) : null}
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={{ fontSize: FontSize.sm, color: isActiveConv ? C.textPrimary : C.textSecondary, fontWeight: '600' }} numberOfLines={1}>{conv.title}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{conv.messages.length} msg</Text>
+                            {conv.messages.length > 0 ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatRelativeTime(conv.updatedAt)}</Text> : null}
                           </View>
-                          <View style={styles.convMeta}>
-                            <Text style={styles.convMsgCount}>
-                              {conv.messages.length} msg
-                            </Text>
-                            {conv.messages.length > 0 ? (
-                              <Text style={styles.convTime}>{formatRelativeTime(conv.updatedAt)}</Text>
-                            ) : null}
-                          </View>
-                          {lastMsg ? (
-                            <Text style={styles.convPreview} numberOfLines={1}>
-                              {lastMsg.role === 'user' ? 'Vous: ' : 'IA: '}{lastMsg.content}
-                            </Text>
-                          ) : (
-                            <Text style={styles.convEmpty}>Conversation vide — tapez pour commencer</Text>
-                          )}
+                          {lastMsg ? <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }} numberOfLines={1}>{lastMsg.role === 'user' ? 'Vous: ' : 'IA: '}{lastMsg.content}</Text> : null}
                         </View>
-                        <View style={styles.convActions}>
-                          <Pressable
-                            onPress={() => handleDeleteConversation(ws, conv)}
-                            hitSlop={10}
-                            style={styles.convDeleteBtn}
-                          >
-                            <MaterialIcons name="delete-outline" size={15} color={Colors.textMuted} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Pressable onPress={() => removeConversation(ws.id, conv.id)} hitSlop={10} style={{ padding: Spacing.xs }}>
+                            <MaterialIcons name="delete-outline" size={15} color={C.textMuted} />
                           </Pressable>
                           <MaterialIcons name="chevron-right" size={18} color={ws.color + '88'} />
                         </View>
                       </Pressable>
                     );
                   })}
-
-                  {/* Quick open button */}
-                  <Pressable
-                    onPress={() => handleSelectAndNavigate(ws.id)}
-                    style={({ pressed }) => [styles.openWsBtn, { borderColor: ws.color + '44' }, pressed && { opacity: 0.8 }]}
-                  >
+                  <Pressable onPress={() => handleSelectAndNavigate(ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, borderWidth: 1, borderColor: ws.color + '44', borderRadius: Radius.md, paddingVertical: Spacing.sm, marginTop: Spacing.xs }, pressed && { opacity: 0.8 }]}>
                     <MaterialIcons name={ws.icon as any} size={16} color={ws.color} />
-                    <Text style={[styles.openWsBtnText, { color: ws.color }]}>Ouvrir {ws.name}</Text>
+                    <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: ws.color, flex: 1, textAlign: 'center' }}>Ouvrir {ws.name}</Text>
                     <MaterialIcons name="arrow-forward" size={14} color={ws.color} />
                   </Pressable>
                 </View>
@@ -306,92 +195,61 @@ export default function WorkspacesScreen() {
         })}
 
         {/* Tip */}
-        <View style={styles.tipCard}>
-          <MaterialIcons name="tips-and-updates" size={18} color={Colors.warning} />
+        <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', backgroundColor: C.warning + '10', borderRadius: Radius.md, borderWidth: 1, borderColor: C.warning + '33', padding: Spacing.md }}>
+          <MaterialIcons name="tips-and-updates" size={18} color={C.warning} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.tipTitle}>Conversations multi-contexte</Text>
-            <Text style={styles.tipText}>
-              Créez plusieurs conversations par workspace pour isoler vos sujets. Chaque conversation conserve son propre historique indépendant.
-            </Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.warning, fontWeight: '600', marginBottom: 4 }}>Conversations multi-contexte</Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Créez plusieurs conversations par workspace pour isoler vos sujets.</Text>
           </View>
         </View>
       </ScrollView>
 
       {/* Create Modal */}
       <Modal visible={showCreate} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { paddingBottom: insets.bottom + Spacing.lg }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nouveau workspace</Text>
-              <Pressable onPress={() => setShowCreate(false)} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
-              </Pressable>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau workspace</Text>
+              <Pressable onPress={() => setShowCreate(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
-
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.md }}>
                 <ThemedInput label="Nom" value={newName} onChangeText={setNewName} placeholder="Ex: Recherche, Marketing..." />
                 <ThemedInput label="Description" value={newDesc} onChangeText={setNewDesc} placeholder="Contexte d'utilisation..." />
-
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={styles.fieldLabel}>Couleur</Text>
-                  <View style={styles.colorRow}>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.8 }}>Couleur</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
                     {WORKSPACE_COLORS.map(c => (
-                      <Pressable
-                        key={c}
-                        onPress={() => setNewColor(c)}
-                        style={[styles.colorDot, { backgroundColor: c }, newColor === c ? styles.colorSelected : null]}
-                      />
+                      <Pressable key={c} onPress={() => setNewColor(c)} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c, borderWidth: newColor === c ? 3 : 0, borderColor: '#fff' }} />
                     ))}
                   </View>
                 </View>
-
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={styles.fieldLabel}>Icône</Text>
-                  <View style={styles.iconRow}>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.8 }}>Icône</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
                     {WORKSPACE_ICONS.map(ic => (
-                      <Pressable
-                        key={ic}
-                        onPress={() => setNewIcon(ic)}
-                        style={[styles.iconPickerBtn, newIcon === ic ? { backgroundColor: newColor + '33', borderColor: newColor } : null]}
-                      >
-                        <MaterialIcons name={ic as any} size={22} color={newIcon === ic ? newColor : Colors.textMuted} />
+                      <Pressable key={ic} onPress={() => setNewIcon(ic)} style={{ width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: newIcon === ic ? newColor + '33' : C.bgCardAlt, borderWidth: 1, borderColor: newIcon === ic ? newColor : C.border }}>
+                        <MaterialIcons name={ic as any} size={22} color={newIcon === ic ? newColor : C.textMuted} />
                       </Pressable>
                     ))}
                   </View>
                 </View>
-
-                <ThemedInput
-                  label="Prompt système"
-                  value={newPrompt}
-                  onChangeText={setNewPrompt}
-                  placeholder="Comportement de l'assistant pour ce workspace..."
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  style={{ minHeight: 100 }}
-                  mono
-                />
+                <ThemedInput label="Prompt système" value={newPrompt} onChangeText={setNewPrompt} placeholder="Comportement de l'assistant..." multiline numberOfLines={4} textAlignVertical="top" style={{ minHeight: 100 }} mono />
               </View>
             </ScrollView>
-
-            <View style={[styles.previewCard, { borderColor: newColor + '44', backgroundColor: newColor + '10' }]}>
-              <View style={[styles.previewIcon, { backgroundColor: newColor + '22' }]}>
+            {/* Preview */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: newColor + '44', backgroundColor: newColor + '10', padding: Spacing.md }}>
+              <View style={{ width: 40, height: 40, borderRadius: Radius.sm, backgroundColor: newColor + '22', alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialIcons name={newIcon as any} size={20} color={newColor} />
               </View>
               <View>
-                <Text style={styles.previewName}>{newName || 'Nom du workspace'}</Text>
-                <Text style={styles.previewDesc}>{newDesc || 'Description'}</Text>
+                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{newName || 'Nom du workspace'}</Text>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{newDesc || 'Description'}</Text>
               </View>
             </View>
-
-            <Pressable
-              onPress={handleCreate}
-              style={({ pressed }) => [styles.primaryBtn, !newName.trim() ? styles.primaryBtnDisabled : null, pressed && { opacity: 0.8 }]}
-              disabled={!newName.trim()}
-            >
-              <MaterialIcons name="add-circle" size={18} color={Colors.bg} />
-              <Text style={styles.primaryBtnText}>Créer le workspace</Text>
+            <Pressable onPress={handleCreate} disabled={!newName.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: !newName.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="add-circle" size={18} color={C.bg} />
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Créer le workspace</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -399,129 +257,3 @@ export default function WorkspacesScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
-  content: { padding: Spacing.md, gap: Spacing.md },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: FontSize.xl, color: Colors.textPrimary, fontWeight: FontWeight.bold },
-  subtitle: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 },
-  createBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderRadius: Radius.pill,
-  },
-  createBtnText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '600' },
-  infoBanner: {
-    flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-start',
-    backgroundColor: Colors.primary + '15', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.primary + '33', padding: Spacing.md,
-  },
-  infoText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 19 },
-
-  // Workspace block
-  wsBlock: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, overflow: 'hidden',
-  },
-  wsHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    padding: Spacing.md,
-  },
-  wsIcon: { width: 48, height: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  wsInfo: { flex: 1, gap: 3 },
-  wsNameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  wsName: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '700' },
-  activePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill },
-  activeDot: { width: 5, height: 5, borderRadius: 3 },
-  activeText: { fontSize: 10, fontWeight: '700' },
-  wsDesc: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  wsStats: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: 2 },
-  wsStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  wsStatText: { fontSize: FontSize.xs, color: Colors.textMuted },
-  wsActions: { flexDirection: 'column', gap: Spacing.xs, alignItems: 'center' },
-  iconBtn: { padding: Spacing.xs, borderRadius: Radius.sm },
-
-  // Conversations section
-  convSection: {
-    borderTopWidth: 1, borderTopColor: Colors.border,
-    backgroundColor: Colors.bgCardAlt,
-    padding: Spacing.md, gap: Spacing.sm,
-  },
-  convSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
-  convSectionTitle: {
-    fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1,
-  },
-  addConvBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: Spacing.sm, paddingVertical: 4,
-    borderRadius: Radius.pill, borderWidth: 1, borderColor: 'transparent',
-    backgroundColor: Colors.bgCard,
-  },
-  addConvBtnText: { fontSize: FontSize.xs, fontWeight: '600' },
-  convRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.bgCard, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.sm + 2,
-  },
-  convIcon: { width: 34, height: 34, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  convInfo: { flex: 1, gap: 2 },
-  convTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  convTitle: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600', flex: 1 },
-  activeConvPill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill },
-  convMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  convMsgCount: { fontSize: FontSize.xs, color: Colors.textMuted },
-  convTime: { fontSize: FontSize.xs, color: Colors.textMuted },
-  convPreview: { fontSize: FontSize.xs, color: Colors.textMuted, fontStyle: 'italic' },
-  convEmpty: { fontSize: FontSize.xs, color: Colors.textMuted + '88', fontStyle: 'italic' },
-  convActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  convDeleteBtn: { padding: Spacing.xs },
-  openWsBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    borderWidth: 1, borderRadius: Radius.md, paddingVertical: Spacing.sm, marginTop: Spacing.xs,
-  },
-  openWsBtnText: { fontSize: FontSize.sm, fontWeight: '600', flex: 1, textAlign: 'center' },
-
-  tipCard: {
-    flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.warning + '10', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.warning + '33', padding: Spacing.md,
-  },
-  tipTitle: { fontSize: FontSize.sm, color: Colors.warning, fontWeight: '600', marginBottom: 4 },
-  tipText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
-
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  modalCard: {
-    backgroundColor: Colors.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, gap: Spacing.md,
-  },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalTitle: { fontSize: FontSize.md, color: Colors.textPrimary, fontWeight: '700' },
-  fieldLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500',
-    textTransform: 'uppercase', letterSpacing: 0.8,
-  },
-  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  colorDot: { width: 32, height: 32, borderRadius: 16 },
-  colorSelected: { borderWidth: 3, borderColor: '#fff' },
-  iconRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  iconPickerBtn: {
-    width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgCardAlt, borderWidth: 1, borderColor: Colors.border,
-  },
-  previewCard: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md,
-  },
-  previewIcon: { width: 40, height: 40, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  previewName: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '700' },
-  previewDesc: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  primaryBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
-  },
-  primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { fontSize: FontSize.body, color: Colors.bg, fontWeight: '700' },
-});

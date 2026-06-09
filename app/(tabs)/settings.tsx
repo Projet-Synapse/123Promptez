@@ -1,13 +1,15 @@
 // Powered by OnSpace.AI
+// Theme fix: createStyles(C) pattern — styles are generated inside the component
+// using the reactive color object from useThemeColors(), NOT static StyleSheet.create() at module level.
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
 import { ThemedInput, SliderRow } from '@/components';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { LLM_MODELS } from '@/constants/config';
+import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/config';
 import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -16,9 +18,11 @@ export default function SettingsScreen() {
   const { bot, updateBot, updateLLMConfig } = useBot();
   const { showAlert } = useAlert();
   const { mode, toggleTheme } = useTheme();
-  const Colors = useThemeColors();
+  const C = useThemeColors();
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [selectedSearchEngine, setSelectedSearchEngine] = useState('google');
+  const [selectedLang, setSelectedLang] = useState('fr');
 
   const selectedModel = LLM_MODELS.find(m => m.id === bot.llmConfig.model) || LLM_MODELS[0];
 
@@ -31,69 +35,136 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: insets.bottom + 100 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.screenTitle}>Paramètres</Text>
-        <Text style={styles.screenSub}>LLM, apparence et configuration avancée</Text>
+        <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Paramètres</Text>
+        <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>LLM, langue, apparence et configuration avancée</Text>
 
-        {/* Theme Switcher */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="palette" size={14} color={Colors.primary} /> Apparence
+        {/* ── Theme ──────────────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Apparence
           </Text>
+
           <Pressable
             onPress={toggleTheme}
-            style={({ pressed }) => [styles.themeRow, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [{
+              flexDirection: 'row' as const, alignItems: 'center' as const, gap: Spacing.md,
+              backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1,
+              borderColor: C.border, padding: Spacing.md,
+            }, pressed && { opacity: 0.8 }]}
           >
-            <View style={[styles.themeIconWrap, { backgroundColor: mode === 'dark' ? '#1E2535' : '#E8ECF8' }]}>
-              <MaterialIcons
-                name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
-                size={22}
-                color={mode === 'dark' ? '#A0CFFF' : '#D97706'}
-              />
+            <View style={{ width: 44, height: 44, borderRadius: Radius.sm, backgroundColor: mode === 'dark' ? '#1E2535' : '#E8ECF8', alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialIcons name={mode === 'dark' ? 'dark-mode' : 'light-mode'} size={22} color={mode === 'dark' ? '#A0CFFF' : '#D97706'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.themeLabel}>{mode === 'dark' ? 'Thème sombre' : 'Thème clair'}</Text>
-              <Text style={styles.themeSub}>Appuyez pour basculer vers le thème {mode === 'dark' ? 'clair' : 'sombre'}</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>{mode === 'dark' ? 'Thème sombre' : 'Thème clair'}</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>Appuyez pour basculer vers le thème {mode === 'dark' ? 'clair' : 'sombre'}</Text>
             </View>
-            <View style={styles.themeToggleWrap}>
-              <View style={[styles.themeToggle, mode === 'light' ? styles.themeToggleLight : null]}>
-                <View style={[styles.themeThumb, mode === 'light' ? styles.themeThumbLight : null]}>
-                  <MaterialIcons
-                    name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
-                    size={12}
-                    color={mode === 'dark' ? '#0A0C10' : '#fff'}
-                  />
-                </View>
+            <View style={{
+              width: 52, height: 28, borderRadius: 14,
+              backgroundColor: mode === 'dark' ? '#1E2535' : '#D97706',
+              borderWidth: 1, borderColor: C.border, justifyContent: 'center', paddingHorizontal: 3,
+            }}>
+              <View style={{
+                width: 22, height: 22, borderRadius: 11,
+                backgroundColor: mode === 'dark' ? '#A0CFFF' : '#fff',
+                alignItems: 'center', justifyContent: 'center',
+                alignSelf: mode === 'dark' ? 'flex-start' : 'flex-end',
+              }}>
+                <MaterialIcons name={mode === 'dark' ? 'dark-mode' : 'light-mode'} size={12} color={mode === 'dark' ? '#0A0C10' : '#D97706'} />
               </View>
             </View>
           </Pressable>
 
-          <View style={styles.themePreviewRow}>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
             {([['dark', '#0A0C10', '#3D7EFF', 'Sombre'], ['light', '#F4F6FB', '#2563EB', 'Clair']] as const).map(([m, bg, acc, label]) => (
               <Pressable
                 key={m}
                 onPress={() => m !== mode && toggleTheme()}
-                style={[styles.themePreviewCard, { backgroundColor: bg }, mode === m ? styles.themePreviewCardActive : null]}
+                style={[{
+                  flex: 1, borderRadius: Radius.md, padding: Spacing.md, gap: 6,
+                  flexDirection: 'row' as const, alignItems: 'center' as const,
+                  backgroundColor: bg,
+                  borderWidth: 2, borderColor: mode === m ? acc : 'transparent',
+                }]}
               >
-                <View style={[styles.themePreviewDot, { backgroundColor: acc }]} />
-                <Text style={[styles.themePreviewLabel, { color: m === 'dark' ? '#F0F4FF' : '#111827' }]}>{label}</Text>
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: acc }} />
+                <Text style={{ fontSize: FontSize.sm, fontWeight: '600', flex: 1, color: m === 'dark' ? '#F0F4FF' : '#111827' }}>{label}</Text>
                 {mode === m ? <MaterialIcons name="check-circle" size={14} color={acc} /> : null}
               </Pressable>
             ))}
           </View>
         </View>
 
-        {/* API Key */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="vpn-key" size={14} color={Colors.warning} /> Clé API
+        {/* ── Interface Language ──────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Langue de l'interface
           </Text>
-          <View style={styles.apiKeyRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              {APP_LANGUAGES.map(lang => (
+                <Pressable
+                  key={lang.code}
+                  onPress={() => setSelectedLang(lang.code)}
+                  style={{
+                    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+                    borderRadius: Radius.pill, borderWidth: 1,
+                    borderColor: selectedLang === lang.code ? C.primaryLight : C.border,
+                    backgroundColor: selectedLang === lang.code ? C.primary : C.bgCardAlt,
+                    flexDirection: 'row', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <Text style={{ fontSize: 16 }}>{lang.flag}</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: selectedLang === lang.code ? '#fff' : C.textSecondary, fontWeight: '600' }}>{lang.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* ── Web Search Engine ──────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Moteur de recherche web
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+            {WEB_SEARCH_ENGINES.map(engine => (
+              <Pressable
+                key={engine.id}
+                onPress={() => setSelectedSearchEngine(engine.id)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                  paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+                  borderRadius: Radius.md, borderWidth: 1,
+                  borderColor: selectedSearchEngine === engine.id ? engine.color : C.border,
+                  backgroundColor: selectedSearchEngine === engine.id ? engine.color + '18' : C.bgCardAlt,
+                  flex: 1, minWidth: '45%',
+                }}
+              >
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: engine.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name={engine.icon as any} size={16} color={engine.color} />
+                </View>
+                <Text style={{ fontSize: FontSize.sm, color: selectedSearchEngine === engine.id ? engine.color : C.textSecondary, fontWeight: '600', flex: 1 }}>
+                  {engine.label}
+                </Text>
+                {selectedSearchEngine === engine.id ? <MaterialIcons name="check" size={16} color={engine.color} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        {/* ── API Key ─────────────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Clé API
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
             <ThemedInput
               value={bot.apiKey}
               onChangeText={v => updateBot({ apiKey: v })}
@@ -102,88 +173,84 @@ export default function SettingsScreen() {
               mono
               style={{ flex: 1 }}
             />
-            <Pressable onPress={() => setApiKeyVisible(v => !v)} hitSlop={8} style={styles.eyeBtn}>
-              <MaterialIcons name={apiKeyVisible ? 'visibility-off' : 'visibility'} size={20} color={Colors.textSecondary} />
+            <Pressable onPress={() => setApiKeyVisible(v => !v)} hitSlop={8} style={{ padding: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm }}>
+              <MaterialIcons name={apiKeyVisible ? 'visibility-off' : 'visibility'} size={20} color={C.textSecondary} />
             </Pressable>
           </View>
           {!bot.apiKey ? (
-            <View style={styles.apiWarning}>
-              <MaterialIcons name="info-outline" size={14} color={Colors.warning} />
-              <Text style={styles.apiWarningText}>Mode démo actif · Ajoutez une clé API pour un vrai LLM</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
+              <MaterialIcons name="info-outline" size={14} color={C.warning} />
+              <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>Mode démo actif · Ajoutez une clé API pour un vrai LLM</Text>
             </View>
           ) : (
-            <View style={[styles.apiWarning, { backgroundColor: Colors.accentGlow }]}>
-              <MaterialIcons name="check-circle" size={14} color={Colors.accent} />
-              <Text style={[styles.apiWarningText, { color: Colors.accent }]}>Clé API configurée</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
+              <MaterialIcons name="check-circle" size={14} color={C.accent} />
+              <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>Clé API configurée</Text>
             </View>
           )}
         </View>
 
-        {/* Model Selector */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="memory" size={14} color={Colors.primary} /> Modèle LLM
+        {/* ── Model Selector ──────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Modèle LLM
           </Text>
           <Pressable
             onPress={() => setShowModels(v => !v)}
-            style={({ pressed }) => [styles.modelSelector, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [{
+              flexDirection: 'row' as const, alignItems: 'center' as const, gap: Spacing.md,
+              backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+              borderWidth: 1, borderColor: C.border, padding: Spacing.md,
+            }, pressed && { opacity: 0.8 }]}
           >
-            <View style={[styles.providerBadge, { backgroundColor: (providerColor[selectedModel.provider] || Colors.primary) + '22' }]}>
-              <Text style={[styles.providerText, { color: providerColor[selectedModel.provider] || Colors.primary }]}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.sm, backgroundColor: (providerColor[selectedModel.provider] || C.primary) + '22' }}>
+              <Text style={{ fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.5, color: providerColor[selectedModel.provider] || C.primary }}>
                 {selectedModel.provider}
               </Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.modelName}>{selectedModel.label}</Text>
-              <Text style={styles.modelTokens}>{selectedModel.tokens.toLocaleString('fr-FR')} tokens max</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>{selectedModel.label}</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2, fontFamily: 'monospace' }}>{selectedModel.tokens.toLocaleString('fr-FR')} tokens max</Text>
             </View>
-            <MaterialIcons name={showModels ? 'expand-less' : 'expand-more'} size={22} color={Colors.textSecondary} />
+            <MaterialIcons name={showModels ? 'expand-less' : 'expand-more'} size={22} color={C.textSecondary} />
           </Pressable>
 
           {showModels ? (
-            <View style={styles.modelList}>
+            <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
               {LLM_MODELS.map(model => (
                 <Pressable
                   key={model.id}
                   onPress={() => { updateLLMConfig({ model: model.id }); setShowModels(false); }}
-                  style={({ pressed }) => [
-                    styles.modelRow,
-                    model.id === bot.llmConfig.model ? styles.modelRowSelected : null,
-                    pressed && { opacity: 0.75 },
-                  ]}
+                  style={({ pressed }) => [{
+                    flexDirection: 'row' as const, alignItems: 'center' as const, padding: Spacing.md,
+                    borderBottomWidth: 1, borderBottomColor: C.border,
+                    backgroundColor: model.id === bot.llmConfig.model ? C.accentGlow : 'transparent',
+                  }, pressed && { opacity: 0.75 }]}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.modelRowName, model.id === bot.llmConfig.model ? { color: Colors.accent } : null]}>
+                    <Text style={{ fontSize: FontSize.body, color: model.id === bot.llmConfig.model ? C.accent : C.textPrimary, fontWeight: '500' }}>
                       {model.label}
                     </Text>
-                    <Text style={styles.modelRowProvider}>{model.provider}</Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>{model.provider}</Text>
                   </View>
-                  {model.id === bot.llmConfig.model ? (
-                    <MaterialIcons name="check" size={18} color={Colors.accent} />
-                  ) : null}
+                  {model.id === bot.llmConfig.model ? <MaterialIcons name="check" size={18} color={C.accent} /> : null}
                 </Pressable>
               ))}
             </View>
           ) : null}
         </View>
 
-        {/* Sliders */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="tune" size={14} color={Colors.accent} /> Paramètres de génération
+        {/* ── Generation Params ───────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Paramètres de génération
           </Text>
 
-          <View style={styles.sliderCard}>
-            <SliderRow
-              label="Température"
-              value={bot.llmConfig.temperature}
-              min={0}
-              max={2}
-              step={0.05}
-              onChange={v => updateLLMConfig({ temperature: Math.round(v * 20) / 20 })}
-            />
-            <View style={styles.hint}>
-              <Text style={styles.hintText}>
+          <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.xs }}>
+            <SliderRow label="Température" value={bot.llmConfig.temperature} min={0} max={2} step={0.05}
+              onChange={v => updateLLMConfig({ temperature: Math.round(v * 20) / 20 })} />
+            <View style={{ backgroundColor: C.bg, borderRadius: Radius.sm, padding: Spacing.sm }}>
+              <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 18 }}>
                 {bot.llmConfig.temperature < 0.4 ? '❄️ Déterministe · Réponses précises et répétables' :
                   bot.llmConfig.temperature < 0.9 ? '⚖️ Équilibré · Bon compromis créativité/précision' :
                     '🔥 Créatif · Réponses variées et imprévisibles'}
@@ -191,34 +258,22 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <View style={[styles.sliderCard, { marginTop: Spacing.md }]}>
-            <SliderRow
-              label="Max Tokens"
-              value={bot.llmConfig.maxTokens}
-              min={256}
-              max={8192}
-              step={256}
+          <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
+            <SliderRow label="Max Tokens" value={bot.llmConfig.maxTokens} min={256} max={8192} step={256}
               onChange={v => updateLLMConfig({ maxTokens: Math.round(v / 256) * 256 })}
-              format={v => `${Math.round(v).toLocaleString('fr-FR')}`}
-            />
+              format={v => `${Math.round(v).toLocaleString('fr-FR')}`} />
           </View>
 
-          <View style={[styles.sliderCard, { marginTop: Spacing.md }]}>
-            <SliderRow
-              label="Top P (Nucleus Sampling)"
-              value={bot.llmConfig.topP}
-              min={0.1}
-              max={1}
-              step={0.05}
-              onChange={v => updateLLMConfig({ topP: Math.round(v * 20) / 20 })}
-            />
+          <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
+            <SliderRow label="Top P (Nucleus Sampling)" value={bot.llmConfig.topP} min={0.1} max={1} step={0.05}
+              onChange={v => updateLLMConfig({ topP: Math.round(v * 20) / 20 })} />
           </View>
         </View>
 
-        {/* System Prompt */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="code" size={14} color={Colors.textMono} /> Prompt système
+        {/* ── System Prompt ───────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Prompt système
           </Text>
           <ThemedInput
             value={bot.llmConfig.systemPrompt}
@@ -230,31 +285,31 @@ export default function SettingsScreen() {
             style={{ minHeight: 140, lineHeight: 20 }}
             mono
           />
-          <Text style={styles.promptHint}>
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontFamily: 'monospace' }}>
             {bot.llmConfig.systemPrompt.length} caractères · Votre base de connaissances sera injectée automatiquement
           </Text>
         </View>
 
-        {/* Bot Color */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="palette" size={14} color={Colors.primary} /> Couleur de l'avatar
+        {/* ── Bot Color ───────────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Couleur de l'avatar
           </Text>
-          <View style={styles.colorRow}>
+          <View style={{ flexDirection: 'row', gap: Spacing.md, flexWrap: 'wrap' }}>
             {['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455'].map(c => (
               <Pressable
                 key={c}
                 onPress={() => updateBot({ avatarColor: c })}
-                style={[styles.colorDot, { backgroundColor: c }, bot.avatarColor === c ? styles.colorDotSelected : null]}
+                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c, borderWidth: bot.avatarColor === c ? 3 : 0, borderColor: '#fff' }}
               />
             ))}
           </View>
         </View>
 
-        {/* Danger Zone */}
-        <View style={[styles.section, styles.dangerSection]}>
-          <Text style={[styles.sectionLabel, { color: Colors.error }]}>
-            <MaterialIcons name="warning" size={14} color={Colors.error} /> Zone de danger
+        {/* ── Danger ──────────────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.error + '33', padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Zone de danger
           </Text>
           <Pressable
             onPress={() => showAlert(
@@ -262,107 +317,20 @@ export default function SettingsScreen() {
               'Toutes vos sources, paramètres et applications connectées seront supprimés.',
               [
                 { text: 'Annuler', style: 'cancel' },
-                { text: 'Réinitialiser', style: 'destructive', onPress: () => { /* Reset handled via context */ } },
+                { text: 'Réinitialiser', style: 'destructive', onPress: () => {} },
               ]
             )}
-            style={({ pressed }) => [styles.dangerBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [{
+              flexDirection: 'row' as const, alignItems: 'center' as const, gap: Spacing.sm,
+              backgroundColor: C.error + '15', borderRadius: Radius.md,
+              padding: Spacing.md, borderWidth: 1, borderColor: C.error + '33',
+            }, pressed && { opacity: 0.8 }]}
           >
-            <MaterialIcons name="delete-forever" size={18} color={Colors.error} />
-            <Text style={styles.dangerBtnText}>Réinitialiser la configuration</Text>
+            <MaterialIcons name="delete-forever" size={18} color={C.error} />
+            <Text style={{ fontSize: FontSize.body, color: C.error, fontWeight: '600' }}>Réinitialiser la configuration</Text>
           </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
-  scroll: { flex: 1 },
-  content: { padding: Spacing.md, gap: Spacing.lg },
-  screenTitle: { fontSize: FontSize.xl, color: Colors.textPrimary, fontWeight: FontWeight.bold },
-  screenSub: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 },
-  section: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, gap: Spacing.md,
-  },
-  sectionLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1,
-  },
-  apiKeyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  eyeBtn: { padding: Spacing.sm, backgroundColor: Colors.bgCardAlt, borderRadius: Radius.sm },
-  apiWarning: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    backgroundColor: Colors.warning + '15', borderRadius: Radius.sm,
-    padding: Spacing.sm, borderWidth: 1, borderColor: Colors.warning + '33',
-  },
-  apiWarningText: { fontSize: FontSize.xs, color: Colors.warning, flex: 1 },
-  modelSelector: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
-  },
-  providerBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.sm },
-  providerText: { fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.5 },
-  modelName: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '600' },
-  modelTokens: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2, fontFamily: 'monospace' },
-  modelList: {
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, overflow: 'hidden',
-  },
-  modelRow: {
-    flexDirection: 'row', alignItems: 'center', padding: Spacing.md,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-  },
-  modelRowSelected: { backgroundColor: Colors.accentGlow },
-  modelRowName: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '500' },
-  modelRowProvider: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  sliderCard: {
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, gap: Spacing.xs,
-  },
-  hint: { backgroundColor: Colors.bg, borderRadius: Radius.sm, padding: Spacing.sm },
-  hintText: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18 },
-  promptHint: { fontSize: FontSize.xs, color: Colors.textMuted, fontFamily: 'monospace' },
-  colorRow: { flexDirection: 'row', gap: Spacing.md, flexWrap: 'wrap' },
-  colorDot: { width: 36, height: 36, borderRadius: 18 },
-  colorDotSelected: { borderWidth: 3, borderColor: '#fff' },
-  dangerSection: { borderColor: Colors.error + '33' },
-  dangerBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.error + '15', borderRadius: Radius.md,
-    padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '33',
-  },
-  dangerBtnText: { fontSize: FontSize.body, color: Colors.error, fontWeight: '600' },
-  // Theme
-  themeRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
-  },
-  themeIconWrap: { width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  themeLabel: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '600' },
-  themeSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  themeToggleWrap: {},
-  themeToggle: {
-    width: 52, height: 28, borderRadius: 14,
-    backgroundColor: '#1E2535', borderWidth: 1, borderColor: Colors.border,
-    justifyContent: 'center', paddingHorizontal: 3,
-  },
-  themeToggleLight: { backgroundColor: '#D97706' },
-  themeThumb: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: '#A0CFFF', alignItems: 'center', justifyContent: 'center',
-  },
-  themeThumbLight: { backgroundColor: '#fff', alignSelf: 'flex-end' },
-  themePreviewRow: { flexDirection: 'row', gap: Spacing.sm },
-  themePreviewCard: {
-    flex: 1, borderRadius: Radius.md, padding: Spacing.md, gap: 6,
-    flexDirection: 'row', alignItems: 'center',
-    borderWidth: 2, borderColor: 'transparent',
-  },
-  themePreviewCardActive: { borderColor: Colors.primary },
-  themePreviewDot: { width: 10, height: 10, borderRadius: 5 },
-  themePreviewLabel: { fontSize: FontSize.sm, fontWeight: '600', flex: 1 },
-});

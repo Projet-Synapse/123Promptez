@@ -1,7 +1,8 @@
 // Powered by OnSpace.AI
+// Theme fix: inline styles with useThemeColors() — image file picker added for KB sources
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable,
+  View, Text, ScrollView, Pressable,
   Modal, KeyboardAvoidingView, Platform, TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,9 +10,10 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useAlert } from '@/template';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import type { DBFile, DBFolder } from '@/contexts/WorkspaceContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -23,25 +25,13 @@ const FILE_TYPES: { id: DBFile['type']; label: string; icon: string; color: stri
   { id: 'json', label: 'JSON', icon: 'data-object', color: '#FF6B35' },
   { id: 'code', label: 'Code', icon: 'code', color: '#9B59B6' },
 ];
-
 const FOLDER_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455', '#00BFFF', '#FF69B4'];
 const FOLDER_ICONS = ['folder', 'folder-special', 'source', 'book', 'bookmark', 'archive', 'description', 'storage', 'science', 'insights'];
 
-function getFileTypeInfo(type: DBFile['type']) {
-  return FILE_TYPES.find(t => t.id === type) ?? FILE_TYPES[0];
-}
-
-function formatSize(size: number): string {
-  if (size < 1000) return `${size} c`;
-  return `${(size / 1000).toFixed(1)} Ko`;
-}
-
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
-}
-
+function getFileTypeInfo(type: DBFile['type']) { return FILE_TYPES.find(t => t.id === type) ?? FILE_TYPES[0]; }
+function formatSize(size: number): string { if (size < 1000) return `${size} c`; return `${(size / 1000).toFixed(1)} Ko`; }
+function formatDate(date: Date): string { return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); }
 function inferFileType(mimeType: string | undefined, name: string): DBFile['type'] {
-  if (!mimeType && !name) return 'text';
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (ext === 'md' || ext === 'markdown') return 'markdown';
   if (ext === 'json') return 'json';
@@ -50,15 +40,12 @@ function inferFileType(mimeType: string | undefined, name: string): DBFile['type
   return 'text';
 }
 
-// ─── File Row Component ───────────────────────────────────────────────────────
+// ─── File Row ─────────────────────────────────────────────────────────────────
 function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => void; onDelete: () => void }) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}
-    >
+    <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}>
       <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
         <MaterialIcons name={info.icon as any} size={18} color={info.color} />
       </View>
@@ -88,14 +75,11 @@ function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => voi
   );
 }
 
-// ─── Folder Card Component ────────────────────────────────────────────────────
+// ─── Folder Card ──────────────────────────────────────────────────────────────
 function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder; onPress: () => void; onDelete: () => void }) {
   const C = useThemeColors();
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}
-    >
+    <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}>
       <View style={{ width: 46, height: 46, borderRadius: Radius.sm, backgroundColor: folder.color + '22', alignItems: 'center', justifyContent: 'center' }}>
         <MaterialIcons name={folder.icon as any} size={26} color={folder.color} />
       </View>
@@ -117,36 +101,61 @@ function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder; onPress: 
   );
 }
 
+// ─── Insert Options Bar ───────────────────────────────────────────────────────
+function InsertBar({ onText, onFile, onImage, onLink }: { onText: () => void; onFile: () => void; onImage: () => void; onLink: () => void }) {
+  const C = useThemeColors();
+  const btns = [
+    { icon: 'edit-note', label: 'Texte', onPress: onText, color: '#FFB800' },
+    { icon: 'upload-file', label: 'Fichier', onPress: onFile, color: '#3D7EFF' },
+    { icon: 'image', label: 'Image', onPress: onImage, color: '#00CC6A' },
+    { icon: 'link', label: 'Lien', onPress: onLink, color: '#9B59B6' },
+  ];
+  return (
+    <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+      {btns.map(b => (
+        <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: Spacing.sm + 2, borderRadius: Radius.md, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.75 }]}>
+          <MaterialIcons name={b.icon as any} size={20} color={b.color} />
+          <Text style={{ fontSize: 11, color: b.color, fontWeight: '700' }}>{b.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function WorkspaceDatabaseScreen() {
   const insets = useSafeAreaInsets();
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
-  const { workspaces, addFolder, updateFolder, removeFolder, addFile, updateFile, removeFile } = useWorkspace();
+  const { workspaces, addFolder, removeFolder, addFile, updateFile, removeFile } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
   const C = useThemeColors();
 
   const ws = workspaces.find(w => w.id === wsId);
-
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [showAddFolder, setShowAddFolder] = useState(false);
   const [showAddFile, setShowAddFile] = useState(false);
+  const [showAddLink, setShowAddLink] = useState(false);
   const [editingFile, setEditingFile] = useState<DBFile | null>(null);
   const [showFileEditor, setShowFileEditor] = useState(false);
 
-  // New folder form
+  // Folder form
   const [folderName, setFolderName] = useState('');
   const [folderDesc, setFolderDesc] = useState('');
   const [folderColor, setFolderColor] = useState(FOLDER_COLORS[0]);
   const [folderIcon, setFolderIcon] = useState(FOLDER_ICONS[0]);
 
-  // New file form
+  // File form (text/note)
   const [fileName, setFileName] = useState('');
   const [fileType, setFileType] = useState<DBFile['type']>('note');
   const [fileContent, setFileContent] = useState('');
   const [fileTags, setFileTags] = useState('');
 
-  // File editor
+  // Link form
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkName, setLinkName] = useState('');
+
+  // Editor
   const [editorName, setEditorName] = useState('');
   const [editorContent, setEditorContent] = useState('');
   const [editorTags, setEditorTags] = useState('');
@@ -169,15 +178,15 @@ export default function WorkspaceDatabaseScreen() {
   const totalFiles = ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length, 0);
 
   const resetFolderForm = () => { setFolderName(''); setFolderDesc(''); setFolderColor(FOLDER_COLORS[0]); setFolderIcon(FOLDER_ICONS[0]); };
+
   const handleAddFolder = () => {
     if (!folderName.trim()) return;
     addFolder(ws.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
-    resetFolderForm();
-    setShowAddFolder(false);
+    resetFolderForm(); setShowAddFolder(false);
   };
 
   const handleDeleteFolder = (folder: DBFolder) => {
-    showAlert(`Supprimer "${folder.name}" ?`, `Ce dossier et ses ${folder.files.length} fichier(s) seront supprimés.`, [
+    showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) seront supprimés.`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
     ]);
@@ -185,80 +194,66 @@ export default function WorkspaceDatabaseScreen() {
 
   const resetFileForm = () => { setFileName(''); setFileType('note'); setFileContent(''); setFileTags(''); };
 
-  const handleAddFile = () => {
+  const handleAddTextFile = () => {
     if (!fileName.trim() || !fileContent.trim()) return;
-    addFile(ws.id, currentFolderId, {
-      name: fileName.trim(),
-      type: fileType,
-      content: fileContent.trim(),
-      tags: fileTags.split(',').map(t => t.trim()).filter(Boolean),
-    });
-    resetFileForm();
-    setShowAddFile(false);
+    addFile(ws.id, currentFolderId, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    resetFileForm(); setShowAddFile(false);
   };
 
-  // ─── File Picker ────────────────────────────────────────────────────────────
+  const handleAddLink = () => {
+    if (!linkUrl.trim()) return;
+    const name = linkName.trim() || linkUrl.trim();
+    addFile(ws.id, currentFolderId, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
+    setLinkUrl(''); setLinkName(''); setShowAddLink(false);
+    showAlert('Lien ajouté', `"${name}" a été ajouté à votre base de données.`);
+  };
+
+  // ─── File picker ────────────────────────────────────────────────────────────
   const handlePickFile = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/*', 'application/json', 'application/javascript', 'application/typescript', 'application/octet-stream', '*/*'],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-
+      const result = await DocumentPicker.getDocumentAsync({ type: ['text/*', 'application/json', 'application/javascript', '*/*'], copyToCacheDirectory: true, multiple: false });
+      if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
-      const pickedName = asset.name ?? 'fichier-importé';
-      const mimeType = asset.mimeType;
-
-      // Read file content — works for text files via fetch
       let content = '';
       try {
         const response = await fetch(asset.uri);
         content = await response.text();
-        // Truncate very large files
-        if (content.length > 50000) {
-          content = content.slice(0, 50000) + '\n\n[... Fichier tronqué à 50 000 caractères]';
-        }
-      } catch {
-        content = `[Fichier importé: ${pickedName}]\n(Contenu binaire non lisible directement)`;
-      }
-
-      const inferredType = inferFileType(mimeType, pickedName);
-
-      addFile(ws.id, currentFolderId, {
-        name: pickedName,
-        type: inferredType,
-        content,
-        tags: ['importé'],
-      });
-
-      showAlert('Fichier importé', `"${pickedName}" a été ajouté à votre base de données.`);
+        if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué à 50 000 caractères]';
+      } catch { content = `[Fichier importé: ${asset.name}]\n(Contenu binaire non lisible directement)`; }
+      addFile(ws.id, currentFolderId, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
+      showAlert('Fichier importé', `"${asset.name}" a été ajouté à votre base de données.`);
     } catch (error: any) {
       showAlert('Erreur', `Impossible d'importer le fichier : ${error.message ?? 'Erreur inconnue'}`);
     }
   };
 
-  const handleOpenFileEditor = (file: DBFile) => {
-    setEditingFile(file);
-    setEditorName(file.name);
-    setEditorContent(file.content);
-    setEditorTags(file.tags.join(', '));
-    setShowFileEditor(true);
+  // ─── Image picker ────────────────────────────────────────────────────────────
+  const handlePickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') { showAlert('Permission requise', "L'accès à la galerie photo est nécessaire pour importer des images."); return; }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.8 });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const fileName = asset.uri.split('/').pop() ?? 'image.jpg';
+      addFile(ws.id, currentFolderId, {
+        name: fileName,
+        type: 'note',
+        content: `[IMAGE: ${fileName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`,
+        tags: ['image', 'importé'],
+      });
+      showAlert('Image ajoutée', `"${fileName}" a été ajoutée à votre base de données.`);
+    } catch (error: any) {
+      showAlert('Erreur', `Impossible d'importer l'image : ${error.message ?? 'Erreur inconnue'}`);
+    }
   };
 
+  const handleOpenFileEditor = (file: DBFile) => { setEditingFile(file); setEditorName(file.name); setEditorContent(file.content); setEditorTags(file.tags.join(', ')); setShowFileEditor(true); };
   const handleSaveFile = () => {
     if (!editingFile || !editorName.trim()) return;
-    updateFile(ws.id, currentFolderId, editingFile.id, {
-      name: editorName.trim(),
-      content: editorContent,
-      tags: editorTags.split(',').map(t => t.trim()).filter(Boolean),
-    });
-    setShowFileEditor(false);
-    setEditingFile(null);
+    updateFile(ws.id, currentFolderId, editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
+    setShowFileEditor(false); setEditingFile(null);
   };
-
   const handleDeleteFile = (file: DBFile) => {
     showAlert(`Supprimer "${file.name}" ?`, 'Ce fichier sera définitivement supprimé.', [
       { text: 'Annuler', style: 'cancel' },
@@ -286,35 +281,18 @@ export default function WorkspaceDatabaseScreen() {
             ) : null}
           </View>
           <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
-            {currentFolder
-              ? `${currentFolder.files.length} fichier${currentFolder.files.length !== 1 ? 's' : ''}`
-              : `${totalFiles} fichier${totalFiles !== 1 ? 's' : ''} · ${ws.database.folders.length} dossier${ws.database.folders.length !== 1 ? 's' : ''}`}
+            {currentFolder ? `${currentFolder.files.length} fichier(s)` : `${totalFiles} fichier(s) · ${ws.database.folders.length} dossier(s)`}
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-          {currentFolderId === null ? (
-            <Pressable onPress={() => { resetFolderForm(); setShowAddFolder(true); }} style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
-              <MaterialIcons name="create-new-folder" size={20} color={C.primary} />
-            </Pressable>
-          ) : null}
-          {/* Import from storage button */}
-          <Pressable onPress={handlePickFile} style={({ pressed }) => [{ height: 36, paddingHorizontal: Spacing.sm, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
-            <MaterialIcons name="upload-file" size={18} color={C.primary} />
-            <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600' }}>Importer</Text>
+        {currentFolderId === null ? (
+          <Pressable onPress={() => { resetFolderForm(); setShowAddFolder(true); }} style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
+            <MaterialIcons name="create-new-folder" size={20} color={C.primary} />
           </Pressable>
-          <Pressable onPress={() => { resetFileForm(); setShowAddFile(true); }} style={({ pressed }) => [{ height: 36, paddingHorizontal: Spacing.sm, borderRadius: Radius.sm, backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent, flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
-            <MaterialIcons name="add" size={18} color={C.bg} />
-            <Text style={{ fontSize: FontSize.sm, color: C.bg, fontWeight: '700' }}>Fichier</Text>
-          </Pressable>
-        </View>
+        ) : null}
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Stats banner */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
+        {/* Stats */}
         {currentFolderId === null ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: ws.color + '33', backgroundColor: ws.color + '0A', padding: Spacing.md }}>
             <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
@@ -323,18 +301,27 @@ export default function WorkspaceDatabaseScreen() {
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>Base de données — {ws.name}</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>
-                {ws.database.folders.length} dossier{ws.database.folders.length !== 1 ? 's' : ''} · {totalFiles} fichier{totalFiles !== 1 ? 's' : ''}
+                {ws.database.folders.length} dossier(s) · {totalFiles} fichier(s)
               </Text>
             </View>
           </View>
         ) : null}
 
+        {/* Insert Bar */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Insérer</Text>
+          <InsertBar
+            onText={() => { resetFileForm(); setFileType('note'); setShowAddFile(true); }}
+            onFile={handlePickFile}
+            onImage={handlePickImage}
+            onLink={() => { setLinkUrl(''); setLinkName(''); setShowAddLink(true); }}
+          />
+        </View>
+
         {/* Folders */}
         {currentFolderId === null && ws.database.folders.length > 0 ? (
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>
-              Dossiers
-            </Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
             {ws.database.folders.map(folder => (
               <FolderCard key={folder.id} folder={folder} onPress={() => setCurrentFolderId(folder.id)} onDelete={() => handleDeleteFolder(folder)} />
             ))}
@@ -350,17 +337,7 @@ export default function WorkspaceDatabaseScreen() {
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md }}>
               <MaterialIcons name="folder-open" size={40} color={C.textMuted} />
               <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Aucun fichier</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Créez une note, importez un fichier ou ajoutez une URL</Text>
-              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                <Pressable onPress={handlePickFile} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary + '22', paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.primary + '44' }, pressed && { opacity: 0.8 }]}>
-                  <MaterialIcons name="upload-file" size={15} color={C.primary} />
-                  <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '700' }}>Importer</Text>
-                </Pressable>
-                <Pressable onPress={() => { resetFileForm(); setShowAddFile(true); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.accent, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
-                  <MaterialIcons name="add" size={15} color={C.bg} />
-                  <Text style={{ fontSize: FontSize.sm, color: C.bg, fontWeight: '700' }}>Nouveau fichier</Text>
-                </Pressable>
-              </View>
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Créez une note, importez un fichier, une image ou ajoutez un lien</Text>
             </View>
           ) : (
             displayedFiles.map(file => (
@@ -368,47 +345,30 @@ export default function WorkspaceDatabaseScreen() {
             ))
           )}
         </View>
-
-        {/* File type legend */}
-        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Types de fichiers</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-            {FILE_TYPES.map(t => (
-              <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <MaterialIcons name={t.icon as any} size={14} color={t.color} />
-                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary }}>{t.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
       </ScrollView>
 
-      {/* ─── Add Folder Modal ─────────────────────────────────────────── */}
+      {/* ─── Add Folder Modal ──────────────────────────────────────── */}
       <Modal visible={showAddFolder} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau dossier</Text>
-              <Pressable onPress={() => setShowAddFolder(false)} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={C.textSecondary} />
-              </Pressable>
+              <Pressable onPress={() => setShowAddFolder(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 460 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.sm }}>
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom du dossier</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderName} onChangeText={setFolderName} placeholder="Ex: Références, Projets..." placeholderTextColor={C.textMuted} />
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom</Text>
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderName} onChangeText={setFolderName} placeholder="Ex: Références..." placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Description (optionnel)</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderDesc} onChangeText={setFolderDesc} placeholder="Contenu de ce dossier..." placeholderTextColor={C.textMuted} />
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Description</Text>
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={folderDesc} onChangeText={setFolderDesc} placeholder="Contenu..." placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Couleur</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-                    {FOLDER_COLORS.map(c => (
-                      <Pressable key={c} onPress={() => setFolderColor(c)} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c, borderWidth: folderColor === c ? 3 : 0, borderColor: '#fff' }} />
-                    ))}
+                    {FOLDER_COLORS.map(c => <Pressable key={c} onPress={() => setFolderColor(c)} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c, borderWidth: folderColor === c ? 3 : 0, borderColor: '#fff' }} />)}
                   </View>
                 </View>
                 <View style={{ gap: Spacing.xs }}>
@@ -431,15 +391,13 @@ export default function WorkspaceDatabaseScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── Add File Modal ───────────────────────────────────────────── */}
+      {/* ─── Add Text/Note File Modal ──────────────────────────────── */}
       <Modal visible={showAddFile} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau fichier{currentFolder ? ` — ${currentFolder.name}` : ''}</Text>
-              <Pressable onPress={() => setShowAddFile(false)} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={C.textSecondary} />
-              </Pressable>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau fichier texte{currentFolder ? ` — ${currentFolder.name}` : ''}</Text>
+              <Pressable onPress={() => setShowAddFile(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.sm }}>
@@ -458,24 +416,24 @@ export default function WorkspaceDatabaseScreen() {
                 </View>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom du fichier</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={fileName} onChangeText={setFileName} placeholder={fileType === 'url' ? 'https://...' : fileType === 'code' ? 'utils.ts' : 'Mon fichier...'} placeholderTextColor={C.textMuted} />
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={fileName} onChangeText={setFileName} placeholder="Mon fichier..." placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Tags (séparés par virgule)</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={fileTags} onChangeText={setFileTags} placeholder="api, référence, important..." placeholderTextColor={C.textMuted} />
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Tags</Text>
+                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={fileTags} onChangeText={setFileTags} placeholder="api, référence..." placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu</Text>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: (fileType === 'code' || fileType === 'json') ? C.textMono : C.textPrimary, fontSize: (fileType === 'code' || fileType === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 120, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: (fileType === 'code' || fileType === 'json') ? 'monospace' : undefined }} value={fileContent} onChangeText={setFileContent} placeholder={fileType === 'url' ? 'https://docs.example.com/...' : fileType === 'json' ? '{\n  "key": "value"\n}' : fileType === 'code' ? '// Code ici...' : fileType === 'markdown' ? '# Titre\n\nContenu...' : 'Écrivez votre contenu ici...'} placeholderTextColor={C.textMuted} multiline textAlignVertical="top" />
+                  <TextInput
+                    style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: (fileType === 'code' || fileType === 'json') ? C.textMono : C.textPrimary, fontSize: (fileType === 'code' || fileType === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 120, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: (fileType === 'code' || fileType === 'json') ? 'monospace' : undefined }}
+                    value={fileContent} onChangeText={setFileContent}
+                    placeholder={fileType === 'json' ? '{\n  "key": "value"\n}' : fileType === 'code' ? '// Code ici...' : fileType === 'markdown' ? '# Titre\n\nContenu...' : 'Écrivez votre contenu ici...'}
+                    placeholderTextColor={C.textMuted} multiline textAlignVertical="top"
+                  />
                 </View>
-                {/* Import from storage shortcut */}
-                <Pressable onPress={() => { setShowAddFile(false); setTimeout(handlePickFile, 300); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.primary + '15', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, borderWidth: 1, borderColor: C.primary + '33' }, pressed && { opacity: 0.8 }]}>
-                  <MaterialIcons name="upload-file" size={16} color={C.primary} />
-                  <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600' }}>Ou importer depuis le stockage</Text>
-                </Pressable>
               </View>
             </ScrollView>
-            <Pressable onPress={handleAddFile} disabled={!fileName.trim() || !fileContent.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: (!fileName.trim() || !fileContent.trim()) ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
+            <Pressable onPress={handleAddTextFile} disabled={!fileName.trim() || !fileContent.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: (!fileName.trim() || !fileContent.trim()) ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="add-circle" size={18} color={C.bg} />
               <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Ajouter le fichier</Text>
             </Pressable>
@@ -483,7 +441,36 @@ export default function WorkspaceDatabaseScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── File Editor Modal ────────────────────────────────────────── */}
+      {/* ─── Add Link Modal ────────────────────────────────────────── */}
+      <Modal visible={showAddLink} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: '#9B59B6' + '22', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="link" size={18} color="#9B59B6" />
+                </View>
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Insérer un lien</Text>
+              </View>
+              <Pressable onPress={() => setShowAddLink(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
+            </View>
+            <View style={{ gap: Spacing.xs }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>URL *</Text>
+              <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44, fontFamily: 'monospace' }} value={linkUrl} onChangeText={setLinkUrl} placeholder="https://..." placeholderTextColor={C.textMuted} keyboardType="url" autoCapitalize="none" />
+            </View>
+            <View style={{ gap: Spacing.xs }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom (optionnel)</Text>
+              <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={linkName} onChangeText={setLinkName} placeholder="Documentation officielle..." placeholderTextColor={C.textMuted} />
+            </View>
+            <Pressable onPress={handleAddLink} disabled={!linkUrl.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#9B59B6', borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: !linkUrl.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="link" size={18} color="#fff" />
+              <Text style={{ fontSize: FontSize.body, color: '#fff', fontWeight: '700' }}>Ajouter le lien</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ─── File Editor Modal ─────────────────────────────────────── */}
       <Modal visible={showFileEditor} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '92%' }}>
@@ -496,9 +483,7 @@ export default function WorkspaceDatabaseScreen() {
                 ) : null}
                 <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Éditeur de fichier</Text>
               </View>
-              <Pressable onPress={() => setShowFileEditor(false)} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={C.textSecondary} />
-              </Pressable>
+              <Pressable onPress={() => setShowFileEditor(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.sm }}>
@@ -515,7 +500,10 @@ export default function WorkspaceDatabaseScreen() {
                     <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu</Text>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{editorContent.length} caractères</Text>
                   </View>
-                  <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? C.textMono : C.textPrimary, fontSize: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 220, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? 'monospace' : undefined }} value={editorContent} onChangeText={setEditorContent} multiline textAlignVertical="top" placeholderTextColor={C.textMuted} />
+                  <TextInput
+                    style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? C.textMono : C.textPrimary, fontSize: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? FontSize.sm : FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 220, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: editingFile && (editingFile.type === 'code' || editingFile.type === 'json') ? 'monospace' : undefined }}
+                    value={editorContent} onChangeText={setEditorContent} multiline textAlignVertical="top" placeholderTextColor={C.textMuted}
+                  />
                 </View>
               </View>
             </ScrollView>
