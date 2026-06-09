@@ -11,7 +11,8 @@ import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
 import { ChatBubble } from '@/components';
-import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { Spacing, Radius, FontSize } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { sendChatMessage } from '@/services/chatService';
 import { useAlert } from '@/template';
 
@@ -45,6 +46,7 @@ export default function ChatScreen() {
   } = useWorkspace();
   const { profile } = useProfile();
   const { showAlert } = useAlert();
+  const Colors = useThemeColors();
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);

@@ -1,14 +1,17 @@
 // Powered by OnSpace.AI
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable,
-  TextInput, Modal, KeyboardAvoidingView, Platform,
+  View, Text, ScrollView, StyleSheet, Pressable, TextInput,
+  Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
-import { useAlert } from '@/template';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { useAuth, useAlert } from '@/template';
+import { useThemeColors } from '@/hooks/useThemeColors';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { useAppData } from '@/contexts/AppDataContext';
+import { useEffect, useRef } from 'react';
 
 const MEMORY_CATEGORIES: { id: AiMemoryItem['category']; label: string; icon: string; color: string; desc: string }[] = [
   { id: 'preference', label: 'Préférence', icon: 'tune', color: '#3D7EFF', desc: 'Style, ton, format préféré' },
@@ -26,8 +29,11 @@ function getCategoryInfo(cat: AiMemoryItem['category']) {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
   const { profile, updateProfile, addMemory, updateMemory, removeMemory } = useProfile();
+  const { user, logout } = useAuth();
   const { showAlert } = useAlert();
+  const { triggerSync, isSyncing, lastSyncAt } = useAppData();
 
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [showAddMemory, setShowAddMemory] = useState(false);
@@ -35,9 +41,19 @@ export default function ProfileScreen() {
   const [memCategory, setMemCategory] = useState<AiMemoryItem['category']>('preference');
   const [editMemContent, setEditMemContent] = useState('');
 
+  // Auto-sync profile changes
+  const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleProfileChange = (updates: Partial<typeof profile>) => {
+    updateProfile(updates);
+    if (syncTimeout.current) clearTimeout(syncTimeout.current);
+    syncTimeout.current = setTimeout(() => {
+      triggerSync('profile', { ...profile, ...updates });
+    }, 1500);
+  };
+
   const initials = profile.name
     ? profile.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-    : '?';
+    : user?.email?.[0]?.toUpperCase() ?? '?';
 
   const handleAddMemory = () => {
     if (!memContent.trim()) return;
@@ -45,30 +61,20 @@ export default function ProfileScreen() {
     setMemContent('');
     setMemCategory('preference');
     setShowAddMemory(false);
+    triggerSync('profile', { ...profile, aiMemory: [...profile.aiMemory, { content: memContent.trim(), category: memCategory }] });
   };
 
   const handleDeleteMemory = (item: AiMemoryItem) => {
-    showAlert(
-      'Supprimer ce souvenir ?',
-      `"${item.content.slice(0, 60)}..."`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => removeMemory(item.id) },
-      ]
-    );
+    showAlert('Supprimer ce souvenir ?', `"${item.content.slice(0, 60)}${item.content.length > 60 ? '...' : ''}"`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => { removeMemory(item.id); triggerSync('profile', { ...profile, aiMemory: profile.aiMemory.filter(m => m.id !== item.id) }); } },
+    ]);
   };
 
-  const startEditMemory = (item: AiMemoryItem) => {
-    setEditingMemId(item.id);
-    setEditMemContent(item.content);
-  };
-
+  const startEditMemory = (item: AiMemoryItem) => { setEditingMemId(item.id); setEditMemContent(item.content); };
   const confirmEditMemory = (id: string) => {
-    if (editMemContent.trim()) {
-      updateMemory(id, editMemContent.trim());
-    }
-    setEditingMemId(null);
-    setEditMemContent('');
+    if (editMemContent.trim()) { updateMemory(id, editMemContent.trim()); }
+    setEditingMemId(null); setEditMemContent('');
   };
 
   const memoriesByCategory = MEMORY_CATEGORIES.map(cat => ({
@@ -76,95 +82,88 @@ export default function ProfileScreen() {
     items: profile.aiMemory.filter(m => m.category === cat.id),
   })).filter(g => g.items.length > 0);
 
+  const handleLogout = () => {
+    showAlert('Se déconnecter ?', 'Vos données sont sauvegardées sur le cloud.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Déconnexion', style: 'destructive', onPress: () => logout() },
+    ]);
+  };
+
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
-        showsVerticalScrollIndicator={false}
-      >
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
+      <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.screenTitle}>Profil</Text>
-          <Text style={styles.screenSub}>Vos données personnelles et mémoire IA</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ gap: 2 }}>
+            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Profil</Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Données personnelles et mémoire IA</Text>
+          </View>
+          {user ? (
+            <Pressable onPress={handleLogout} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.error + '15', paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.error + '33' }, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="logout" size={14} color={C.error} />
+              <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '600' }}>Déconnexion</Text>
+            </Pressable>
+          ) : null}
         </View>
 
+        {/* Account card */}
+        {user ? (
+          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
+              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: FontSize.lg, color: '#fff', fontWeight: '700' }}>{initials}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{profile.name || 'Compte'}</Text>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{user.email}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent }} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '600' }}>Compte vérifié</Text>
+                </View>
+              </View>
+            </View>
+            {/* Sync status */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm }}>
+              <MaterialIcons name={isSyncing ? 'sync' : 'cloud-done'} size={15} color={isSyncing ? C.warning : C.accent} />
+              <Text style={{ fontSize: FontSize.xs, color: isSyncing ? C.warning : C.textMuted, flex: 1 }}>
+                {isSyncing ? 'Synchronisation en cours...' : lastSyncAt ? `Synchronisé à ${lastSyncAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Données sauvegardées sur le cloud'}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {/* Avatar + Name */}
-        <View style={styles.avatarCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials}</Text>
+        <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
+          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: FontSize.lg, color: '#fff', fontWeight: '700' }}>{initials}</Text>
           </View>
           <View style={{ flex: 1, gap: Spacing.sm }}>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Nom complet</Text>
-              <TextInput
-                style={styles.textInput}
-                value={profile.name}
-                onChangeText={v => updateProfile({ name: v })}
-                placeholder="Votre nom..."
-                placeholderTextColor={Colors.textMuted}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                style={styles.textInput}
-                value={profile.email}
-                onChangeText={v => updateProfile({ email: v })}
-                placeholder="votre@email.com"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+            <View style={{ gap: Spacing.xs }}>
+              <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nom complet</Text>
+              <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={profile.name} onChangeText={v => handleProfileChange({ name: v })} placeholder="Votre nom..." placeholderTextColor={C.textMuted} />
             </View>
           </View>
         </View>
 
         {/* Identity */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <MaterialIcons name="person" size={13} color={Colors.primary} /> Identité
-          </Text>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Rôle / Métier</Text>
-            <TextInput
-              style={styles.textInput}
-              value={profile.role}
-              onChangeText={v => updateProfile({ role: v })}
-              placeholder="Développeur, Designer, Entrepreneur..."
-              placeholderTextColor={Colors.textMuted}
-            />
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Identité</Text>
+          <View style={{ gap: Spacing.xs }}>
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Rôle / Métier</Text>
+            <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }} value={profile.role} onChangeText={v => handleProfileChange({ role: v })} placeholder="Développeur, Designer, Entrepreneur..." placeholderTextColor={C.textMuted} />
           </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Biographie</Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              value={profile.bio}
-              onChangeText={v => updateProfile({ bio: v })}
-              placeholder="Décrivez-vous en quelques lignes pour que l'IA vous connaisse mieux..."
-              placeholderTextColor={Colors.textMuted}
-              multiline
-              textAlignVertical="top"
-            />
+          <View style={{ gap: Spacing.xs }}>
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Biographie</Text>
+            <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 90, textAlignVertical: 'top', paddingTop: Spacing.sm }} value={profile.bio} onChangeText={v => handleProfileChange({ bio: v })} placeholder="Décrivez-vous en quelques lignes..." placeholderTextColor={C.textMuted} multiline textAlignVertical="top" />
           </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Langue préférée</Text>
+          <View style={{ gap: Spacing.xs }}>
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Langue préférée</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.langRow}>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
                 {LANGUAGES.map(lang => (
-                  <Pressable
-                    key={lang}
-                    onPress={() => updateProfile({ language: lang })}
-                    style={[
-                      styles.langChip,
-                      profile.language === lang ? styles.langChipActive : null,
-                    ]}
-                  >
-                    <Text style={[styles.langChipText, profile.language === lang ? styles.langChipTextActive : null]}>
-                      {lang}
-                    </Text>
+                  <Pressable key={lang} onPress={() => handleProfileChange({ language: lang })} style={{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: profile.language === lang ? C.primaryLight : C.border, backgroundColor: profile.language === lang ? C.primary : C.bgCardAlt }}>
+                    <Text style={{ fontSize: FontSize.sm, color: profile.language === lang ? '#fff' : C.textSecondary, fontWeight: '600' }}>{lang}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -173,74 +172,50 @@ export default function ProfileScreen() {
         </View>
 
         {/* AI Memory */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sectionLabel}>
-                <MaterialIcons name="psychology" size={13} color={Colors.accent} /> Mémoire IA
-              </Text>
-              <Text style={styles.sectionSubtitle}>
-                Ce que l'IA retient de vous pour personnaliser ses réponses
-              </Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Mémoire IA</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 3 }}>Ce que l'IA retient de vous pour personnaliser ses réponses</Text>
             </View>
-            <Pressable
-              onPress={() => setShowAddMemory(true)}
-              style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
-            >
-              <MaterialIcons name="add" size={16} color="#fff" />
-              <Text style={styles.addBtnText}>Ajouter</Text>
+            <Pressable onPress={() => setShowAddMemory(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accent, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="add" size={16} color={C.bg} />
+              <Text style={{ fontSize: FontSize.sm, color: C.bg, fontWeight: '700' }}>Ajouter</Text>
             </Pressable>
           </View>
-
-          {/* Memory info banner */}
-          <View style={styles.memoryBanner}>
-            <MaterialIcons name="info-outline" size={14} color={Colors.accent} />
-            <Text style={styles.memoryBannerText}>
-              Ces informations sont injectées dans chaque conversation pour que l'IA vous comprenne et s'adapte à vos besoins spécifiques.
-            </Text>
+          <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
+            <MaterialIcons name="info-outline" size={14} color={C.accent} />
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, flex: 1, lineHeight: 17 }}>Ces informations sont injectées dans chaque conversation pour que l'IA vous comprenne et s'adapte.</Text>
           </View>
-
           {profile.aiMemory.length === 0 ? (
-            <View style={styles.emptyMemory}>
-              <MaterialIcons name="psychology" size={32} color={Colors.textMuted} />
-              <Text style={styles.emptyMemoryText}>Aucun souvenir</Text>
-              <Text style={styles.emptyMemorySub}>Ajoutez ce que l'IA doit retenir de vous</Text>
+            <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm }}>
+              <MaterialIcons name="psychology" size={32} color={C.textMuted} />
+              <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucun souvenir</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Ajoutez ce que l'IA doit retenir de vous</Text>
             </View>
           ) : null}
-
           {memoriesByCategory.map(group => (
-            <View key={group.id} style={styles.memGroup}>
-              <View style={styles.memGroupHeader}>
-                <View style={[styles.memGroupIcon, { backgroundColor: group.color + '22' }]}>
+            <View key={group.id} style={{ gap: Spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <View style={{ width: 22, height: 22, borderRadius: 4, backgroundColor: group.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={group.icon as any} size={13} color={group.color} />
                 </View>
-                <Text style={[styles.memGroupLabel, { color: group.color }]}>{group.label}</Text>
-                <Text style={styles.memGroupCount}>{group.items.length}</Text>
+                <Text style={{ fontSize: FontSize.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, color: group.color, flex: 1 }}>{group.label}</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, backgroundColor: C.bgCardAlt, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill }}>{group.items.length}</Text>
               </View>
               {group.items.map(item => (
-                <View
-                  key={item.id}
-                  style={[styles.memItem, { borderLeftColor: group.color + '66' }]}
-                >
+                <View key={item.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: group.color + '66', padding: Spacing.sm + 2 }}>
                   {editingMemId === item.id ? (
-                    <TextInput
-                      style={[styles.textInput, { flex: 1, paddingVertical: Spacing.xs }]}
-                      value={editMemContent}
-                      onChangeText={setEditMemContent}
-                      onBlur={() => confirmEditMemory(item.id)}
-                      onSubmitEditing={() => confirmEditMemory(item.id)}
-                      autoFocus
-                      multiline
-                    />
+                    <TextInput style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.primary, color: C.textPrimary, fontSize: FontSize.sm, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs }} value={editMemContent} onChangeText={setEditMemContent} onBlur={() => confirmEditMemory(item.id)} onSubmitEditing={() => confirmEditMemory(item.id)} autoFocus multiline />
                   ) : (
-                    <Text style={styles.memContent} onPress={() => startEditMemory(item)}>{item.content}</Text>
+                    <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, lineHeight: 19 }} onPress={() => startEditMemory(item)}>{item.content}</Text>
                   )}
-                  <View style={styles.memItemActions}>
-                    <Pressable onPress={() => startEditMemory(item)} hitSlop={8} style={styles.iconBtn}>
-                      <MaterialIcons name="edit" size={14} color={Colors.textMuted} />
+                  <View style={{ flexDirection: 'row', gap: 2 }}>
+                    <Pressable onPress={() => startEditMemory(item)} hitSlop={8} style={{ padding: Spacing.xs }}>
+                      <MaterialIcons name="edit" size={14} color={C.textMuted} />
                     </Pressable>
-                    <Pressable onPress={() => handleDeleteMemory(item)} hitSlop={8} style={styles.iconBtn}>
-                      <MaterialIcons name="delete-outline" size={14} color={Colors.textMuted} />
+                    <Pressable onPress={() => handleDeleteMemory(item)} hitSlop={8} style={{ padding: Spacing.xs }}>
+                      <MaterialIcons name="delete-outline" size={14} color={C.textMuted} />
                     </Pressable>
                   </View>
                 </View>
@@ -249,23 +224,21 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        {/* Stats */}
-        {(profile.name || profile.email || profile.bio) ? (
-          <View style={styles.statsCard}>
-            <MaterialIcons name="check-circle" size={16} color={Colors.accent} />
+        {/* Status card */}
+        {(profile.name || profile.bio) ? (
+          <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', backgroundColor: C.accentGlow, borderRadius: Radius.md, borderWidth: 1, borderColor: C.accent + '33', padding: Spacing.md }}>
+            <MaterialIcons name="check-circle" size={16} color={C.accent} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.statsTitle}>Profil configuré</Text>
-              <Text style={styles.statsText}>
-                L'IA connaît votre nom, rôle et {profile.aiMemory.length} information{profile.aiMemory.length !== 1 ? 's' : ''} personnalisée{profile.aiMemory.length !== 1 ? 's' : ''}
-              </Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '600', marginBottom: 3 }}>Profil configuré</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>L'IA connaît votre nom, rôle et {profile.aiMemory.length} information{profile.aiMemory.length !== 1 ? 's' : ''} personnalisée{profile.aiMemory.length !== 1 ? 's' : ''}</Text>
             </View>
           </View>
         ) : (
-          <View style={styles.incompleteCard}>
-            <MaterialIcons name="person-outline" size={16} color={Colors.warning} />
+          <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', backgroundColor: C.warning + '10', borderRadius: Radius.md, borderWidth: 1, borderColor: C.warning + '33', padding: Spacing.md }}>
+            <MaterialIcons name="person-outline" size={16} color={C.warning} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.incompleteTitle}>Profil incomplet</Text>
-              <Text style={styles.incompleteText}>Complétez votre profil pour que l'IA puisse vous personnaliser ses réponses</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.warning, fontWeight: '600', marginBottom: 3 }}>Profil incomplet</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Complétez votre profil pour que l'IA personnalise ses réponses</Text>
             </View>
           </View>
         )}
@@ -273,76 +246,38 @@ export default function ProfileScreen() {
 
       {/* Add Memory Modal */}
       <Modal visible={showAddMemory} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { paddingBottom: insets.bottom + Spacing.lg }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nouveau souvenir IA</Text>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Nouveau souvenir IA</Text>
               <Pressable onPress={() => setShowAddMemory(false)} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
               </Pressable>
             </View>
-
             <View style={{ gap: Spacing.md }}>
-              {/* Category */}
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Catégorie</Text>
+              <View style={{ gap: Spacing.xs }}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Catégorie</Text>
                 {MEMORY_CATEGORIES.map(cat => (
-                  <Pressable
-                    key={cat.id}
-                    onPress={() => setMemCategory(cat.id)}
-                    style={({ pressed }) => [
-                      styles.catRow,
-                      memCategory === cat.id ? { borderColor: cat.color + '66', backgroundColor: cat.color + '10' } : null,
-                      pressed && { opacity: 0.75 },
-                    ]}
-                  >
-                    <View style={[styles.catIcon, { backgroundColor: cat.color + '22' }]}>
+                  <Pressable key={cat.id} onPress={() => setMemCategory(cat.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: memCategory === cat.id ? cat.color + '66' : C.border, backgroundColor: memCategory === cat.id ? cat.color + '10' : C.bgCardAlt, padding: Spacing.sm + 2, marginBottom: Spacing.xs }, pressed && { opacity: 0.75 }]}>
+                    <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: cat.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                       <MaterialIcons name={cat.icon as any} size={16} color={cat.color} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.catLabel, memCategory === cat.id ? { color: cat.color } : null]}>{cat.label}</Text>
-                      <Text style={styles.catDesc}>{cat.desc}</Text>
+                      <Text style={{ fontSize: FontSize.sm, color: memCategory === cat.id ? cat.color : C.textPrimary, fontWeight: '600' }}>{cat.label}</Text>
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>{cat.desc}</Text>
                     </View>
-                    {memCategory === cat.id ? (
-                      <MaterialIcons name="check-circle" size={18} color={cat.color} />
-                    ) : null}
+                    {memCategory === cat.id ? <MaterialIcons name="check-circle" size={18} color={cat.color} /> : null}
                   </Pressable>
                 ))}
               </View>
-
-              {/* Content */}
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Contenu</Text>
-                <TextInput
-                  style={[styles.textInput, styles.textArea]}
-                  value={memContent}
-                  onChangeText={setMemContent}
-                  placeholder={
-                    memCategory === 'preference' ? "Ex: Je préfère des réponses courtes et en bullet points" :
-                    memCategory === 'fact' ? "Ex: Je suis développeur mobile avec 5 ans d'expérience" :
-                    memCategory === 'goal' ? "Ex: Je souhaite lancer mon produit SaaS d'ici 6 mois" :
-                    memCategory === 'context' ? "Ex: Je travaille dans une startup fintech de 10 personnes" :
-                    "Ex: Ne jamais suggérer de solutions propriétaires"
-                  }
-                  placeholderTextColor={Colors.textMuted}
-                  multiline
-                  textAlignVertical="top"
-                  autoFocus
-                />
+              <View style={{ gap: Spacing.xs }}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu</Text>
+                <TextInput style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 90, textAlignVertical: 'top', paddingTop: Spacing.sm }} value={memContent} onChangeText={setMemContent} placeholder={memCategory === 'preference' ? "Ex: Je préfère des réponses courtes et en bullet points" : memCategory === 'fact' ? "Ex: Je suis développeur mobile avec 5 ans d'expérience" : "Ex: Je souhaite lancer mon produit SaaS d'ici 6 mois"} placeholderTextColor={C.textMuted} multiline textAlignVertical="top" autoFocus />
               </View>
             </View>
-
-            <Pressable
-              onPress={handleAddMemory}
-              disabled={!memContent.trim()}
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                !memContent.trim() ? styles.primaryBtnDisabled : null,
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <MaterialIcons name="psychology" size={18} color={Colors.bg} />
-              <Text style={styles.primaryBtnText}>Enregistrer le souvenir</Text>
+            <Pressable onPress={handleAddMemory} disabled={!memContent.trim()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, opacity: !memContent.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="psychology" size={18} color={C.bg} />
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Enregistrer le souvenir</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -350,129 +285,3 @@ export default function ProfileScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
-  content: { padding: Spacing.md, gap: Spacing.lg },
-  header: { gap: 2 },
-  screenTitle: { fontSize: FontSize.xl, color: Colors.textPrimary, fontWeight: FontWeight.bold },
-  screenSub: { fontSize: FontSize.sm, color: Colors.textSecondary },
-
-  avatarCard: {
-    flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
-  },
-  avatar: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: FontSize.lg, color: '#fff', fontWeight: '700' },
-
-  section: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, gap: Spacing.md,
-  },
-  sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  sectionLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1,
-  },
-  sectionSubtitle: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 3 },
-
-  field: { gap: Spacing.xs },
-  fieldLabel: {
-    fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 0.8,
-  },
-  textInput: {
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border,
-    color: Colors.textPrimary, fontSize: FontSize.body,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44,
-  },
-  textArea: { minHeight: 90, textAlignVertical: 'top', paddingTop: Spacing.sm },
-
-  langRow: { flexDirection: 'row', gap: Spacing.sm },
-  langChip: {
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2,
-    borderRadius: Radius.pill, borderWidth: 1, borderColor: Colors.border,
-    backgroundColor: Colors.bgCardAlt,
-  },
-  langChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primaryLight },
-  langChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
-  langChipTextActive: { color: '#fff' },
-
-  addBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.accent, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2,
-    borderRadius: Radius.pill,
-  },
-  addBtnText: { fontSize: FontSize.sm, color: Colors.bg, fontWeight: '700' },
-
-  memoryBanner: {
-    flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start',
-    backgroundColor: Colors.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm,
-    borderWidth: 1, borderColor: Colors.accent + '33',
-  },
-  memoryBannerText: { fontSize: FontSize.xs, color: Colors.textSecondary, flex: 1, lineHeight: 17 },
-
-  emptyMemory: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
-  emptyMemoryText: { fontSize: FontSize.body, color: Colors.textSecondary },
-  emptyMemorySub: { fontSize: FontSize.sm, color: Colors.textMuted },
-
-  memGroup: { gap: Spacing.sm },
-  memGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  memGroupIcon: { width: 22, height: 22, borderRadius: Radius.xs ?? 4, alignItems: 'center', justifyContent: 'center' },
-  memGroupLabel: { fontSize: FontSize.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, flex: 1 },
-  memGroupCount: { fontSize: FontSize.xs, color: Colors.textMuted, backgroundColor: Colors.bgCardAlt, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill },
-
-  memItem: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.sm,
-    borderWidth: 1, borderColor: Colors.border, borderLeftWidth: 3,
-    padding: Spacing.sm + 2,
-  },
-  memContent: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary, lineHeight: 19 },
-  memItemActions: { flexDirection: 'row', gap: 2 },
-  iconBtn: { padding: Spacing.xs },
-
-  statsCard: {
-    flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.accentGlow, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.accent + '33', padding: Spacing.md,
-  },
-  statsTitle: { fontSize: FontSize.sm, color: Colors.accent, fontWeight: '600', marginBottom: 3 },
-  statsText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
-
-  incompleteCard: {
-    flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.warning + '10', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.warning + '33', padding: Spacing.md,
-  },
-  incompleteTitle: { fontSize: FontSize.sm, color: Colors.warning, fontWeight: '600', marginBottom: 3 },
-  incompleteText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  modalCard: {
-    backgroundColor: Colors.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, gap: Spacing.md,
-  },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalTitle: { fontSize: FontSize.md, color: Colors.textPrimary, fontWeight: '700' },
-  catRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.sm + 2,
-    marginBottom: Spacing.xs,
-  },
-  catIcon: { width: 32, height: 32, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  catLabel: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '600' },
-  catDesc: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  primaryBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
-  },
-  primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { fontSize: FontSize.body, color: Colors.bg, fontWeight: '700' },
-});

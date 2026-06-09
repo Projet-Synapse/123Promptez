@@ -9,13 +9,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useBot } from '@/hooks/useBot';
 import { KBSourceCard, AgentToolRow, ThemedInput } from '@/components';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { AGENT_TOOLS, KB_SOURCE_TYPES } from '@/constants/config';
 
 type ActiveSection = 'kb' | 'agents' | 'apps';
 
 export default function BuilderScreen() {
   const insets = useSafeAreaInsets();
+  const Colors = useThemeColors();
   const { bot, updateBot, addKBSource, removeKBSource, addFAQItem, toggleAgentTool, addConnectedApp, removeConnectedApp } = useBot();
   const [activeSection, setActiveSection] = useState<ActiveSection>('kb');
   const [showAddKB, setShowAddKB] = useState(false);

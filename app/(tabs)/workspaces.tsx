@@ -8,7 +8,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { ThemedInput } from '@/components';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAlert } from '@/template';
 import { useRouter } from 'expo-router';
 import type { Workspace, Conversation } from '@/contexts/WorkspaceContext';
@@ -30,6 +31,7 @@ function formatRelativeTime(date: Date): string {
 
 export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
+  const Colors = useThemeColors();
   const {
     workspaces,
     activeWorkspaceId,
