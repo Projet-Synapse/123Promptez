@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
 import { useAuth, useAlert } from '@/template';
+import { useRouter } from 'expo-router';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useAppData } from '@/contexts/AppDataContext';
@@ -24,6 +25,7 @@ const MEMORY_CATEGORIES: { id: AiMemoryItem['category']; label: string; icon: st
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
+  const router = useRouter();
   const { profile, updateProfile, addMemory, updateMemory, removeMemory } = useProfile();
   const { user, logout } = useAuth();
   const { showAlert } = useAlert();
@@ -113,7 +115,7 @@ export default function ProfileScreen() {
             </View>
           </View>
         ) : (
-          /* Not logged in — invite to create account */
+          /* Not logged in — CTA to login */
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.primary + '15', borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.primary + '33' }}>
@@ -123,6 +125,13 @@ export default function ProfileScreen() {
                 <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17 }}>Créez un compte pour sauvegarder vos workspaces, conversations et configuration sur le cloud, et les retrouver sur tous vos appareils.</Text>
               </View>
             </View>
+            <Pressable
+              onPress={() => router.push('/login' as any)}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 0 }, pressed && { opacity: 0.85 }]}
+            >
+              <MaterialIcons name="login" size={18} color={C.bg} />
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Se connecter / Créer un compte</Text>
+            </Pressable>
           </View>
         )}
 

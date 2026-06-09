@@ -1,7 +1,9 @@
 // Powered by OnSpace.AI
+// Theme fix: inline styles with useThemeColors()
 import React from 'react';
-import { Pressable, Text, StyleSheet } from 'react-native';
-import { Colors, Radius, Spacing, FontSize } from '@/constants/theme';
+import { Pressable, Text } from 'react-native';
+import { Radius, Spacing, FontSize } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface ChipProps {
   label: string;
@@ -10,40 +12,24 @@ interface ChipProps {
 }
 
 export function Chip({ label, selected, onPress }: ChipProps) {
+  const C = useThemeColors();
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        selected ? styles.chipSelected : styles.chipDefault,
-        pressed && { opacity: 0.75 },
-      ]}
+      style={({ pressed }) => [{
+        height: 36,
+        paddingHorizontal: Spacing.md,
+        borderRadius: Radius.pill,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        backgroundColor: selected ? C.primary : C.bgCardAlt,
+        borderColor: selected ? C.primaryLight : C.border,
+      }, pressed && { opacity: 0.75 }]}
     >
-      <Text style={[styles.label, selected ? styles.labelSelected : styles.labelDefault]}>
+      <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: selected ? '#fff' : C.textSecondary }}>
         {label}
       </Text>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  chip: {
-    height: 36,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.pill,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  chipDefault: {
-    backgroundColor: Colors.bgCardAlt,
-    borderColor: Colors.border,
-  },
-  chipSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primaryLight,
-  },
-  label: { fontSize: FontSize.sm, fontWeight: '600' },
-  labelDefault: { color: Colors.textSecondary },
-  labelSelected: { color: '#fff' },
-});

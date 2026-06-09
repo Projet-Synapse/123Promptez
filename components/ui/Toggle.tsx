@@ -1,7 +1,8 @@
 // Powered by OnSpace.AI
+// Theme fix: inline styles with useThemeColors()
 import React from 'react';
-import { Pressable, View, StyleSheet, Animated } from 'react-native';
-import { Colors } from '@/constants/theme';
+import { Pressable, View } from 'react-native';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface ToggleProps {
   value: boolean;
@@ -9,33 +10,29 @@ interface ToggleProps {
 }
 
 export function Toggle({ value, onToggle }: ToggleProps) {
+  const C = useThemeColors();
   return (
     <Pressable
       onPress={onToggle}
-      style={[styles.track, value ? styles.trackOn : styles.trackOff]}
       hitSlop={8}
+      style={{
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        justifyContent: 'center',
+        paddingHorizontal: 3,
+        backgroundColor: value ? C.accent : C.bgCardAlt,
+        borderWidth: value ? 0 : 1,
+        borderColor: C.border,
+      }}
     >
-      <View style={[styles.thumb, value ? styles.thumbOn : styles.thumbOff]} />
+      <View style={{
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: '#fff',
+        alignSelf: value ? 'flex-end' : 'flex-start',
+      }} />
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  track: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  trackOn: { backgroundColor: Colors.accent },
-  trackOff: { backgroundColor: Colors.bgCardAlt, borderWidth: 1, borderColor: Colors.border },
-  thumb: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#fff',
-  },
-  thumbOn: { alignSelf: 'flex-end' },
-  thumbOff: { alignSelf: 'flex-start' },
-});
