@@ -3,12 +3,20 @@ const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// Stub expo-video to prevent the Android SimpleCache duplicate-instance crash.
-// This app does not use video, so we redirect all expo-video imports to a no-op module.
-config.resolver = config.resolver || {};
-config.resolver.extraNodeModules = {
-  ...(config.resolver.extraNodeModules || {}),
-  'expo-video': path.resolve(__dirname, 'stubs/expo-video.js'),
+const STUB_PATH = path.resolve(__dirname, 'stubs/expo-video.js');
+
+// Intercept expo-video at resolution time to prevent the Android
+// SimpleCache duplicate-instance crash (IllegalStateException).
+// This app does not use video playback, so the stub is safe.
+const originalResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'expo-video' || moduleName.startsWith('expo-video/')) {
+    return { filePath: STUB_PATH, type: 'sourceFile' };
+  }
+  if (originalResolveRequest) {
+    return originalResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
 };
 
 module.exports = config;
