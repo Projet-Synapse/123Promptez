@@ -1,9 +1,9 @@
 // Powered by OnSpace.AI
-// Root layout — wires WorkspaceProvider & ProfileProvider to cloud auto-sync via AppDataContext
+// Root layout — wires WorkspaceProvider, ProfileProvider & BotProvider to cloud auto-sync
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AlertProvider, AuthProvider } from '@/template';
-import { BotProvider } from '@/contexts/BotContext';
+import { BotProvider, type BotConfig } from '@/contexts/BotContext';
 import { WorkspaceProvider, type Workspace } from '@/contexts/WorkspaceContext';
 import { ProfileProvider, type UserProfile } from '@/contexts/ProfileContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -18,6 +18,7 @@ function InnerLayout() {
   // Debounce refs per data type
   const wsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const botTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const onWorkspacesChange = useCallback((ws: Workspace[]) => {
     if (wsTimer.current) clearTimeout(wsTimer.current);
@@ -29,10 +30,15 @@ function InnerLayout() {
     profileTimer.current = setTimeout(() => triggerSync('profile', profile), 2000);
   }, [triggerSync]);
 
+  const onBotChange = useCallback((bot: BotConfig) => {
+    if (botTimer.current) clearTimeout(botTimer.current);
+    botTimer.current = setTimeout(() => triggerSync('bot_config', bot), 2000);
+  }, [triggerSync]);
+
   return (
     <ProfileProvider onDataChange={onProfileChange}>
       <WorkspaceProvider onDataChange={onWorkspacesChange}>
-        <BotProvider>
+        <BotProvider onDataChange={onBotChange}>
           <CloudHydrator />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
@@ -51,19 +57,22 @@ function InnerLayout() {
 // ── Hydrates contexts from cloud once data is loaded ─────────────────────────
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
+import { useBot } from '@/hooks/useBot';
 
 function CloudHydrator() {
   const { loadedData, isDataLoaded } = useAppData();
   const { hydrateFromCloud: hydrateWs } = useWorkspace();
   const { hydrateFromCloud: hydrateProfile } = useProfile();
+  const { hydrateFromCloud: hydrateBot } = useBot();
   const hydrated = useRef(false);
 
   useEffect(() => {
     if (!isDataLoaded || hydrated.current) return;
     hydrated.current = true;
-    if (loadedData.workspaces) hydrateWs(loadedData.workspaces);
-    if (loadedData.profile) hydrateProfile(loadedData.profile);
-  }, [isDataLoaded, loadedData, hydrateWs, hydrateProfile]);
+    if (loadedData.workspaces) hydrateWs(loadedData.workspaces as any);
+    if (loadedData.profile) hydrateProfile(loadedData.profile as any);
+    if (loadedData.bot_config) hydrateBot(loadedData.bot_config as any);
+  }, [isDataLoaded, loadedData, hydrateWs, hydrateProfile, hydrateBot]);
 
   return null;
 }

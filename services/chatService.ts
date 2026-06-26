@@ -106,6 +106,20 @@ export function buildSystemPrompt(
     });
   }
 
+  // Custom agents (active ones)
+  const activeAgents = (bot.customAgents ?? []).filter((a: any) => a.enabled);
+  if (activeAgents.length > 0) {
+    prompt += '\n## AGENTS IA ACTIFS\n';
+    prompt += 'Les agents suivants sont actifs et doivent être sollicités selon la complexité des tâches:\n\n';
+    activeAgents.forEach((a: any) => {
+      const complexityLabel = a.complexity === 1 ? 'Tâches simples' : a.complexity === 2 ? 'Tâches modérées' : 'Tâches complexes';
+      prompt += `### Agent: ${a.name} (${a.role}) — ${complexityLabel}\n`;
+      if (a.description) prompt += `Description: ${a.description}\n`;
+      if (a.promptPrefix) prompt += `Instructions: ${a.promptPrefix}\n`;
+      prompt += `Modèle: ${a.model}\n\n`;
+    });
+  }
+
   return prompt;
 }
 

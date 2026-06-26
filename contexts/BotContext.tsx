@@ -1,5 +1,5 @@
 // Powered by OnSpace.AI
-import React, { createContext, useState, ReactNode } from 'react';
+import React, { createContext, useState, ReactNode, useCallback } from 'react';
 
 export interface KBSource {
   id: string;
@@ -29,6 +29,20 @@ export interface ConnectedApp {
   enabled: boolean;
 }
 
+// Custom AI agent definition
+export interface CustomAgent {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  model: string; // provider/model id
+  icon: string;
+  color: string;
+  enabled: boolean;
+  complexity: 1 | 2 | 3; // 1=simple, 2=moderate, 3=complex tasks
+  promptPrefix: string; // injected before user message when agent is active
+}
+
 export interface LLMConfig {
   model: string;
   temperature: number;
@@ -56,6 +70,7 @@ export interface BotConfig {
   faqItems: FAQItem[];
   agentTools: AgentTool[];
   connectedApps: ConnectedApp[];
+  customAgents: CustomAgent[];
   apiKey: string;
 }
 
@@ -72,6 +87,14 @@ interface BotContextType {
   addConnectedApp: (app: Omit<ConnectedApp, 'id'>) => void;
   removeConnectedApp: (id: string) => void;
   toggleConnectedApp: (id: string) => void;
+  // Custom agents
+  addCustomAgent: (agent: Omit<CustomAgent, 'id'>) => void;
+  updateCustomAgent: (id: string, updates: Partial<CustomAgent>) => void;
+  removeCustomAgent: (id: string) => void;
+  toggleCustomAgent: (id: string) => void;
+  // Cloud hydration
+  hydrateFromCloud: (data: Partial<BotConfig>) => void;
+  // Legacy
   chatMessages: ChatMessage[];
   addChatMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearChat: () => void;
@@ -99,75 +122,181 @@ const DEFAULT_BOT: BotConfig = {
   ],
   agentTools: [
     { id: 'web_search', enabled: false },
+    { id: 'image_analysis', enabled: false },
     { id: 'db_access', enabled: false },
     { id: 'automation', enabled: false },
     { id: 'code_exec', enabled: false },
     { id: 'file_read', enabled: true },
   ],
   connectedApps: [],
+  customAgents: [],
 };
 
 export const BotContext = createContext<BotContextType | undefined>(undefined);
 
-export function BotProvider({ children }: { children: ReactNode }) {
+export function BotProvider({ children, onDataChange }: { children: ReactNode; onDataChange?: (bot: BotConfig) => void }) {
   const [bot, setBot] = useState<BotConfig>(DEFAULT_BOT);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
+  const notify = useCallback((newBot: BotConfig) => {
+    if (onDataChange) onDataChange(newBot);
+  }, [onDataChange]);
+
   const updateBot = (updates: Partial<BotConfig>) => {
-    setBot(prev => ({ ...prev, ...updates }));
+    setBot(prev => {
+      const next = { ...prev, ...updates };
+      notify(next);
+      return next;
+    });
   };
 
   const updateLLMConfig = (updates: Partial<LLMConfig>) => {
-    setBot(prev => ({ ...prev, llmConfig: { ...prev.llmConfig, ...updates } }));
+    setBot(prev => {
+      const next = { ...prev, llmConfig: { ...prev.llmConfig, ...updates } };
+      notify(next);
+      return next;
+    });
   };
 
   const addKBSource = (source: Omit<KBSource, 'id' | 'addedAt'>) => {
     const newSource: KBSource = { ...source, id: `kb-${Date.now()}`, addedAt: new Date() };
-    setBot(prev => ({ ...prev, kbSources: [...prev.kbSources, newSource] }));
+    setBot(prev => {
+      const next = { ...prev, kbSources: [...prev.kbSources, newSource] };
+      notify(next);
+      return next;
+    });
   };
 
   const removeKBSource = (id: string) => {
-    setBot(prev => ({ ...prev, kbSources: prev.kbSources.filter(s => s.id !== id) }));
+    setBot(prev => {
+      const next = { ...prev, kbSources: prev.kbSources.filter(s => s.id !== id) };
+      notify(next);
+      return next;
+    });
   };
 
   const addFAQItem = (item: Omit<FAQItem, 'id'>) => {
     const newItem: FAQItem = { ...item, id: `faq-${Date.now()}` };
-    setBot(prev => ({ ...prev, faqItems: [...prev.faqItems, newItem] }));
+    setBot(prev => {
+      const next = { ...prev, faqItems: [...prev.faqItems, newItem] };
+      notify(next);
+      return next;
+    });
   };
 
   const removeFAQItem = (id: string) => {
-    setBot(prev => ({ ...prev, faqItems: prev.faqItems.filter(f => f.id !== id) }));
+    setBot(prev => {
+      const next = { ...prev, faqItems: prev.faqItems.filter(f => f.id !== id) };
+      notify(next);
+      return next;
+    });
   };
 
   const toggleAgentTool = (toolId: string) => {
-    setBot(prev => ({
-      ...prev,
-      agentTools: prev.agentTools.map(t => t.id === toolId ? { ...t, enabled: !t.enabled } : t),
-    }));
+    setBot(prev => {
+      const next = {
+        ...prev,
+        agentTools: prev.agentTools.map(t => t.id === toolId ? { ...t, enabled: !t.enabled } : t),
+      };
+      notify(next);
+      return next;
+    });
   };
 
   const updateAgentToolConfig = (toolId: string, config: Record<string, string>) => {
-    setBot(prev => ({
-      ...prev,
-      agentTools: prev.agentTools.map(t => t.id === toolId ? { ...t, config } : t),
-    }));
+    setBot(prev => {
+      const next = {
+        ...prev,
+        agentTools: prev.agentTools.map(t => t.id === toolId ? { ...t, config } : t),
+      };
+      notify(next);
+      return next;
+    });
   };
 
   const addConnectedApp = (app: Omit<ConnectedApp, 'id'>) => {
     const newApp: ConnectedApp = { ...app, id: `app-${Date.now()}` };
-    setBot(prev => ({ ...prev, connectedApps: [...prev.connectedApps, newApp] }));
+    setBot(prev => {
+      const next = { ...prev, connectedApps: [...prev.connectedApps, newApp] };
+      notify(next);
+      return next;
+    });
   };
 
   const removeConnectedApp = (id: string) => {
-    setBot(prev => ({ ...prev, connectedApps: prev.connectedApps.filter(a => a.id !== id) }));
+    setBot(prev => {
+      const next = { ...prev, connectedApps: prev.connectedApps.filter(a => a.id !== id) };
+      notify(next);
+      return next;
+    });
   };
 
   const toggleConnectedApp = (id: string) => {
+    setBot(prev => {
+      const next = {
+        ...prev,
+        connectedApps: prev.connectedApps.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a),
+      };
+      notify(next);
+      return next;
+    });
+  };
+
+  // ── Custom agents ────────────────────────────────────────────────────────────
+  const addCustomAgent = (agent: Omit<CustomAgent, 'id'>) => {
+    const newAgent: CustomAgent = { ...agent, id: `agent-${Date.now()}` };
+    setBot(prev => {
+      const next = { ...prev, customAgents: [...(prev.customAgents ?? []), newAgent] };
+      notify(next);
+      return next;
+    });
+  };
+
+  const updateCustomAgent = (id: string, updates: Partial<CustomAgent>) => {
+    setBot(prev => {
+      const next = {
+        ...prev,
+        customAgents: (prev.customAgents ?? []).map(a => a.id === id ? { ...a, ...updates } : a),
+      };
+      notify(next);
+      return next;
+    });
+  };
+
+  const removeCustomAgent = (id: string) => {
+    setBot(prev => {
+      const next = { ...prev, customAgents: (prev.customAgents ?? []).filter(a => a.id !== id) };
+      notify(next);
+      return next;
+    });
+  };
+
+  const toggleCustomAgent = (id: string) => {
+    setBot(prev => {
+      const next = {
+        ...prev,
+        customAgents: (prev.customAgents ?? []).map(a => a.id === id ? { ...a, enabled: !a.enabled } : a),
+      };
+      notify(next);
+      return next;
+    });
+  };
+
+  // ── Cloud hydration ──────────────────────────────────────────────────────────
+  const hydrateFromCloud = useCallback((data: Partial<BotConfig>) => {
+    if (!data) return;
     setBot(prev => ({
       ...prev,
-      connectedApps: prev.connectedApps.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a),
+      ...data,
+      // Ensure nested objects are merged properly, not replaced with stale defaults
+      llmConfig: data.llmConfig ? { ...prev.llmConfig, ...data.llmConfig } : prev.llmConfig,
+      kbSources: data.kbSources ? data.kbSources.map(s => ({ ...s, addedAt: new Date(s.addedAt) })) : prev.kbSources,
+      agentTools: data.agentTools ?? prev.agentTools,
+      customAgents: data.customAgents ?? prev.customAgents ?? [],
+      connectedApps: data.connectedApps ?? prev.connectedApps,
+      faqItems: data.faqItems ?? prev.faqItems,
     }));
-  };
+  }, []);
 
   const addChatMessage = (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const newMsg: ChatMessage = { ...msg, id: `msg-${Date.now()}`, timestamp: new Date() };
@@ -183,6 +312,8 @@ export function BotProvider({ children }: { children: ReactNode }) {
       addFAQItem, removeFAQItem,
       toggleAgentTool, updateAgentToolConfig,
       addConnectedApp, removeConnectedApp, toggleConnectedApp,
+      addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent,
+      hydrateFromCloud,
       chatMessages, addChatMessage, clearChat,
     }}>
       {children}
