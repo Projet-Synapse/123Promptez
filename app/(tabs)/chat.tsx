@@ -347,6 +347,8 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  const [loadingStep, setLoadingStep] = useState<string>('');
+  const [activeTools, setActiveTools] = useState<string[]>([]);
   const [showModesPanel, setShowModesPanel] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showAttachSheet, setShowAttachSheet] = useState(false);
@@ -406,7 +408,7 @@ export default function ChatScreen() {
       setPendingAttachment(null);
     }
 
-    setInput(''); setIsLoading(true); setStreamingText('');
+    setInput(''); setIsLoading(true); setStreamingText(''); setLoadingStep('Analyse du contexte...');
     addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: msg });
     const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
 
@@ -421,6 +423,10 @@ export default function ChatScreen() {
       },
     };
 
+    // Compute active tools for status display
+    const currentEnabledTools = bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id);
+    setActiveTools(currentEnabledTools);
+
     // Build lang injection with mode context
     const modeInjection = responseMode !== 'auto' && responseMode !== 'normal'
       ? `\n[MODE: ${modeInfo.label.toUpperCase()}] ${modeInfo.desc}.`
@@ -428,20 +434,25 @@ export default function ChatScreen() {
 
     try {
       let full = '';
+      // Show progressive loading steps
+      setTimeout(() => { if (isLoading) setLoadingStep('Construction du prompt...'); }, 400);
+      setTimeout(() => { if (isLoading) setLoadingStep('Génération en cours...'); }, 900);
       await sendChatMessage(
         msg, history, adjustedBot, activeWorkspace,
-        (token) => { full = token; setStreamingText(full); },
+        (token) => { full = token; setStreamingText(full); setLoadingStep(''); },
         profile,
         getDueTasks(activeWorkspace.id),
         (systemInjection ?? '') + modeInjection
       );
       setStreamingText('');
+      setLoadingStep('');
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: full });
       getDueTasks(activeWorkspace.id).forEach((task: any) => completeTask(activeWorkspace.id, task.id));
     } catch (err: any) {
       setStreamingText('');
+      setLoadingStep('');
       showAlert('Erreur', err.message || 'Erreur lors de la génération');
-    } finally { setIsLoading(false); }
+    } finally { setIsLoading(false); setActiveTools([]); }
   };
 
   const handleNavigate = (wsId: string, convId?: string) => {
@@ -580,9 +591,26 @@ export default function ChatScreen() {
             ) : null}
 
             {isLoading && !streamingText ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.sm }}>
-                <ActivityIndicator size="small" color={C.accent} />
-                <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>{t('generating')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm, marginBottom: Spacing.md }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
+                  <ActivityIndicator size="small" color="#fff" />
+                </View>
+                <View style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, gap: Spacing.xs }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+                    <ActivityIndicator size="small" color={C.accent} />
+                    <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '600' }}>{loadingStep || t('generating')}</Text>
+                  </View>
+                  {activeTools.length > 0 ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                      {activeTools.map(tool => (
+                        <View key={tool} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.accent + '18', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '33' }}>
+                          <MaterialIcons name="bolt" size={10} color={C.accent} />
+                          <Text style={{ fontSize: 10, color: C.accent, fontFamily: 'monospace' }}>{tool}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
               </View>
             ) : null}
           </ScrollView>

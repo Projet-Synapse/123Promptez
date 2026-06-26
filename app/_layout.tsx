@@ -47,6 +47,7 @@ function InnerLayout() {
             <Stack.Screen name="workspace-settings" options={{ headerShown: false }} />
             <Stack.Screen name="workspace-database" options={{ headerShown: false }} />
             <Stack.Screen name="workspace-tasks" options={{ headerShown: false }} />
+            <Stack.Screen name="workspace-automations" options={{ headerShown: false }} />
           </Stack>
         </BotProvider>
       </WorkspaceProvider>

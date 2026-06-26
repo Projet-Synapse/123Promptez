@@ -235,6 +235,36 @@ export default function WorkspaceSettingsScreen() {
           </Pressable>
         </View>
 
+        {/* Automations */}
+        <View style={styles.section}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionLabel}>
+              <MaterialIcons name="bolt" size={13} color="#9B59B6" /> Automatisations
+            </Text>
+          </View>
+          <View style={styles.dbSummary}>
+            <View style={styles.dbStat}>
+              <MaterialIcons name="settings-suggest" size={20} color="#9B59B6" />
+              <Text style={styles.dbStatValue}>{(ws.automations ?? []).filter(a => a.enabled).length}</Text>
+              <Text style={styles.dbStatLabel}>Actives</Text>
+            </View>
+            <View style={styles.dbDivider} />
+            <View style={styles.dbStat}>
+              <MaterialIcons name="bolt" size={20} color={Colors.textSecondary} />
+              <Text style={styles.dbStatValue}>{(ws.automations ?? []).length}</Text>
+              <Text style={styles.dbStatLabel}>Total</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => router.push({ pathname: '/workspace-automations', params: { wsId: ws.id } })}
+            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: '#9B59B6' }, pressed && { opacity: 0.8 }]}
+          >
+            <MaterialIcons name="bolt" size={18} color="#fff" />
+            <Text style={styles.dbOpenBtnText}>Gérer les automatisations</Text>
+            <MaterialIcons name="arrow-forward" size={16} color="#fff" />
+          </Pressable>
+        </View>
+
         {/* Modes */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>

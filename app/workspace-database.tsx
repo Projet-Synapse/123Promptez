@@ -622,10 +622,13 @@ export default function WorkspaceDatabaseScreen() {
       </Modal>
 
       {/* ─── File Viewer Modal (read-only) ─────────────────────────── */}
-      <Modal visible={viewingFile !== null} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '92%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Modal visible={viewingFile !== null} transparent animationType="slide" onRequestClose={() => setViewingFile(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, paddingTop: Spacing.lg, paddingHorizontal: Spacing.lg, paddingBottom: insets.bottom + Spacing.lg, height: '85%' }}>
+            {/* Handle */}
+            <View style={{ width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.md }} />
+            {/* Header row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 }}>
                 {viewingFile ? (
                   <View style={{ width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: getFileTypeInfo(viewingFile.type).color + '22', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -647,8 +650,9 @@ export default function WorkspaceDatabaseScreen() {
                 </Pressable>
               </View>
             </View>
+            {/* Meta */}
             {viewingFile ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap', marginBottom: Spacing.sm }}>
                 <View style={{ backgroundColor: getFileTypeInfo(viewingFile.type).color + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill }}>
                   <Text style={{ fontSize: FontSize.xs, color: getFileTypeInfo(viewingFile.type).color, fontWeight: '700' }}>{getFileTypeInfo(viewingFile.type).label}</Text>
                 </View>
@@ -661,15 +665,16 @@ export default function WorkspaceDatabaseScreen() {
                 ))}
               </View>
             ) : null}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, minHeight: 200 }}>
+            {/* Content */}
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: Spacing.md }}>
+              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
                 <Text style={{ fontSize: FontSize.body, color: C.textPrimary, lineHeight: 24, fontFamily: viewingFile?.type === 'code' || viewingFile?.type === 'json' ? 'monospace' : undefined }}>
                   {viewingFile?.content || '(Contenu vide)'}
                 </Text>
               </View>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* ─── File Editor Modal ──────────────────────────────────────── */}
