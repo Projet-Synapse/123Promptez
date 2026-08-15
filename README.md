@@ -1,75 +1,97 @@
-# Welcome to OnSpace AI
+# Assistant IA
 
-Onspace AI empowers anyone to turn ideas into powerful AI applications in minutes—no coding required. Our free, no-code platform enables effortless creation of custom AI apps; simply describe your vision and our agentic AI handles the rest. The onspace-app, built with React Native and Expo, demonstrates this capability—integrating popular third-party libraries to deliver seamless cross-platform performance across iOS, Android, and Web environments.
+Application d'assistant IA multiplateforme (iOS, Android, Web, Windows, macOS, Linux), construite avec React Native / Expo pour le mobile et le web, et Electron pour le desktop. Le backend (authentification, base de données, fonction de chat) tourne sur votre propre projet Supabase, avec Claude (Anthropic) comme moteur IA.
 
-## Getting Started
+## Démarrage
 
-### 1. Install Dependencies
-
-```bash
-npm install
-# or
-yarn install
-```
-
-### 2. Start the Project
-
-- Start the development server (choose your platform):
+### 1. Installer les dépendances
 
 ```bash
-npm run start         # Start Expo development server
-npm run android       # Launch Android emulator
-npm run ios           # Launch iOS simulator
-npm run web           # Start the web version
+pnpm install
 ```
 
-- Reset the project (clear cache, etc.):
+### 2. Lancer le projet
 
 ```bash
-npm run reset-project
+pnpm start             # Serveur de développement Expo
+pnpm android           # Émulateur Android
+pnpm ios                # Simulateur iOS
+pnpm web                 # Version web (navigateur)
+pnpm electron            # Version desktop (nécessite `pnpm web` lancé dans un autre terminal)
 ```
 
-### 3. Lint the Code
+- Réinitialiser le projet (cache, etc.) :
 
 ```bash
-npm run lint
+pnpm run reset-project
 ```
 
-## Main Dependencies
+### 3. Linter le code
 
-- React Native: 0.79.4
+```bash
+pnpm run lint
+```
+
+## Backend (Supabase + Claude)
+
+L'app se connecte au projet Supabase déclaré dans `.env` (`EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`) :
+
+- La table `user_app_data` et les policies RLS associées sont gérées par la migration `create_user_app_data`.
+- Le chat IA passe par la fonction Edge `supabase/functions/chat`, qui appelle directement l'API Anthropic Claude (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` — voir `constants/config.ts`).
+- **Pour activer le chat IA**, ajoutez votre clé Anthropic comme secret sur le projet Supabase :
+
+  ```bash
+  supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <votre-ref-projet>
+  ```
+
+  (ou via le dashboard Supabase → Project Settings → Edge Functions → Secrets)
+
+## Build Desktop (Electron)
+
+```bash
+pnpm run electron:build         # build pour l'OS courant
+pnpm run electron:build:mac     # macOS (.dmg, .zip)
+pnpm run electron:build:win     # Windows (.exe installeur + portable)
+pnpm run electron:build:linux   # Linux (.AppImage, .deb)
+```
+
+Les installeurs sont générés dans `release/`. Le desktop réutilise le build web (`expo export --platform web`) affiché dans une fenêtre Electron — aucune fonctionnalité spécifique au natif mobile n'est requise.
+
+## Releases (GitHub Actions)
+
+Le workflow [`.github/workflows/release.yml`](./.github/workflows/release.yml) compile automatiquement :
+
+- **Web** (bundle statique zippé)
+- **Android** (APK debug, installable directement — non signé pour le Play Store)
+- **Desktop** Windows / macOS / Linux
+
+Pour publier une release avec tous ces artefacts :
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+Le workflow se déclenche sur tout tag `vX.Y.Z` et crée une GitHub Release avec les fichiers attachés. Il peut aussi être lancé manuellement (`workflow_dispatch`) pour valider les builds sans publier.
+
+> iOS n'est pas couvert par ce workflow : un build `.ipa` signé nécessite un compte Apple Developer et [EAS Build](https://docs.expo.dev/eas/) ou une machine macOS dédiée.
+
+## Dépendances principales
+
+- React Native: 0.79.3
 - React: 19.0.0
-- Expo: ~53.0.12
-- Expo Router: ~5.1.0
-- Supabase: ^2.50.0
-- Other commonly used libraries:  
-  - @expo/vector-icons  
-  - react-native-paper  
-  - react-native-calendars  
-  - lottie-react-native  
-  - react-native-webview  
-  - and more
+- Expo: ~53.0.9
+- Expo Router: ~5.0.7
+- Supabase JS: ^2.50.0
+- Electron: ^43 / electron-builder: ^26
 
-For a full list of dependencies, see [package.json](./package.json).
+Pour la liste complète, voir [package.json](./package.json).
 
-## Development Tools
+## Outils de développement
 
 - TypeScript: ~5.8.3
 - ESLint: ^9.25.0
-- @babel/core: ^7.25.2
 
-## Contributing
+## Licence
 
-1. Fork this repository
-2. Create a new branch (`git checkout -b main`)
-3. Commit your changes (`git commit -am 'Add new feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is private ("private": true). For collaboration inquiries, please contact the author.
-
----
-
-Feel free to add project screenshots, API documentation, feature descriptions, or any other information as needed.
+Projet privé (`"private": true`).

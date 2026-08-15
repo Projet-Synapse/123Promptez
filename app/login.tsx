@@ -122,7 +122,7 @@ export default function LoginScreen() {
               </Pressable>
               <Pressable onPress={() => setStep('form')} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'center' }}>
                 <MaterialIcons name="arrow-back" size={15} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Modifier l'email</Text>
+                <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Modifier l’email</Text>
               </Pressable>
             </View>
           ) : (

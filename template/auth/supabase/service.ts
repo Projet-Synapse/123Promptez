@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { AuthUser, SendOTPOptions, SignUpResult, GoogleSignInResult } from '../types';
 import { safeSupabaseOperation, getSharedSupabaseClient } from '../../core/client';
 import { configManager } from '../../core/config';
@@ -25,12 +24,12 @@ const TIMEOUT_CONFIG = {
 
 // Utility function to add timeout to any Promise with proper cleanup
 const withTimeout = <T>(
-  promise: Promise<T>, 
-  timeoutMs: number, 
+  promise: Promise<T>,
+  timeoutMs: number,
   operation: string = 'Operation'
 ): Promise<T> => {
-  let timeoutId: NodeJS.Timeout;
-  
+  let timeoutId: ReturnType<typeof setTimeout>;
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       reject(new Error(`${operation} timeout after ${timeoutMs/1000} seconds`));
@@ -107,8 +106,8 @@ export class AuthService {
         
         if (error) throw error;
         return session;
-      }, true);
-      
+      });
+
       if (!session?.user) return null;
 
       // Map session.user to AuthUser (unified for all auth methods)

@@ -1,5 +1,4 @@
-// Powered by OnSpace.AI
-// chatService — routes to OnSpace AI via Edge Function with streaming support
+// chatService — routes to Anthropic Claude via a Supabase Edge Function, with streaming support
 import { BotConfig, KBSource, FAQItem } from '@/contexts/BotContext';
 import { Workspace } from '@/contexts/WorkspaceContext';
 import type { UserProfile } from '@/contexts/ProfileContext';
@@ -128,7 +127,9 @@ interface ChatMessage {
   content: string;
 }
 
-// Parse a single SSE data line and extract content delta
+// Parse a single SSE data line and extract the text delta.
+// The edge function emits `data: {"delta": "..."}` chunks (see
+// supabase/functions/chat/index.ts), terminated by `data: [DONE]`.
 function parseSSEChunk(raw: string): string {
   const lines = raw.split('\n');
   let result = '';
@@ -138,8 +139,8 @@ function parseSSEChunk(raw: string): string {
     if (payload === '[DONE]') continue;
     try {
       const json = JSON.parse(payload);
-      const delta = json.choices?.[0]?.delta?.content ?? '';
-      result += delta;
+      if (json.error) continue; // surfaced separately via response.ok checks
+      result += json.delta ?? '';
     } catch {
       // Skip malformed lines
     }
@@ -167,18 +168,9 @@ export async function sendChatMessage(
     { role: 'user', content: userMessage },
   ];
 
-  // Determine model: map local model names to OnSpace AI provider/model format
-  const modelMap: Record<string, string> = {
-    'gpt-4o': 'openai/gpt-5.1',
-    'gpt-4-turbo': 'openai/gpt-5.1',
-    'gpt-3.5-turbo': 'openai/gpt-5-mini',
-    'claude-3-5-sonnet': 'openai/gpt-5.1',
-    'claude-3-opus': 'openai/gpt-5.1',
-    'gemini-1.5-pro': 'google/gemini-3-flash-preview',
-    'llama-3.1-70b': 'google/gemini-3-flash-preview',
-    'mistral-large': 'google/gemini-3-flash-preview',
-  };
-  const model = modelMap[bot.llmConfig.model] ?? 'google/gemini-3-flash-preview';
+  // bot.llmConfig.model is already a real Claude model ID (see constants/config.ts
+  // LLM_MODELS); fall back to Sonnet if it's ever unset or stale.
+  const model = bot.llmConfig.model || 'claude-sonnet-5';
 
   try {
     // Use raw fetch for streaming support
@@ -253,7 +245,7 @@ export async function sendChatMessage(
         // Try plain JSON
         try {
           const json = JSON.parse(text);
-          fullText = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.delta?.content ?? '';
+          fullText = json.delta ?? '';
         } catch {
           fullText = text;
         }

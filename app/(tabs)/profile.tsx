@@ -166,7 +166,7 @@ export default function ProfileScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Mémoire IA</Text>
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 3 }}>Ce que l'IA retient de vous pour personnaliser ses réponses</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 3 }}>Ce que l’IA retient de vous pour personnaliser ses réponses</Text>
             </View>
             <Pressable onPress={() => setShowAddMemory(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accent, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="add" size={16} color={C.bg} />
@@ -176,14 +176,14 @@ export default function ProfileScreen() {
 
           <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
             <MaterialIcons name="info-outline" size={14} color={C.accent} />
-            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, flex: 1, lineHeight: 17 }}>Ces informations sont injectées dans chaque conversation pour que l'IA vous comprenne et s'adapte.</Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, flex: 1, lineHeight: 17 }}>Ces informations sont injectées dans chaque conversation pour que l’IA vous comprenne et s’adapte.</Text>
           </View>
 
           {profile.aiMemory.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm }}>
               <MaterialIcons name="psychology" size={32} color={C.textMuted} />
               <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucun souvenir</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Ajoutez ce que l'IA doit retenir de vous</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted }}>Ajoutez ce que l’IA doit retenir de vous</Text>
             </View>
           ) : null}
 
@@ -219,7 +219,7 @@ export default function ProfileScreen() {
             <MaterialIcons name="check-circle" size={16} color={C.accent} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '600', marginBottom: 3 }}>Profil configuré</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>L'IA connaît votre nom, rôle et {profile.aiMemory.length} information(s) personnalisée(s)</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>L’IA connaît votre nom, rôle et {profile.aiMemory.length} information(s) personnalisée(s)</Text>
             </View>
           </View>
         ) : (
@@ -227,7 +227,7 @@ export default function ProfileScreen() {
             <MaterialIcons name="person-outline" size={16} color={C.warning} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.sm, color: C.warning, fontWeight: '600', marginBottom: 3 }}>Profil incomplet</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Complétez votre profil pour que l'IA personnalise ses réponses</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>Complétez votre profil pour que l’IA personnalise ses réponses</Text>
             </View>
           </View>
         )}

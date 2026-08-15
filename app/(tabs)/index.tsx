@@ -357,7 +357,7 @@ export default function BuilderScreen() {
                 <MaterialIcons name="psychology" size={40} color={C.textMuted} />
                 <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Aucun agent personnalisé</Text>
                 <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', maxWidth: 260, lineHeight: 19 }}>
-                  Créez des agents spécialisés (rédacteur, analyste, traducteur…) qui s'activent automatiquement selon la complexité de la tâche.
+                  Créez des agents spécialisés (rédacteur, analyste, traducteur…) qui s’activent automatiquement selon la complexité de la tâche.
                 </Text>
                 <Pressable onPress={() => { resetAgentForm(); setShowAgentModal(true); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
                   <MaterialIcons name="add" size={18} color="#fff" />
@@ -453,7 +453,7 @@ export default function BuilderScreen() {
             <ThemedInput label="Description" value={appDesc} onChangeText={setAppDesc} placeholder="Ce que fait cette app..." />
             <ThemedInput label="URL Webhook" value={appWebhook} onChangeText={setAppWebhook} placeholder="https://mon-app.com/webhook" mono />
             <Pressable onPress={handleAddApp} disabled={!appName.trim() || !appWebhook.trim()} style={({ pressed }) => [{ backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, alignItems: 'center', marginTop: Spacing.sm, opacity: (!appName.trim() || !appWebhook.trim()) ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
-              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Connecter l'application</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Connecter l’application</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

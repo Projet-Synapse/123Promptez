@@ -294,7 +294,7 @@ export default function SettingsScreen() {
         {/* ── Bot Color ───────────────────────────────────────────────── */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
           <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Couleur de l'avatar
+            Couleur de l’avatar
           </Text>
           <View style={{ flexDirection: 'row', gap: Spacing.md, flexWrap: 'wrap' }}>
             {['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455'].map(c => (
