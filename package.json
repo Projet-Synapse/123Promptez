@@ -1,7 +1,10 @@
 {
   "name": "onspace-app",
   "description": "Assistant IA multiplateforme (iOS, Android, Web, Windows, macOS, Linux).",
-  "author": "Catelyn2332",
+  "author": {
+    "name": "Catelyn2332",
+    "email": "catelyn2332@gmail.com"
+  },
   "main": "expo-router/entry",
   "version": "1.0.0",
   "packageManager": "pnpm@10.32.1",
@@ -57,7 +60,8 @@
         "deb"
       ],
       "icon": "assets/images/logo.png",
-      "category": "Utility"
+      "category": "Utility",
+      "desktopName": "assistant-ia.desktop"
     }
   },
   "dependencies": {
