@@ -33,6 +33,7 @@ jobs:
   build-android:
     name: Build Android (debug APK)
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,14 +45,33 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Free disk space (GitHub-hosted runners are tight on space for a full native Android build)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk \
+            /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
       - run: pnpm install --frozen-lockfile
       - name: Prebuild native Android project
         run: npx expo prebuild --platform android --no-install
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        # Single ABI keeps the native-module compile step (reanimated, skia,
+        # webrtc, maps, ...) fast enough for CI — this is a debug/testing
+        # artifact, not a Play Store release build.
+        run: ./gradlew assembleDebug --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk assistant-ia-debug.apk
       - uses: actions/upload-artifact@v4
