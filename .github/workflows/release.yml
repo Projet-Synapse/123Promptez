@@ -46,10 +46,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Free disk space (GitHub-hosted runners are tight on space for a full native Android build)
+        # NOTE: don't touch $AGENT_TOOLSDIRECTORY (/opt/hostedtoolcache) —
+        # that's where actions/setup-java just installed the JDK.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk \
-            /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
-            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup /usr/local/share/boost || true
           df -h /
       - run: pnpm install --frozen-lockfile
       - name: Prebuild native Android project
