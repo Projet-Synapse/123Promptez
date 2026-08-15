@@ -180,7 +180,7 @@ export default function WorkspaceTasksScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.explainTitle}>Tâches automatiques</Text>
             <Text style={styles.explainText}>
-              Les tâches planifiées injectent des instructions dans le chat à leur échéance. L'IA les exécute automatiquement selon la fréquence définie.
+              Les tâches planifiées injectent des instructions dans le chat à leur échéance. L’IA les exécute automatiquement selon la fréquence définie.
             </Text>
           </View>
         </View>
@@ -230,7 +230,7 @@ export default function WorkspaceTasksScreen() {
             <MaterialIcons name="event-repeat" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyTitle}>Aucune tâche planifiée</Text>
             <Text style={styles.emptySub}>
-              Créez des tâches récurrentes que l'IA accomplira automatiquement selon votre planning.
+              Créez des tâches récurrentes que l’IA accomplira automatiquement selon votre planning.
             </Text>
             <Pressable
               onPress={() => { resetForm(); setShowModal(true); }}
@@ -359,7 +359,7 @@ export default function WorkspaceTasksScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.tipsTitle}>Comment fonctionnent les tâches ?</Text>
             <Text style={styles.tipsText}>
-              Quand une tâche est due, son prompt est injecté automatiquement dans la prochaine conversation du workspace. L'IA l'exécute sans que vous ayez à le demander explicitement.
+              Quand une tâche est due, son prompt est injecté automatiquement dans la prochaine conversation du workspace. L’IA l’exécute sans que vous ayez à le demander explicitement.
             </Text>
           </View>
         </View>
@@ -459,7 +459,7 @@ export default function WorkspaceTasksScreen() {
 
                 {/* Prompt */}
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Instruction pour l'IA</Text>
+                  <Text style={styles.fieldLabel}>Instruction pour l’IA</Text>
                   <TextInput
                     style={[styles.textInput, styles.textArea]}
                     value={taskPrompt}

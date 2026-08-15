@@ -1,0 +1,122 @@
+name: Release
+
+# Builds Web, Android (debug APK) and Desktop (Windows/macOS/Linux) artifacts.
+# - Push a tag like `v1.2.0` to build everything and publish a GitHub Release.
+# - Or run manually (workflow_dispatch) to just validate the builds without publishing.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+jobs:
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx expo export --platform web --output-dir dist
+      - name: Zip web build
+        run: cd dist && zip -r ../web-build.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: web-build.zip
+          if-no-files-found: error
+
+  build-android:
+    name: Build Android (debug APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: pnpm install --frozen-lockfile
+      - name: Prebuild native Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk assistant-ia-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: assistant-ia-debug.apk
+          if-no-files-found: error
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx expo export --platform web --output-dir dist
+      - name: Build desktop installer
+        run: npx electron-builder --publish never
+        env:
+          # Speeds up / stabilizes electron-builder in CI.
+          USE_HARD_LINKS: 'false'
+      - name: Collect installer artifacts (exclude unpacked debug dirs)
+        shell: bash
+        run: |
+          mkdir -p out
+          find release -maxdepth 1 -type f \
+            \( -iname '*.dmg' -o -iname '*.zip' -o -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \) \
+            -exec cp {} out/ \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-web, build-android, build-desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( \
+            -iname '*.zip' -o -iname '*.apk' -o -iname '*.dmg' -o \
+            -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \) \
+            -exec cp {} release-assets/ \;
+          ls -la release-assets
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false

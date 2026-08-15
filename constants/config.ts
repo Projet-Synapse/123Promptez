@@ -1,13 +1,9 @@
-// Powered by OnSpace.AI
+// Models available to the chat edge function (supabase/functions/chat).
+// IDs must match real Anthropic Claude model IDs — see ANTHROPIC_API_KEY setup in README.
 export const LLM_MODELS = [
-  { id: 'gpt-4o', label: 'GPT-4o', provider: 'OpenAI', tokens: 128000 },
-  { id: 'gpt-4-turbo', label: 'GPT-4 Turbo', provider: 'OpenAI', tokens: 128000 },
-  { id: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', provider: 'OpenAI', tokens: 16385 },
-  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', provider: 'Anthropic', tokens: 200000 },
-  { id: 'claude-3-opus', label: 'Claude 3 Opus', provider: 'Anthropic', tokens: 200000 },
-  { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', provider: 'Google', tokens: 1000000 },
-  { id: 'llama-3.1-70b', label: 'Llama 3.1 70B', provider: 'Meta / Local', tokens: 128000 },
-  { id: 'mistral-large', label: 'Mistral Large', provider: 'Mistral AI', tokens: 128000 },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'Anthropic', tokens: 1000000 },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'Anthropic', tokens: 1000000 },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'Anthropic', tokens: 200000 },
 ];
 
 export const AGENT_TOOLS = [

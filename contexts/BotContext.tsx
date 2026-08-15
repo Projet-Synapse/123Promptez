@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 import React, { createContext, useState, ReactNode, useCallback } from 'react';
 
 export interface KBSource {
@@ -107,7 +106,7 @@ const DEFAULT_BOT: BotConfig = {
   avatarColor: '#3D7EFF',
   apiKey: '',
   llmConfig: {
-    model: 'gpt-4o',
+    model: 'claude-sonnet-5',
     temperature: 0.7,
     maxTokens: 2048,
     topP: 0.9,

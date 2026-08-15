@@ -247,6 +247,30 @@ export default function WorkspaceDatabaseScreen() {
   const [editorContent, setEditorContent] = useState('');
   const [editorTags, setEditorTags] = useState('');
 
+  // ── Compute current location & displayed content ─────────────────
+  // NOTE: these hooks must run on every render (including when `ws` is not
+  // yet found) to satisfy the Rules of Hooks, so all of them are null-safe.
+  const currentLocation: FileLocation = useMemo(() => {
+    if (currentNav.kind === 'root') return null;
+    if (currentNav.kind === 'folder') return currentNav.folder.id;
+    return { folderId: currentNav.folder.id, subId: currentNav.sub.id };
+  }, [currentNav]);
+
+  // Keep folder/subfolder references fresh from ws state
+  const liveFolder = currentNav.kind !== 'root' ? ws?.database.folders.find(f => f.id === (currentNav as any).folder.id) ?? null : null;
+  const liveSub = currentNav.kind === 'subfolder' && liveFolder ? liveFolder.subFolders?.find(s => s.id === (currentNav as any).sub.id) ?? null : null;
+
+  const rawFiles: DBFile[] = useMemo(() => {
+    if (!ws) return [];
+    if (currentNav.kind === 'root') return ws.database.rootFiles;
+    if (currentNav.kind === 'folder') return liveFolder?.files ?? [];
+    return liveSub?.files ?? [];
+  }, [ws, currentNav, liveFolder, liveSub]);
+
+  const displayedFiles = useMemo(() => sortFiles(rawFiles, sortKey, sortOrder), [rawFiles, sortKey, sortOrder]);
+
+  const totalFiles = ws ? ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0) : 0;
+
   if (!ws) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
@@ -259,27 +283,6 @@ export default function WorkspaceDatabaseScreen() {
       </SafeAreaView>
     );
   }
-
-  // ── Compute current location & displayed content ─────────────────
-  const currentLocation: FileLocation = useMemo(() => {
-    if (currentNav.kind === 'root') return null;
-    if (currentNav.kind === 'folder') return currentNav.folder.id;
-    return { folderId: currentNav.folder.id, subId: currentNav.sub.id };
-  }, [currentNav]);
-
-  // Keep folder/subfolder references fresh from ws state
-  const liveFolder = currentNav.kind !== 'root' ? ws.database.folders.find(f => f.id === (currentNav as any).folder.id) ?? null : null;
-  const liveSub = currentNav.kind === 'subfolder' && liveFolder ? liveFolder.subFolders?.find(s => s.id === (currentNav as any).sub.id) ?? null : null;
-
-  const rawFiles: DBFile[] = useMemo(() => {
-    if (currentNav.kind === 'root') return ws.database.rootFiles;
-    if (currentNav.kind === 'folder') return liveFolder?.files ?? [];
-    return liveSub?.files ?? [];
-  }, [currentNav, ws.database, liveFolder, liveSub]);
-
-  const displayedFiles = useMemo(() => sortFiles(rawFiles, sortKey, sortOrder), [rawFiles, sortKey, sortOrder]);
-
-  const totalFiles = ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0);
 
   // ── Folder creation ──────────────────────────────────────────────
   const resetFolderForm = () => { setFolderName(''); setFolderDesc(''); setFolderColor(FOLDER_COLORS[0]); setFolderIcon(FOLDER_ICONS[0]); };
@@ -411,7 +414,11 @@ export default function WorkspaceDatabaseScreen() {
         {/* Add folder button */}
         {currentNav.kind !== 'subfolder' ? (
           <Pressable
-            onPress={() => { resetFolderForm(); currentNav.kind === 'folder' ? setShowAddSubFolder(true) : setShowAddFolder(true); }}
+            onPress={() => {
+              resetFolderForm();
+              if (currentNav.kind === 'folder') setShowAddSubFolder(true);
+              else setShowAddFolder(true);
+            }}
             style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
           >
             <MaterialIcons name={currentNav.kind === 'folder' ? 'create-new-folder' : 'create-new-folder'} size={20} color={C.primary} />

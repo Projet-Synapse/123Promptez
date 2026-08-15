@@ -269,7 +269,7 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="bolt" size={13} color={Colors.accent} /> Modes d'interaction
+              <MaterialIcons name="bolt" size={13} color={Colors.accent} /> Modes d’interaction
             </Text>
             <Pressable
               onPress={() => { resetModeForm(); setShowAddMode(true); }}

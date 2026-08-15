@@ -252,7 +252,7 @@ export default function WorkspaceAutomationsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600', marginBottom: 4 }}>Automatisations intelligentes</Text>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>
-              Créez des règles Déclencheur → Action qui s'exécutent automatiquement dans vos conversations. Injectez du contexte, changez de mode, envoyez des messages ou affichez des notifications selon des événements précis.
+              Créez des règles Déclencheur → Action qui s’exécutent automatiquement dans vos conversations. Injectez du contexte, changez de mode, envoyez des messages ou affichez des notifications selon des événements précis.
             </Text>
           </View>
         </View>
@@ -280,7 +280,7 @@ export default function WorkspaceAutomationsScreen() {
             </View>
             <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Aucune automatisation</Text>
             <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 19 }}>
-              Créez des règles pour que l'IA agisse automatiquement selon les événements de vos conversations.
+              Créez des règles pour que l’IA agisse automatiquement selon les événements de vos conversations.
             </Text>
             <Pressable onPress={() => { resetForm(); setShowModal(true); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill }, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="add" size={18} color="#fff" />
@@ -308,7 +308,7 @@ export default function WorkspaceAutomationsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.sm, color: '#FFB800', fontWeight: '600', marginBottom: 4 }}>Comment fonctionnent les automatisations ?</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>
-                Les automatisations actives sont évaluées à chaque message. Quand un déclencheur correspond, l'action est exécutée automatiquement sans intervention de votre part.
+                Les automatisations actives sont évaluées à chaque message. Quand un déclencheur correspond, l’action est exécutée automatiquement sans intervention de votre part.
               </Text>
             </View>
           </View>
@@ -434,7 +434,7 @@ export default function WorkspaceAutomationsScreen() {
 
                 {/* Payload */}
                 <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu de l'action *</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu de l’action *</Text>
                   <TextInput
                     style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 110, textAlignVertical: 'top', paddingTop: Spacing.sm, fontFamily: autoAction === 'inject_prompt' || autoAction === 'change_model' ? 'monospace' : undefined }}
                     value={autoPayload}
