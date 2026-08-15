@@ -60,8 +60,7 @@
         "deb"
       ],
       "icon": "assets/images/logo.png",
-      "category": "Utility",
-      "desktopName": "assistant-ia.desktop"
+      "category": "Utility"
     }
   },
   "dependencies": {
