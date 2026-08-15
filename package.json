@@ -6,7 +6,7 @@
     "email": "catelyn2332@gmail.com"
   },
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "packageManager": "pnpm@10.32.1",
   "scripts": {
     "start": "expo start",
@@ -39,6 +39,7 @@
     "extraMetadata": {
       "main": "electron/main.js"
     },
+    "artifactName": "123Promptez-${os}.${ext}",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -61,6 +62,12 @@
       ],
       "icon": "assets/images/logo.png",
       "category": "Utility"
+    },
+    "nsis": {
+      "artifactName": "123Promptez-win-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "123Promptez-win-portable.${ext}"
     }
   },
   "dependencies": {
