@@ -1,10 +1,11 @@
 // Powered by OnSpace.AI
 // Theme fix: createStyles(C) pattern — styles are generated inside the component
 // using the reactive color object from useThemeColors(), NOT static StyleSheet.create() at module level.
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useBot } from '@/hooks/useBot';
 import { ThemedInput, SliderRow } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
@@ -13,6 +14,7 @@ import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/confi
 import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
+import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -24,6 +26,25 @@ export default function SettingsScreen() {
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedSearchEngine, setSelectedSearchEngine] = useState('google');
+
+  const appVersion = Constants.expoConfig?.version ?? '1.1.0';
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const runUpdateCheck = async () => {
+    setCheckingUpdate(true);
+    const result = await checkForUpdate(appVersion);
+    setCheckingUpdate(false);
+    setUpdateCheck(result);
+  };
+
+  // Silent check on mount — no popup if nothing's new or the check fails
+  // (e.g. repo not public yet, offline). The button below is for an
+  // explicit, visible check.
+  useEffect(() => {
+    runUpdateCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedModel = LLM_MODELS.find(m => m.id === bot.llmConfig.model) || LLM_MODELS[0];
 
@@ -305,6 +326,49 @@ export default function SettingsScreen() {
               />
             ))}
           </View>
+        </View>
+
+        {/* ── About / Updates ────────────────────────────────────────── */}
+        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+            À propos
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: FontSize.body, color: C.textPrimary }}>Version installée</Text>
+            <Text style={{ fontSize: FontSize.body, color: C.textMuted, fontFamily: 'monospace' }}>{appVersion}</Text>
+          </View>
+
+          {updateCheck?.available ? (
+            <Pressable
+              onPress={() => Linking.openURL(updateCheck.url)}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                backgroundColor: C.accent + '15', borderRadius: Radius.md,
+                padding: Spacing.md, borderWidth: 1, borderColor: C.accent + '33',
+              }, pressed && { opacity: 0.8 }]}
+            >
+              <MaterialIcons name="system-update" size={18} color={C.accent} />
+              <Text style={{ flex: 1, fontSize: FontSize.body, color: C.accent, fontWeight: '600' }}>
+                Nouvelle version disponible · v{updateCheck.latestVersion}
+              </Text>
+              <MaterialIcons name="chevron-right" size={18} color={C.accent} />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={runUpdateCheck}
+              disabled={checkingUpdate}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+                padding: Spacing.md, borderWidth: 1, borderColor: C.border,
+              }, pressed && { opacity: 0.75 }]}
+            >
+              <MaterialIcons name="refresh" size={18} color={C.textSecondary} />
+              <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>
+                {checkingUpdate ? 'Vérification…' : 'Vérifier les mises à jour'}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Danger ──────────────────────────────────────────────────── */}

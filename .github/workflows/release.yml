@@ -23,11 +23,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npx expo export --platform web --output-dir dist
       - name: Zip web build
-        run: cd dist && zip -r ../web-build.zip .
+        run: cd dist && zip -r ../123Promptez-web.zip .
       - uses: actions/upload-artifact@v4
         with:
           name: web-build
-          path: web-build.zip
+          path: 123Promptez-web.zip
           if-no-files-found: error
 
   build-android:
@@ -74,11 +74,11 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk assistant-ia-debug.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk 123Promptez-android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk
-          path: assistant-ia-debug.apk
+          path: 123Promptez-android.apk
           if-no-files-found: error
 
   build-desktop:
