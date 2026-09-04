@@ -453,6 +453,40 @@ export class AuthService {
     }
   }
 
+  // Sends a password-recovery email. Unlike sendOTP, this one is meant to
+  // stay a clickable link (Supabase's "Reset Password" template) — clicking
+  // it signs the user into a short-lived recovery session, from which
+  // updateUser({password}) / updatePassword() above sets the new password.
+  async requestPasswordReset(email: string): Promise<SendOTPResult> {
+    try {
+      return await safeSupabaseOperation(async (client) => {
+        const { error } = await withTimeout(
+          client.auth.resetPasswordForEmail(email),
+          TIMEOUT_CONFIG.AUTH_OPERATIONS,
+          'RequestPasswordReset'
+        );
+
+        if (error) {
+          if (error.message.includes('timeout')) {
+            return { error: 'Network is slow, please retry', errorType: 'timeout' };
+          }
+          return { error: error.message, errorType: 'business' };
+        }
+
+        return {};
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown requestPasswordReset error';
+      console.warn('[Template:AuthService] RequestPasswordReset system exception:', errorMessage);
+
+      if (errorMessage.includes('timeout')) {
+        return { error: 'Network connection timeout, please check network and retry', errorType: 'timeout' };
+      }
+
+      return { error: 'Failed to send password reset email', errorType: 'network' };
+    }
+  }
+
   async refreshSession() {
     try {
       return await safeSupabaseOperation(async (client) => {
