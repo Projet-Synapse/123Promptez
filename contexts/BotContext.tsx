@@ -77,6 +77,7 @@ interface BotContextType {
   bot: BotConfig;
   updateBot: (updates: Partial<BotConfig>) => void;
   updateLLMConfig: (updates: Partial<LLMConfig>) => void;
+  resetBot: () => void;
   addKBSource: (source: Omit<KBSource, 'id' | 'addedAt'>) => void;
   removeKBSource: (id: string) => void;
   addFAQItem: (item: Omit<FAQItem, 'id'>) => void;
@@ -152,6 +153,16 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
   const updateLLMConfig = (updates: Partial<LLMConfig>) => {
     setBot(prev => {
       const next = { ...prev, llmConfig: { ...prev.llmConfig, ...updates } };
+      notify(next);
+      return next;
+    });
+  };
+
+  // Restores the bot to its factory defaults, keeping its id stable so
+  // any cloud record tied to this bot is updated rather than orphaned.
+  const resetBot = () => {
+    setBot(prev => {
+      const next = { ...DEFAULT_BOT, id: prev.id };
       notify(next);
       return next;
     });
@@ -306,7 +317,7 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
 
   return (
     <BotContext.Provider value={{
-      bot, updateBot, updateLLMConfig,
+      bot, updateBot, updateLLMConfig, resetBot,
       addKBSource, removeKBSource,
       addFAQItem, removeFAQItem,
       toggleAgentTool, updateAgentToolConfig,

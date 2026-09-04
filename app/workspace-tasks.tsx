@@ -1,5 +1,9 @@
 // Powered by OnSpace.AI
-import React, { useState } from 'react';
+// Theme fix: styles are built by createStyles(C) from the reactive color
+// object returned by useThemeColors(), memoized per-render — NOT resolved
+// once against the static Colors object at module load (that would freeze
+// this screen on whichever theme was active on first mount).
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, TextInput,
   Modal, KeyboardAvoidingView, Platform,
@@ -9,7 +13,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useAlert } from '@/template';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { Spacing, Radius, FontSize } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import type { WorkspaceTask, TaskFrequency } from '@/contexts/WorkspaceContext';
 
 const TASK_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455'];
@@ -58,6 +63,9 @@ export default function WorkspaceTasksScreen() {
   const [taskFreq, setTaskFreq] = useState<TaskFrequency>('daily');
   const [taskColor, setTaskColor] = useState(TASK_COLORS[0]);
   const [taskIcon, setTaskIcon] = useState(TASK_ICONS[0]);
+
+  const C = useThemeColors();
+  const styles = useMemo(() => createStyles(C), [C]);
 
   if (!ws) {
     return (
@@ -152,7 +160,7 @@ export default function WorkspaceTasksScreen() {
       {/* Header */}
       <View style={styles.topBar}>
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn2}>
-          <MaterialIcons name="arrow-back" size={22} color={Colors.textPrimary} />
+          <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
         </Pressable>
         <View style={[styles.wsIcon, { backgroundColor: ws.color + '22' }]}>
           <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
@@ -176,7 +184,7 @@ export default function WorkspaceTasksScreen() {
       >
         {/* Explainer */}
         <View style={styles.explainCard}>
-          <MaterialIcons name="schedule" size={20} color={Colors.primary} />
+          <MaterialIcons name="schedule" size={20} color={C.primary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.explainTitle}>Tâches automatiques</Text>
             <Text style={styles.explainText}>
@@ -189,7 +197,7 @@ export default function WorkspaceTasksScreen() {
         {dueTasks.length > 0 ? (
           <View style={styles.dueBanner}>
             <View style={styles.dueBannerLeft}>
-              <MaterialIcons name="alarm-on" size={18} color={Colors.warning} />
+              <MaterialIcons name="alarm-on" size={18} color={C.warning} />
               <Text style={styles.dueBannerText}>
                 {dueTasks.length} tâche{dueTasks.length !== 1 ? 's' : ''} à accomplir maintenant
               </Text>
@@ -208,17 +216,17 @@ export default function WorkspaceTasksScreen() {
         {/* Summary stats */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <MaterialIcons name="task-alt" size={20} color={Colors.accent} />
+            <MaterialIcons name="task-alt" size={20} color={C.accent} />
             <Text style={styles.statValue}>{enabledTasks.length}</Text>
             <Text style={styles.statLabel}>Actives</Text>
           </View>
           <View style={styles.statCard}>
-            <MaterialIcons name="alarm-on" size={20} color={Colors.warning} />
+            <MaterialIcons name="alarm-on" size={20} color={C.warning} />
             <Text style={styles.statValue}>{dueTasks.length}</Text>
             <Text style={styles.statLabel}>En attente</Text>
           </View>
           <View style={styles.statCard}>
-            <MaterialIcons name="event-repeat" size={20} color={Colors.primary} />
+            <MaterialIcons name="event-repeat" size={20} color={C.primary} />
             <Text style={styles.statValue}>{ws.tasks.length}</Text>
             <Text style={styles.statLabel}>Total</Text>
           </View>
@@ -227,7 +235,7 @@ export default function WorkspaceTasksScreen() {
         {/* Empty state */}
         {ws.tasks.length === 0 ? (
           <View style={styles.emptyState}>
-            <MaterialIcons name="event-repeat" size={48} color={Colors.textMuted} />
+            <MaterialIcons name="event-repeat" size={48} color={C.textMuted} />
             <Text style={styles.emptyTitle}>Aucune tâche planifiée</Text>
             <Text style={styles.emptySub}>
               Créez des tâches récurrentes que l’IA accomplira automatiquement selon votre planning.
@@ -236,7 +244,7 @@ export default function WorkspaceTasksScreen() {
               onPress={() => { resetForm(); setShowModal(true); }}
               style={({ pressed }) => [styles.emptyAddBtn, pressed && { opacity: 0.8 }]}
             >
-              <MaterialIcons name="add" size={16} color={Colors.bg} />
+              <MaterialIcons name="add" size={16} color={C.bg} />
               <Text style={styles.emptyAddBtnText}>Créer une tâche</Text>
             </Pressable>
           </View>
@@ -264,7 +272,7 @@ export default function WorkspaceTasksScreen() {
                   style={[
                     styles.taskCard,
                     task.enabled ? { borderColor: task.color + '44' } : null,
-                    isDue ? { borderColor: Colors.warning + '77', backgroundColor: Colors.warning + '08' } : null,
+                    isDue ? { borderColor: C.warning + '77', backgroundColor: C.warning + '08' } : null,
                   ]}
                 >
                   {/* Top row */}
@@ -277,7 +285,7 @@ export default function WorkspaceTasksScreen() {
                         <Text style={styles.taskTitle} numberOfLines={1}>{task.title}</Text>
                         {isDue ? (
                           <View style={styles.dueBadge}>
-                            <MaterialIcons name="alarm-on" size={11} color={Colors.warning} />
+                            <MaterialIcons name="alarm-on" size={11} color={C.warning} />
                             <Text style={styles.dueBadgeText}>Dû</Text>
                           </View>
                         ) : null}
@@ -309,15 +317,15 @@ export default function WorkspaceTasksScreen() {
                       <Text style={[styles.freqBadgeText, { color: freqInfo.color }]}>{freqInfo.label}</Text>
                     </View>
                     <View style={styles.taskMetaItem}>
-                      <MaterialIcons name="schedule" size={12} color={Colors.textMuted} />
+                      <MaterialIcons name="schedule" size={12} color={C.textMuted} />
                       <Text style={styles.taskMetaText}>
                         Prochain : {formatNextDue(task.nextDue, task.frequency)}
                       </Text>
                     </View>
                     {task.lastCompleted ? (
                       <View style={styles.taskMetaItem}>
-                        <MaterialIcons name="check-circle-outline" size={12} color={Colors.accent} />
-                        <Text style={[styles.taskMetaText, { color: Colors.accent }]}>
+                        <MaterialIcons name="check-circle-outline" size={12} color={C.accent} />
+                        <Text style={[styles.taskMetaText, { color: C.accent }]}>
                           Dernier : {new Date(task.lastCompleted).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
                         </Text>
                       </View>
@@ -336,15 +344,15 @@ export default function WorkspaceTasksScreen() {
                         onPress={() => handleComplete(task)}
                         style={({ pressed }) => [styles.completeBtn, pressed && { opacity: 0.8 }]}
                       >
-                        <MaterialIcons name="check" size={14} color={Colors.bg} />
+                        <MaterialIcons name="check" size={14} color={C.bg} />
                         <Text style={styles.completeBtnText}>Marquer accomplie</Text>
                       </Pressable>
                     ) : null}
                     <Pressable onPress={() => openEdit(task)} hitSlop={8} style={styles.iconBtn}>
-                      <MaterialIcons name="edit" size={16} color={Colors.textSecondary} />
+                      <MaterialIcons name="edit" size={16} color={C.textSecondary} />
                     </Pressable>
                     <Pressable onPress={() => handleDelete(task)} hitSlop={8} style={styles.iconBtn}>
-                      <MaterialIcons name="delete-outline" size={16} color={Colors.textMuted} />
+                      <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
                     </Pressable>
                   </View>
                 </View>
@@ -355,7 +363,7 @@ export default function WorkspaceTasksScreen() {
 
         {/* Tips */}
         <View style={styles.tipsCard}>
-          <MaterialIcons name="tips-and-updates" size={16} color={Colors.warning} />
+          <MaterialIcons name="tips-and-updates" size={16} color={C.warning} />
           <View style={{ flex: 1 }}>
             <Text style={styles.tipsTitle}>Comment fonctionnent les tâches ?</Text>
             <Text style={styles.tipsText}>
@@ -372,7 +380,7 @@ export default function WorkspaceTasksScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingTask ? 'Modifier la tâche' : 'Nouvelle tâche'}</Text>
               <Pressable onPress={() => { resetForm(); setShowModal(false); }} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
               </Pressable>
             </View>
 
@@ -386,7 +394,7 @@ export default function WorkspaceTasksScreen() {
                     value={taskTitle}
                     onChangeText={setTaskTitle}
                     placeholder="Ex: Brief quotidien, Revue hebdomadaire..."
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor={C.textMuted}
                   />
                 </View>
 
@@ -398,7 +406,7 @@ export default function WorkspaceTasksScreen() {
                     value={taskDesc}
                     onChangeText={setTaskDesc}
                     placeholder="Ce que cette tâche accomplit..."
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor={C.textMuted}
                   />
                 </View>
 
@@ -415,7 +423,7 @@ export default function WorkspaceTasksScreen() {
                           taskFreq === f.id ? { backgroundColor: f.color + '28', borderColor: f.color } : null,
                         ]}
                       >
-                        <MaterialIcons name={f.icon as any} size={16} color={taskFreq === f.id ? f.color : Colors.textMuted} />
+                        <MaterialIcons name={f.icon as any} size={16} color={taskFreq === f.id ? f.color : C.textMuted} />
                         <Text style={[styles.freqChipText, taskFreq === f.id ? { color: f.color } : null]}>
                           {f.label}
                         </Text>
@@ -451,7 +459,7 @@ export default function WorkspaceTasksScreen() {
                           taskIcon === ic ? { backgroundColor: taskColor + '33', borderColor: taskColor } : null,
                         ]}
                       >
-                        <MaterialIcons name={ic as any} size={20} color={taskIcon === ic ? taskColor : Colors.textMuted} />
+                        <MaterialIcons name={ic as any} size={20} color={taskIcon === ic ? taskColor : C.textMuted} />
                       </Pressable>
                     ))}
                   </View>
@@ -465,7 +473,7 @@ export default function WorkspaceTasksScreen() {
                     value={taskPrompt}
                     onChangeText={setTaskPrompt}
                     placeholder="Ex: TÂCHE QUOTIDIENNE: Au début de chaque session, propose un brief structuré avec les priorités du jour..."
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor={C.textMuted}
                     multiline
                     textAlignVertical="top"
                   />
@@ -478,8 +486,8 @@ export default function WorkspaceTasksScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.previewTitle, { color: taskColor }]}>{taskTitle || 'Titre de la tâche'}</Text>
-                    <View style={[styles.freqBadge, { backgroundColor: (FREQUENCIES.find(f => f.id === taskFreq)?.color || Colors.primary) + '22', alignSelf: 'flex-start', marginTop: 4 }]}>
-                      <Text style={[styles.freqBadgeText, { color: FREQUENCIES.find(f => f.id === taskFreq)?.color || Colors.primary }]}>
+                    <View style={[styles.freqBadge, { backgroundColor: (FREQUENCIES.find(f => f.id === taskFreq)?.color || C.primary) + '22', alignSelf: 'flex-start', marginTop: 4 }]}>
+                      <Text style={[styles.freqBadgeText, { color: FREQUENCIES.find(f => f.id === taskFreq)?.color || C.primary }]}>
                         {FREQUENCIES.find(f => f.id === taskFreq)?.label}
                       </Text>
                     </View>
@@ -497,7 +505,7 @@ export default function WorkspaceTasksScreen() {
                 pressed && { opacity: 0.8 },
               ]}
             >
-              <MaterialIcons name={editingTask ? 'save' : 'add-circle'} size={18} color={Colors.bg} />
+              <MaterialIcons name={editingTask ? 'save' : 'add-circle'} size={18} color={C.bg} />
               <Text style={styles.primaryBtnText}>{editingTask ? 'Enregistrer' : 'Créer la tâche'}</Text>
             </Pressable>
           </View>
@@ -507,21 +515,21 @@ export default function WorkspaceTasksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
+const createStyles = (C: ReturnType<typeof useThemeColors>) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
   topBar: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
-    backgroundColor: Colors.bg, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border,
   },
   backBtn2: { padding: Spacing.xs },
   wsIcon: { width: 34, height: 34, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  topBarTitle: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '700' },
-  topBarSub: { fontSize: FontSize.xs, color: Colors.textMuted },
+  topBarTitle: { fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' },
+  topBarSub: { fontSize: FontSize.xs, color: C.textMuted },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.primary, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2,
+    backgroundColor: C.primary, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2,
     borderRadius: Radius.pill,
   },
   addBtnText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '600' },
@@ -529,18 +537,18 @@ const styles = StyleSheet.create({
 
   explainCard: {
     flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.primary + '15', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.primary + '33', padding: Spacing.md,
+    backgroundColor: C.primary + '15', borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.primary + '33', padding: Spacing.md,
   },
-  explainTitle: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '600', marginBottom: 3 },
-  explainText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18, flex: 1 },
+  explainTitle: { fontSize: FontSize.sm, color: C.primary, fontWeight: '600', marginBottom: 3 },
+  explainText: { fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18, flex: 1 },
 
   dueBanner: {
-    backgroundColor: Colors.warning + '12', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.warning + '44', padding: Spacing.md, gap: Spacing.sm,
+    backgroundColor: C.warning + '12', borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.warning + '44', padding: Spacing.md, gap: Spacing.sm,
   },
   dueBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  dueBannerText: { fontSize: FontSize.sm, color: Colors.warning, fontWeight: '600', flex: 1 },
+  dueBannerText: { fontSize: FontSize.sm, color: C.warning, fontWeight: '600', flex: 1 },
   duePills: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   duePill: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -550,22 +558,22 @@ const styles = StyleSheet.create({
 
   statsRow: { flexDirection: 'row', gap: Spacing.sm },
   statCard: {
-    flex: 1, backgroundColor: Colors.bgCard, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.sm,
+    flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.sm,
     alignItems: 'center', gap: 4,
   },
-  statValue: { fontSize: FontSize.lg, color: Colors.textPrimary, fontWeight: '700' },
-  statLabel: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center' },
+  statValue: { fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' },
+  statLabel: { fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center' },
 
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xl + 16, gap: Spacing.md },
-  emptyTitle: { fontSize: FontSize.body, color: Colors.textSecondary, fontWeight: '600' },
-  emptySub: { fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 19 },
+  emptyTitle: { fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' },
+  emptySub: { fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 19 },
   emptyAddBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.accent, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
+    backgroundColor: C.accent, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
     borderRadius: Radius.pill, marginTop: Spacing.sm,
   },
-  emptyAddBtnText: { fontSize: FontSize.sm, color: Colors.bg, fontWeight: '700' },
+  emptyAddBtnText: { fontSize: FontSize.sm, color: C.bg, fontWeight: '700' },
 
   group: { gap: Spacing.sm },
   groupHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
@@ -575,80 +583,80 @@ const styles = StyleSheet.create({
   groupCountText: { fontSize: FontSize.xs, fontWeight: '700' },
 
   taskCard: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, gap: Spacing.sm,
+    backgroundColor: C.bgCard, borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm,
   },
   taskTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   taskIconWrap: { width: 38, height: 38, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   taskTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap', flex: 1 },
-  taskTitle: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '700', flex: 1 },
+  taskTitle: { fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700', flex: 1 },
   dueBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: Colors.warning + '22', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill,
+    backgroundColor: C.warning + '22', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill,
   },
-  dueBadgeText: { fontSize: 10, color: Colors.warning, fontWeight: '700' },
+  dueBadgeText: { fontSize: 10, color: C.warning, fontWeight: '700' },
   disabledBadge: {
-    backgroundColor: Colors.border, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill,
+    backgroundColor: C.border, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill,
   },
-  disabledBadgeText: { fontSize: 10, color: Colors.textMuted, fontWeight: '600' },
-  taskDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 17, marginTop: 2 },
+  disabledBadgeText: { fontSize: 10, color: C.textMuted, fontWeight: '600' },
+  taskDesc: { fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 17, marginTop: 2 },
   toggleTrack: {
     width: 44, height: 24, borderRadius: 12,
-    backgroundColor: Colors.bgCardAlt, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border,
     justifyContent: 'center', paddingHorizontal: 3,
   },
-  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: Colors.textMuted },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: C.textMuted },
   toggleThumbOn: { backgroundColor: '#fff', alignSelf: 'flex-end' },
 
   taskMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, alignItems: 'center' },
   freqBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill },
   freqBadgeText: { fontSize: FontSize.xs, fontWeight: '600' },
   taskMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  taskMetaText: { fontSize: FontSize.xs, color: Colors.textMuted },
+  taskMetaText: { fontSize: FontSize.xs, color: C.textMuted },
 
   promptPreview: {
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm,
-    borderLeftWidth: 2, borderLeftColor: Colors.border,
+    backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm,
+    borderLeftWidth: 2, borderLeftColor: C.border,
   },
-  promptPreviewText: { fontSize: FontSize.xs, color: Colors.textMuted, fontFamily: 'monospace', lineHeight: 16 },
+  promptPreviewText: { fontSize: FontSize.xs, color: C.textMuted, fontFamily: 'monospace', lineHeight: 16 },
 
   taskActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   completeBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: Colors.warning, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2,
+    backgroundColor: C.warning, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2,
     borderRadius: Radius.pill, flex: 1, justifyContent: 'center',
   },
-  completeBtnText: { fontSize: FontSize.sm, color: Colors.bg, fontWeight: '700' },
+  completeBtnText: { fontSize: FontSize.sm, color: C.bg, fontWeight: '700' },
   iconBtn: { padding: Spacing.xs },
 
   tipsCard: {
     flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start',
-    backgroundColor: Colors.warning + '10', borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.warning + '33', padding: Spacing.md,
+    backgroundColor: C.warning + '10', borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.warning + '33', padding: Spacing.md,
   },
-  tipsTitle: { fontSize: FontSize.sm, color: Colors.warning, fontWeight: '600', marginBottom: 4 },
-  tipsText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
+  tipsTitle: { fontSize: FontSize.sm, color: C.warning, fontWeight: '600', marginBottom: 4 },
+  tipsText: { fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 },
 
-  notFoundText: { fontSize: FontSize.body, color: Colors.textSecondary },
-  backBtn: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill },
+  notFoundText: { fontSize: FontSize.body, color: C.textSecondary },
+  backBtn: { backgroundColor: C.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill },
   backBtnText: { color: '#fff', fontWeight: '600' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: Colors.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, gap: Spacing.md,
+    backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md,
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalTitle: { fontSize: FontSize.md, color: Colors.textPrimary, fontWeight: '700' },
+  modalTitle: { fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' },
   field: { gap: Spacing.xs },
   fieldLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600',
+    fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600',
     textTransform: 'uppercase', letterSpacing: 0.8,
   },
   textInput: {
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border,
-    color: Colors.textPrimary, fontSize: FontSize.body,
+    backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.border,
+    color: C.textPrimary, fontSize: FontSize.body,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44,
   },
   textArea: { minHeight: 110, textAlignVertical: 'top', paddingTop: Spacing.sm },
@@ -656,17 +664,17 @@ const styles = StyleSheet.create({
   freqChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2,
-    borderRadius: Radius.pill, borderWidth: 1, borderColor: Colors.border,
-    backgroundColor: Colors.bgCardAlt,
+    borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.bgCardAlt,
   },
-  freqChipText: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '600' },
+  freqChipText: { fontSize: FontSize.sm, color: C.textMuted, fontWeight: '600' },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   colorDot: { width: 30, height: 30, borderRadius: 15 },
   colorSelected: { borderWidth: 3, borderColor: '#fff' },
   iconRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   iconPickerBtn: {
     width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgCardAlt, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border,
   },
   previewCard: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
@@ -676,8 +684,8 @@ const styles = StyleSheet.create({
   previewTitle: { fontSize: FontSize.body, fontWeight: '700' },
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
+    backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
   },
   primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { fontSize: FontSize.body, color: Colors.bg, fontWeight: '700' },
+  primaryBtnText: { fontSize: FontSize.body, color: C.bg, fontWeight: '700' },
 });

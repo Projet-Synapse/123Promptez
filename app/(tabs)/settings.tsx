@@ -18,14 +18,18 @@ import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { bot, updateBot, updateLLMConfig } = useBot();
+  const { bot, updateBot, updateLLMConfig, updateAgentToolConfig, resetBot } = useBot();
   const { showAlert } = useAlert();
   const { mode, toggleTheme } = useTheme();
   const { lang, setLang, t } = useLanguage();
   const C = useThemeColors();
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [selectedSearchEngine, setSelectedSearchEngine] = useState('google');
+  // Persisted on the web_search agent tool config so it survives reloads
+  // and cloud sync, instead of living only in local component state.
+  const webSearchTool = bot.agentTools.find(tool => tool.id === 'web_search');
+  const selectedSearchEngine = webSearchTool?.config?.engine ?? 'google';
+  const setSelectedSearchEngine = (engine: string) => updateAgentToolConfig('web_search', { ...webSearchTool?.config, engine });
 
   const appVersion = Constants.expoConfig?.version ?? '1.1.0';
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
@@ -382,7 +386,12 @@ export default function SettingsScreen() {
               'Toutes vos sources, paramètres et applications connectées seront supprimés.',
               [
                 { text: 'Annuler', style: 'cancel' },
-                { text: 'Réinitialiser', style: 'destructive', onPress: () => {} },
+                {
+                  text: 'Réinitialiser', style: 'destructive', onPress: () => {
+                    resetBot();
+                    showAlert('Configuration réinitialisée', 'Le bot a été restauré à ses réglages par défaut.', [{ text: 'OK' }]);
+                  },
+                },
               ]
             )}
             style={({ pressed }) => [{

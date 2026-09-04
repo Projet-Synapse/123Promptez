@@ -209,16 +209,18 @@ export default function LoginScreen() {
                 <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
               </View>
 
-              {/* Google sign-in (placeholder, requires OAuth setup) */}
-              <Pressable
-                onPress={() => showAlert('Google Sign-In', 'Pour activer la connexion Google, activez le fournisseur Google dans OnSpace Cloud → Dashboard → Users → Auth Settings, puis configurez votre OAuth Client ID/Secret.')}
-                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.8 }]}
+              {/* Google sign-in — disabled until OAuth is actually wired up (needs a
+                  Google provider configured in Auth Settings), so it can't be
+                  mistaken for a working sign-in option. */}
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 1, borderColor: C.border, opacity: 0.5 }}
               >
                 <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: '#4285F4' }}>G</Text>
                 </View>
                 <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Continuer avec Google</Text>
-              </Pressable>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600' }}>· Bientôt disponible</Text>
+              </View>
 
               {mode === 'register' ? (
                 <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.primary + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.primary + '33' }}>

@@ -1,5 +1,9 @@
 // Powered by OnSpace.AI
-import React, { useState } from 'react';
+// Theme fix: styles are built by createStyles(C) from the reactive color
+// object returned by useThemeColors(), memoized per-render — NOT resolved
+// once against the static Colors object at module load (that would freeze
+// this screen on whichever theme was active on first mount).
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable,
   Modal, KeyboardAvoidingView, Platform,
@@ -9,7 +13,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { ThemedInput } from '@/components';
-import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAlert } from '@/template';
 import type { WorkspaceMode } from '@/contexts/WorkspaceContext';
 
@@ -39,11 +44,14 @@ export default function WorkspaceSettingsScreen() {
   const [modeColor, setModeColor] = useState(MODE_COLORS[0]);
   const [modeIcon, setModeIcon] = useState(MODE_ICONS[0]);
 
+  const C = useThemeColors();
+  const styles = useMemo(() => createStyles(C), [C]);
+
   if (!ws) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.notFound}>
-          <MaterialIcons name="error-outline" size={48} color={Colors.textMuted} />
+          <MaterialIcons name="error-outline" size={48} color={C.textMuted} />
           <Text style={styles.notFoundText}>Workspace introuvable</Text>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Text style={styles.backBtnText}>Retour</Text>
@@ -119,7 +127,7 @@ export default function WorkspaceSettingsScreen() {
       {/* Header */}
       <View style={styles.topBar}>
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backIconBtn}>
-          <MaterialIcons name="arrow-back" size={22} color={Colors.textPrimary} />
+          <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
         </Pressable>
         <View style={[styles.wsIconSmall, { backgroundColor: ws.color + '22' }]}>
           <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
@@ -137,7 +145,7 @@ export default function WorkspaceSettingsScreen() {
         {/* Identity */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>
-            <MaterialIcons name="edit" size={13} color={Colors.primary} /> Identité
+            <MaterialIcons name="edit" size={13} color={C.primary} /> Identité
           </Text>
           <ThemedInput
             label="Nom"
@@ -157,7 +165,7 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="code" size={13} color={Colors.textMono} /> Prompt système du workspace
+              <MaterialIcons name="code" size={13} color={C.textMono} /> Prompt système du workspace
             </Text>
           </View>
           <ThemedInput
@@ -179,18 +187,18 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="storage" size={13} color={Colors.primary} /> Base de données
+              <MaterialIcons name="storage" size={13} color={C.primary} /> Base de données
             </Text>
           </View>
           <View style={styles.dbSummary}>
             <View style={styles.dbStat}>
-              <MaterialIcons name="folder" size={20} color={Colors.primary} />
+              <MaterialIcons name="folder" size={20} color={C.primary} />
               <Text style={styles.dbStatValue}>{ws.database.folders.length}</Text>
               <Text style={styles.dbStatLabel}>Dossier{ws.database.folders.length !== 1 ? 's' : ''}</Text>
             </View>
             <View style={styles.dbDivider} />
             <View style={styles.dbStat}>
-              <MaterialIcons name="insert-drive-file" size={20} color={Colors.textSecondary} />
+              <MaterialIcons name="insert-drive-file" size={20} color={C.textSecondary} />
               <Text style={styles.dbStatValue}>{totalFiles}</Text>
               <Text style={styles.dbStatLabel}>Fichier{totalFiles !== 1 ? 's' : ''}</Text>
             </View>
@@ -209,25 +217,25 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="event-repeat" size={13} color={Colors.warning} /> Tâches planifiées
+              <MaterialIcons name="event-repeat" size={13} color={C.warning} /> Tâches planifiées
             </Text>
           </View>
           <View style={styles.dbSummary}>
             <View style={styles.dbStat}>
-              <MaterialIcons name="task-alt" size={20} color={Colors.accent} />
+              <MaterialIcons name="task-alt" size={20} color={C.accent} />
               <Text style={styles.dbStatValue}>{ws.tasks.filter(t => t.enabled).length}</Text>
               <Text style={styles.dbStatLabel}>Actives</Text>
             </View>
             <View style={styles.dbDivider} />
             <View style={styles.dbStat}>
-              <MaterialIcons name="event-repeat" size={20} color={Colors.warning} />
+              <MaterialIcons name="event-repeat" size={20} color={C.warning} />
               <Text style={styles.dbStatValue}>{ws.tasks.length}</Text>
               <Text style={styles.dbStatLabel}>Total</Text>
             </View>
           </View>
           <Pressable
             onPress={() => router.push({ pathname: '/workspace-tasks', params: { wsId: ws.id } })}
-            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: Colors.warning }, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: C.warning }, pressed && { opacity: 0.8 }]}
           >
             <MaterialIcons name="event-repeat" size={18} color="#fff" />
             <Text style={styles.dbOpenBtnText}>Gérer les tâches planifiées</Text>
@@ -250,7 +258,7 @@ export default function WorkspaceSettingsScreen() {
             </View>
             <View style={styles.dbDivider} />
             <View style={styles.dbStat}>
-              <MaterialIcons name="bolt" size={20} color={Colors.textSecondary} />
+              <MaterialIcons name="bolt" size={20} color={C.textSecondary} />
               <Text style={styles.dbStatValue}>{(ws.automations ?? []).length}</Text>
               <Text style={styles.dbStatLabel}>Total</Text>
             </View>
@@ -269,7 +277,7 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="bolt" size={13} color={Colors.accent} /> Modes d’interaction
+              <MaterialIcons name="bolt" size={13} color={C.accent} /> Modes d’interaction
             </Text>
             <Pressable
               onPress={() => { resetModeForm(); setShowAddMode(true); }}
@@ -283,7 +291,7 @@ export default function WorkspaceSettingsScreen() {
           {/* Active modes summary */}
           {activeModes.length > 0 ? (
             <View style={styles.activeModesBanner}>
-              <MaterialIcons name="bolt" size={14} color={Colors.accent} />
+              <MaterialIcons name="bolt" size={14} color={C.accent} />
               <Text style={styles.activeModesText}>
                 {activeModes.length} mode{activeModes.length !== 1 ? 's' : ''} actif{activeModes.length !== 1 ? 's' : ''} : {activeModes.map(m => m.label).join(', ')}
               </Text>
@@ -292,7 +300,7 @@ export default function WorkspaceSettingsScreen() {
 
           {/* Mode explanation */}
           <View style={styles.modeExplain}>
-            <MaterialIcons name="info-outline" size={14} color={Colors.textMuted} />
+            <MaterialIcons name="info-outline" size={14} color={C.textMuted} />
             <Text style={styles.modeExplainText}>
               Les modes injectent automatiquement des instructions dans le prompt lors des conversations. Activez/désactivez-les depuis le chat.
             </Text>
@@ -300,7 +308,7 @@ export default function WorkspaceSettingsScreen() {
 
           {ws.modes.length === 0 ? (
             <View style={styles.emptyModes}>
-              <MaterialIcons name="widgets" size={32} color={Colors.textMuted} />
+              <MaterialIcons name="widgets" size={32} color={C.textMuted} />
               <Text style={styles.emptyModesText}>Aucun mode configuré</Text>
               <Text style={styles.emptyModesSub}>Créez des comportements automatiques activables en conversation</Text>
             </View>
@@ -348,14 +356,14 @@ export default function WorkspaceSettingsScreen() {
                   <MaterialIcons
                     name={mode.enabled ? 'toggle-on' : 'toggle-off'}
                     size={22}
-                    color={mode.enabled ? '#fff' : Colors.textMuted}
+                    color={mode.enabled ? '#fff' : C.textMuted}
                   />
                 </Pressable>
                 <Pressable onPress={() => openEditMode(mode)} hitSlop={8} style={styles.iconBtn}>
-                  <MaterialIcons name="edit" size={16} color={Colors.textSecondary} />
+                  <MaterialIcons name="edit" size={16} color={C.textSecondary} />
                 </Pressable>
                 <Pressable onPress={() => handleDeleteMode(mode)} hitSlop={8} style={styles.iconBtn}>
-                  <MaterialIcons name="delete-outline" size={16} color={Colors.textMuted} />
+                  <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
                 </Pressable>
               </View>
             </View>
@@ -370,7 +378,7 @@ export default function WorkspaceSettingsScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingMode ? 'Modifier le mode' : 'Nouveau mode'}</Text>
               <Pressable onPress={() => { resetModeForm(); setShowAddMode(false); }} hitSlop={8}>
-                <MaterialIcons name="close" size={22} color={Colors.textSecondary} />
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
               </Pressable>
             </View>
 
@@ -410,7 +418,7 @@ export default function WorkspaceSettingsScreen() {
                         onPress={() => setModeIcon(ic)}
                         style={[styles.iconPickerBtn, modeIcon === ic ? { backgroundColor: modeColor + '33', borderColor: modeColor } : null]}
                       >
-                        <MaterialIcons name={ic as any} size={20} color={modeIcon === ic ? modeColor : Colors.textMuted} />
+                        <MaterialIcons name={ic as any} size={20} color={modeIcon === ic ? modeColor : C.textMuted} />
                       </Pressable>
                     ))}
                   </View>
@@ -454,7 +462,7 @@ export default function WorkspaceSettingsScreen() {
                 pressed && { opacity: 0.8 },
               ]}
             >
-              <MaterialIcons name={editingMode ? 'save' : 'add-circle'} size={18} color={Colors.bg} />
+              <MaterialIcons name={editingMode ? 'save' : 'add-circle'} size={18} color={C.bg} />
               <Text style={styles.primaryBtnText}>{editingMode ? 'Enregistrer' : 'Créer le mode'}</Text>
             </Pressable>
           </View>
@@ -464,99 +472,99 @@ export default function WorkspaceSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
+const createStyles = (C: ReturnType<typeof useThemeColors>) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.bg },
   topBar: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
-    backgroundColor: Colors.bg, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border,
   },
   backIconBtn: { padding: Spacing.xs },
   wsIconSmall: { width: 34, height: 34, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  topBarTitle: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '700' },
-  topBarSub: { fontSize: FontSize.xs, color: Colors.textMuted },
+  topBarTitle: { fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' },
+  topBarSub: { fontSize: FontSize.xs, color: C.textMuted },
   content: { padding: Spacing.md, gap: Spacing.lg },
   section: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, gap: Spacing.md,
+    backgroundColor: C.bgCard, borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md,
   },
   sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600',
+    fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600',
     textTransform: 'uppercase', letterSpacing: 1,
   },
-  promptHint: { fontSize: FontSize.xs, color: Colors.textMuted, fontFamily: 'monospace' },
+  promptHint: { fontSize: FontSize.xs, color: C.textMuted, fontFamily: 'monospace' },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.primary, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2,
+    backgroundColor: C.primary, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2,
     borderRadius: Radius.pill,
   },
   addBtnText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '600' },
   activeModesBanner: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    backgroundColor: Colors.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm,
-    borderWidth: 1, borderColor: Colors.accent + '33',
+    backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm,
+    borderWidth: 1, borderColor: C.accent + '33',
   },
-  activeModesText: { fontSize: FontSize.sm, color: Colors.accent, flex: 1 },
+  activeModesText: { fontSize: FontSize.sm, color: C.accent, flex: 1 },
   modeExplain: {
     flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start',
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm,
+    backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm,
   },
-  modeExplainText: { fontSize: FontSize.xs, color: Colors.textMuted, flex: 1, lineHeight: 17 },
+  modeExplainText: { fontSize: FontSize.xs, color: C.textMuted, flex: 1, lineHeight: 17 },
   emptyModes: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
-  emptyModesText: { fontSize: FontSize.body, color: Colors.textSecondary, fontWeight: '500' },
-  emptyModesSub: { fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', maxWidth: 260 },
+  emptyModesText: { fontSize: FontSize.body, color: C.textSecondary, fontWeight: '500' },
+  emptyModesSub: { fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', maxWidth: 260 },
   modeCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.md,
+    backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.md,
   },
   modeIcon: { width: 38, height: 38, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   modeInfo: { flex: 1, gap: 3 },
   modeTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' },
-  modeLabel: { fontSize: FontSize.body, color: Colors.textPrimary, fontWeight: '600' },
+  modeLabel: { fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' },
   shortcutBadge: {
-    backgroundColor: Colors.bgCard, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2,
-    borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.bgCard, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2,
+    borderWidth: 1, borderColor: C.border,
   },
-  shortcutText: { fontSize: FontSize.xs, color: Colors.textMono, fontFamily: 'monospace' },
+  shortcutText: { fontSize: FontSize.xs, color: C.textMono, fontFamily: 'monospace' },
   enabledBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill },
   enabledDot: { width: 5, height: 5, borderRadius: 3 },
   enabledText: { fontSize: FontSize.xs, fontWeight: '700' },
-  modeDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 17 },
-  modePromptPreview: { fontSize: FontSize.xs, color: Colors.textMuted, fontFamily: 'monospace', lineHeight: 16 },
+  modeDesc: { fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 17 },
+  modePromptPreview: { fontSize: FontSize.xs, color: C.textMuted, fontFamily: 'monospace', lineHeight: 16 },
   modeActions: { flexDirection: 'column', alignItems: 'center', gap: Spacing.xs },
   toggleBtn: { padding: Spacing.xs, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
   toggleBtnOn: {},
-  toggleBtnOff: { backgroundColor: Colors.bgCard },
+  toggleBtnOff: { backgroundColor: C.bgCard },
   iconBtn: { padding: Spacing.xs },
   dbSummary: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgCardAlt, borderRadius: Radius.md, padding: Spacing.md,
+    backgroundColor: C.bgCardAlt, borderRadius: Radius.md, padding: Spacing.md,
     gap: Spacing.lg,
   },
   dbStat: { alignItems: 'center', gap: 4 },
-  dbStatValue: { fontSize: FontSize.lg, color: Colors.textPrimary, fontWeight: '700' },
-  dbStatLabel: { fontSize: FontSize.xs, color: Colors.textMuted },
-  dbDivider: { width: 1, height: 36, backgroundColor: Colors.border },
+  dbStatValue: { fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' },
+  dbStatLabel: { fontSize: FontSize.xs, color: C.textMuted },
+  dbDivider: { width: 1, height: 36, backgroundColor: C.border },
   dbOpenBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: Spacing.sm + 2,
+    backgroundColor: C.primary, borderRadius: Radius.md, paddingVertical: Spacing.sm + 2,
   },
   dbOpenBtnText: { fontSize: FontSize.body, color: '#fff', fontWeight: '700', flex: 1, textAlign: 'center' },
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
-  notFoundText: { fontSize: FontSize.body, color: Colors.textSecondary },
-  backBtn: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill },
+  notFoundText: { fontSize: FontSize.body, color: C.textSecondary },
+  backBtn: { backgroundColor: C.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.pill },
   backBtnText: { color: '#fff', fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: Colors.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, gap: Spacing.md,
+    backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
+    borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md,
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalTitle: { fontSize: FontSize.md, color: Colors.textPrimary, fontWeight: '700' },
+  modalTitle: { fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' },
   fieldLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500',
+    fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '500',
     textTransform: 'uppercase', letterSpacing: 0.8,
   },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
@@ -565,7 +573,7 @@ const styles = StyleSheet.create({
   iconRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   iconPickerBtn: {
     width: 42, height: 42, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgCardAlt, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border,
   },
   modePreview: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
@@ -573,8 +581,8 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
+    backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
   },
   primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { fontSize: FontSize.body, color: Colors.bg, fontWeight: '700' },
+  primaryBtnText: { fontSize: FontSize.body, color: C.bg, fontWeight: '700' },
 });
