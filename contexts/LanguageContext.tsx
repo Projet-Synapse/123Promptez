@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 // LanguageContext — stores the selected interface language and provides
 // a t() translation function for UI strings and a system prompt injection string.
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';

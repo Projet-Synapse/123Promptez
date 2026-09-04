@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 // Cloud sync service — persists all app data to OnSpace Cloud for the logged-in user
 import { getSupabaseClient } from '@/template';
 

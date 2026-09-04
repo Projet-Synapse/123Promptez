@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 // AppDataContext — orchestrates cloud sync for all contexts.
 // Passes onDataChange callbacks to WorkspaceProvider & ProfileProvider so every
 // mutation is auto-saved to cloud after a 2-second debounce.

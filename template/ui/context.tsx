@@ -1,7 +1,17 @@
-// @ts-nocheck
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { Platform, Alert } from 'react-native';
 import { AlertButton, AlertState } from './types';
+
+// Internal Web Alert Modal Component
+import {
+  Modal,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 // Context type definition
 interface AlertContextType {
@@ -103,15 +113,6 @@ export function useAlertContext(): AlertContextType {
   return context;
 }
 
-// Internal Web Alert Modal Component
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
-
 interface WebAlertModalProps {
   alertState: AlertState;
   onButtonPress: (button: AlertButton) => void;
@@ -126,7 +127,7 @@ function WebAlertModal({ alertState, onButtonPress, onHide }: WebAlertModalProps
   // Determine button style
   const getButtonStyle = (button: AlertButton, index: number) => {
     const isLast = index === alertState.buttons.length - 1;
-    const baseStyle = [styles.button];
+    const baseStyle: StyleProp<ViewStyle>[] = [styles.button];
     
     if (alertState.buttons.length > 1 && !isLast) {
       baseStyle.push(styles.buttonWithBorder);

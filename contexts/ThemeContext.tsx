@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 import React, { createContext, useState, useContext, ReactNode } from 'react';
 import { Colors, LightColors, DarkColors } from '@/constants/theme';
 
@@ -22,7 +21,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const applyColors = (newMode: ThemeMode) => {
     const src = newMode === 'dark' ? DarkColors : LightColors;
     // Mutate the shared Colors object so all StyleSheet.create() references update
-    (Object.keys(src) as Array<keyof typeof src>).forEach(key => {
+    (Object.keys(src) as (keyof typeof src)[]).forEach(key => {
       (Colors as any)[key] = src[key];
     });
   };

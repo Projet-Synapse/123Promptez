@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { useRouter, usePathname } from 'expo-router';
+import { useRouter, usePathname, type Href } from 'expo-router';
 import { useAuth } from './hook';
 
 const DefaultLoadingScreen = () => (
@@ -41,7 +40,9 @@ export function AuthRouter({
                    user && isLoginRoute ? 'redirect_to_home' : 'no_action';
 
     if (action === 'redirect_to_login') {
-      router.push(loginRoute);
+      // loginRoute is a caller-configurable prop (default '/login'), so it
+      // can't be statically verified against the app's typed routes.
+      router.push(loginRoute as Href);
     } else if (action === 'redirect_to_home') {
       router.replace('/');
     }

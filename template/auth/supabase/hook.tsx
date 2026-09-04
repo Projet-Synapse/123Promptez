@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { AuthContextType, SendOTPResult, AuthResult, LogoutResult, SignUpResult, GoogleSignInResult } from '../types';
 import { authService } from './service';
 import { configManager } from '../../core/config';

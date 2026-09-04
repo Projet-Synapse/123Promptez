@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx jest:*)",
+      "Bash(npx expo:*)",
+      "Bash(npx expo-doctor:*)",
+      "Bash(eas build:*)",
+      "Bash(eas update:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(gh run:*)",
+      "Read(./**)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git tag *)"
+    ],
+    "ask" [
+      "Read(./.env*)",
+      "Read(./**/*.keystore)",]
+
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)"
+    ],
+     "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/verify.sh",
+            "timeout": 120
+          }]}]
+     }}}
