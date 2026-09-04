@@ -1,4 +1,3 @@
-// @ts-nocheck
 export interface AlertButton {
   text: string;
   onPress?: () => void;

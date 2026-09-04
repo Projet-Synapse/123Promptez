@@ -1,4 +1,3 @@
-// @ts-nocheck
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthUser, SendOTPOptions, SignUpResult } from '../types';
 
@@ -30,8 +29,8 @@ export class MockAuthService {
 
   async signUpWithPassword(email: string, password: string, metadata: Record<string, any> = {}) {
     await new Promise(resolve => setTimeout(resolve, 800));
-    
-    let user = await this.findUserByEmail(email);
+
+    let user: AuthUser | null = await this.findUserByEmail(email);
     if (user) {
       return { 
         error: 'User already registered',
@@ -63,8 +62,8 @@ export class MockAuthService {
 
   async verifyOTPAndLogin(email: string, otp: string, options?: { password?: string; metadata?: Record<string, any> }) {
     await new Promise(resolve => setTimeout(resolve, 800));
-    
-    let user = await this.findUserByEmail(email);
+
+    let user: AuthUser | null = await this.findUserByEmail(email);
     if (!user) {
       const username = options?.metadata?.username || email.split('@')[0];
       user = await this.createUser(email, username);
@@ -108,7 +107,7 @@ export class MockAuthService {
   }
 
   onAuthStateChange(callback: (user: AuthUser | null) => void) {
-    let intervalId: NodeJS.Timeout;
+    let intervalId: ReturnType<typeof setInterval>;
     let lastUser: AuthUser | null = null;
     
     const checkAuthState = async () => {

@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { OnSpaceConfig } from './types';
+import { OnSpaceConfig, AuthModuleConfig } from './types';
 
 class ConfigManager {
   private static instance: ConfigManager;
@@ -33,7 +32,7 @@ class ConfigManager {
     const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-    let authConfig;
+    let authConfig: AuthModuleConfig | false;
     let supabaseConfig;
 
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -92,7 +91,7 @@ interface CreateConfigOptions {
 }
 
 export const createConfig = (options: CreateConfigOptions = {}): OnSpaceConfig => {
-  let authConfig;
+  let authConfig: AuthModuleConfig | false | undefined;
   if (options.auth === false) {
     authConfig = false;
   } else if (options.auth === undefined) {

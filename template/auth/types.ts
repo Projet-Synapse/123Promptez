@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { User } from '@supabase/supabase-js';
 
 export interface AuthUser {

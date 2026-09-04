@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 import { StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing } from './theme';
 

@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 // Theme fix: inline styles with useThemeColors()
 import React from 'react';
 import { View, Text } from 'react-native';

@@ -1,4 +1,4 @@
-import { AuthUser, SendOTPOptions, SignUpResult, GoogleSignInResult } from '../types';
+import { AuthUser, SendOTPOptions, SignUpResult, GoogleSignInResult, SendOTPResult, AuthResult, LogoutResult } from '../types';
 import { safeSupabaseOperation, getSharedSupabaseClient } from '../../core/client';
 import { configManager } from '../../core/config';
 import { Platform } from 'react-native';
@@ -139,7 +139,7 @@ export class AuthService {
     };
   }
 
-  async sendOTP(email: string, options: SendOTPOptions = {}) {
+  async sendOTP(email: string, options: SendOTPOptions = {}): Promise<SendOTPResult> {
     try {
       const { shouldCreateUser = true, emailRedirectTo } = options;
       
@@ -177,7 +177,7 @@ export class AuthService {
     }
   }
 
-  async verifyOTPAndLogin(email: string, otp: string, options?: { password?: string }) {
+  async verifyOTPAndLogin(email: string, otp: string, options?: { password?: string }): Promise<AuthResult> {
     try {
       return await safeSupabaseOperation(async (client) => {
         // Step 1: Verify OTP first
@@ -345,7 +345,7 @@ export class AuthService {
     }
   }
 
-  async signInWithPassword(email: string, password: string) {
+  async signInWithPassword(email: string, password: string): Promise<AuthResult> {
     try {
       return await safeSupabaseOperation(async (client) => {
         const { data, error } = await withTimeout(
@@ -393,7 +393,7 @@ export class AuthService {
     }
   }
 
-  async logout() {
+  async logout(): Promise<LogoutResult> {
     try {
       return await safeSupabaseOperation(async (client) => {
         const { error } = await withTimeout(

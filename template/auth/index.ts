@@ -1,4 +1,3 @@
-// @ts-nocheck
 export * from './types';
 
 // Supabase backend authentication system

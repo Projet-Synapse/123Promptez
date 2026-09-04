@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 import React, { createContext, useState, ReactNode, useCallback, useRef } from 'react';
 import type { ChatMessage } from '@/contexts/BotContext';
 

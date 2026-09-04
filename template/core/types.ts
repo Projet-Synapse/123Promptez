@@ -1,12 +1,14 @@
-// @ts-nocheck
 // Supabase configuration
 export interface SupabaseConfig {
   url: string;
   anonKey: string;
 }
 
-// Auth module configuration
-export interface AuthConfig {
+// Auth module configuration (whether/how the auth module is enabled —
+// distinct from auth/types.ts's AuthConfig, which is the auth service's
+// own runtime config; both are re-exported from template/index.ts, so
+// they must not share a name)
+export interface AuthModuleConfig {
   enabled?: boolean;
   profileTableName?: string;
   autoCreateProfile?: boolean;
@@ -25,14 +27,16 @@ export interface StorageConfig {
 
 // Module configuration union type
 export interface ModuleConfig {
-  auth?: AuthConfig | false;
+  auth?: AuthModuleConfig | false;
   payments?: PaymentsConfig | false;
   storage?: StorageConfig | false;
 }
 
 // Main configuration interface
+// `supabase` is optional: when EXPO_PUBLIC_SUPABASE_URL/ANON_KEY aren't set,
+// createDefaultConfig()/createConfig() intentionally omit it and disable auth.
 export interface OnSpaceConfig extends ModuleConfig {
-  supabase: SupabaseConfig;
+  supabase?: SupabaseConfig;
 }
 
 // Runtime state

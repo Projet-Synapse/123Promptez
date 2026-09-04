@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 import React, { createContext, useState, useContext, ReactNode, useCallback, useRef } from 'react';
 
 export interface UserProfile {

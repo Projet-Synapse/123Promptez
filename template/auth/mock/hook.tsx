@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { AuthContextType, SendOTPResult, AuthResult, LogoutResult, SignUpResult } from '../types';
+import { AuthContextType, SendOTPResult, AuthResult, LogoutResult, SignUpResult, GoogleSignInResult } from '../types';
 import { mockAuthService } from './service';
 import { useMockAuthContext } from './context';
 import { useState, useEffect } from 'react';
@@ -59,13 +58,13 @@ export function useMockAuth(): AuthContextType {
     }
   };
 
-  const signInWithGoogle = async (): Promise<AuthResult> => {
+  const signInWithGoogle = async (): Promise<GoogleSignInResult> => {
     context.setOperationLoading(true);
     try {
       // Mock Google Sign-In - just simulate success
       await new Promise(resolve => setTimeout(resolve, 1000));
       console.log('[SDK:useMockAuth] Mock Google Sign-In - not implemented in mock mode');
-      return { error: 'Google Sign-In not available in mock mode', user: null };
+      return { error: 'Google Sign-In not available in mock mode' };
     } finally {
       context.setOperationLoading(false);
     }

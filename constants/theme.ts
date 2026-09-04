@@ -1,4 +1,3 @@
-// Powered by OnSpace.AI
 // Dynamic theme colors — components should call useThemeColors() to get reactive colors.
 // The static Colors export is kept for StyleSheet.create() backward compat (dark theme defaults).
 
