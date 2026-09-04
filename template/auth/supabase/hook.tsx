@@ -34,13 +34,16 @@ export function useAuth(): AuthContextType {
       }),
       logout: async (): Promise<LogoutResult> => {
         console.warn('Auth function not enabled');
-        return { 
-          error: 'Auth function not enabled, please check configuration' 
+        return {
+          error: 'Auth function not enabled, please check configuration'
         };
       },
       refreshSession: async () => {
         console.warn('Auth function not enabled');
       },
+      updatePassword: async (): Promise<LogoutResult> => ({
+        error: 'Auth function not enabled, please check configuration',
+      }),
     };
   }
 
@@ -135,6 +138,19 @@ export function useAuth(): AuthContextType {
     }
   };
 
+  const updatePassword = async (newPassword: string): Promise<LogoutResult> => {
+    context.setOperationLoading(true);
+    try {
+      const result = await authService.updatePassword(newPassword);
+      return result;
+    } catch (error) {
+      console.warn('[Template:useAuth] updatePassword exception:', error);
+      return { error: 'Password update failed' };
+    } finally {
+      context.setOperationLoading(false);
+    }
+  };
+
   const signInWithGoogle = async (): Promise<GoogleSignInResult> => {
     context.setOperationLoading(true);
     try {
@@ -163,5 +179,6 @@ export function useAuth(): AuthContextType {
     signInWithGoogle,
     logout,
     refreshSession,
+    updatePassword,
   };
 }

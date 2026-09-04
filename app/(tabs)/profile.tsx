@@ -27,9 +27,9 @@ export default function ProfileScreen() {
   const C = useThemeColors();
   const router = useRouter();
   const { profile, updateProfile, addMemory, updateMemory, removeMemory } = useProfile();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { showAlert } = useAlert();
-  const { triggerSync, isSyncing, lastSyncAt } = useAppData();
+  const { triggerSync } = useAppData();
 
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [showAddMemory, setShowAddMemory] = useState(false);
@@ -77,63 +77,26 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
 
         {/* Header */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View style={{ gap: 2 }}>
-            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Profil</Text>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Données personnelles et mémoire IA</Text>
-          </View>
-          {user ? (
-            <Pressable onPress={() => showAlert('Se déconnecter ?', 'Vos données sont sauvegardées sur le cloud.', [{ text: 'Annuler', style: 'cancel' }, { text: 'Déconnexion', style: 'destructive', onPress: () => logout() }])} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.error + '15', paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.error + '33' }, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="logout" size={14} color={C.error} />
-              <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '600' }}>Déconnexion</Text>
-            </Pressable>
-          ) : null}
+        <View style={{ gap: 2 }}>
+          <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Profil</Text>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Données personnelles et mémoire IA</Text>
         </View>
 
-        {/* Account card */}
-        {user ? (
-          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: FontSize.lg, color: '#fff', fontWeight: '700' }}>{initials}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{profile.name || 'Compte'}</Text>
-                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{user.email}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent }} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '600' }}>Compte vérifié</Text>
-                </View>
-              </View>
+        {!user ? (
+          /* Not logged in — CTA to login (account management itself lives in
+             Réglages ▸ Compte, but identity/memory below work locally too) */
+          <Pressable
+            onPress={() => router.push('/(tabs)/settings')}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.primary + '15', borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.primary + '33' }, pressed && { opacity: 0.8 }]}
+          >
+            <MaterialIcons name="cloud-off" size={16} color={C.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600', marginBottom: 3 }}>Données locales uniquement</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17 }}>Connectez-vous (Réglages ▸ Compte) pour sauvegarder vos workspaces, conversations et configuration sur le cloud, et les retrouver sur tous vos appareils.</Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm }}>
-              <MaterialIcons name={isSyncing ? 'sync' : 'cloud-done'} size={15} color={isSyncing ? C.warning : C.accent} />
-              <Text style={{ fontSize: FontSize.xs, color: isSyncing ? C.warning : C.textMuted, flex: 1 }}>
-                {isSyncing ? 'Synchronisation en cours...' : lastSyncAt ? `Synchronisé à ${lastSyncAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Données sauvegardées sur le cloud'}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          /* Not logged in — CTA to login */
-          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.primary + '15', borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.primary + '33' }}>
-              <MaterialIcons name="cloud-off" size={16} color={C.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600', marginBottom: 3 }}>Données locales uniquement</Text>
-                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17 }}>Créez un compte pour sauvegarder vos workspaces, conversations et configuration sur le cloud, et les retrouver sur tous vos appareils.</Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={() => router.push('/login' as any)}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 0 }, pressed && { opacity: 0.85 }]}
-            >
-              <MaterialIcons name="login" size={18} color={C.bg} />
-              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Se connecter / Créer un compte</Text>
-            </Pressable>
-          </View>
-        )}
+            <MaterialIcons name="chevron-right" size={16} color={C.primary} />
+          </Pressable>
+        ) : null}
 
         {/* Avatar + Name */}
         <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>

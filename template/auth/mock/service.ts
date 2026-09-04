@@ -97,6 +97,13 @@ export class MockAuthService {
     return await this.findUserById(session.userId);
   }
 
+  async updatePassword(newPassword: string) {
+    // Mock mode doesn't persist a password — simulate the round trip so
+    // callers see the same success/loading shape as the real Supabase flow.
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return {};
+  }
+
   async refreshSession() {
     const sessionData = await AsyncStorage.getItem(MOCK_STORAGE_KEYS.CURRENT_SESSION);
     if (!sessionData) return;
