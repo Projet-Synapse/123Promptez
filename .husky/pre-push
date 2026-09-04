@@ -1,0 +1,13 @@
+echo "🔎 Vérification TypeScript + ESLint avant push…"
+
+npx tsc --noEmit || {
+  echo "❌ Erreurs TypeScript — corrige-les avant de pousser." >&2
+  exit 1
+}
+
+npm run lint || {
+  echo "❌ Erreurs ESLint — corrige-les avant de pousser." >&2
+  exit 1
+}
+
+echo "✅ Tout est propre, push en cours."

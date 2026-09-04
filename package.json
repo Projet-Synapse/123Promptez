@@ -9,6 +9,8 @@
   "version": "1.2.0",
   "packageManager": "pnpm@10.32.1",
   "scripts": {
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
@@ -211,8 +213,15 @@
     "electron-builder": "^26.15.3",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.4.1",
     "react-dev-inspector": "^2.0.1",
     "typescript": "~5.8.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix"
+    ]
   },
   "private": true
 }
