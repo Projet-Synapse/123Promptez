@@ -1,6 +1,6 @@
 name: Release
 
-# Builds Web, Android (debug APK) and Desktop (Windows/macOS/Linux) artifacts.
+# Builds Web, Android (installable APK) and Desktop (Windows/macOS/Linux) artifacts.
 # - Push a tag like `v1.2.0` to build everything and publish a GitHub Release.
 # - Or run manually (workflow_dispatch) to just validate the builds without publishing.
 on:
@@ -31,7 +31,7 @@ jobs:
           if-no-files-found: error
 
   build-android:
-    name: Build Android (debug APK)
+    name: Build Android (installable APK)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -65,19 +65,25 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
-      - name: Build debug APK
+      - name: Build APK
         working-directory: android
-        # Single ABI keeps the native-module compile step (reanimated, skia,
-        # webrtc, maps, ...) fast enough for CI — this is a debug/testing
-        # artifact, not a Play Store release build.
-        run: ./gradlew assembleDebug --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
+        # `assembleRelease`, NOT `assembleDebug`: React Native's Gradle plugin
+        # only bundles the JS + assets into the APK for release-type builds —
+        # a debug build expects a live Metro dev server instead and produces
+        # an APK with no JS bundle at all (installs, then fails to launch).
+        # This is still trivially installable/testable: Expo's generated
+        # build.gradle signs the "release" buildType with the debug keystore
+        # by default (no real signing/Play Store cert involved). Single ABI
+        # keeps the native-module compile step (reanimated, skia, webrtc,
+        # maps, ...) fast enough for CI.
+        run: ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk 123Promptez-android.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk 123Promptez-android.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-apk
           path: 123Promptez-android.apk
           if-no-files-found: error
 

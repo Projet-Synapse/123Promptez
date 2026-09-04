@@ -423,6 +423,36 @@ export class AuthService {
     }
   }
 
+  async updatePassword(newPassword: string): Promise<LogoutResult> {
+    try {
+      return await safeSupabaseOperation(async (client) => {
+        const { error } = await withTimeout(
+          client.auth.updateUser({ password: newPassword }),
+          TIMEOUT_CONFIG.USER_UPDATE,
+          'UpdatePassword'
+        );
+
+        if (error) {
+          if (error.message.includes('timeout')) {
+            return { error: 'Password update timeout, please retry', errorType: 'timeout' };
+          }
+          return { error: error.message, errorType: 'business' };
+        }
+
+        return {};
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown updatePassword error';
+      console.warn('[Template:AuthService] UpdatePassword system exception:', errorMessage);
+
+      if (errorMessage.includes('timeout')) {
+        return { error: 'Password update timeout, please check network and retry', errorType: 'timeout' };
+      }
+
+      return { error: errorMessage, errorType: 'network' };
+    }
+  }
+
   async refreshSession() {
     try {
       return await safeSupabaseOperation(async (client) => {

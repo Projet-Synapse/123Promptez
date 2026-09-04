@@ -91,20 +91,20 @@ export default function LoginScreen() {
                 </View>
                 <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Vérification email</Text>
                 <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center', lineHeight: 20 }}>
-                  Un code à 4 chiffres a été envoyé à{'\n'}
+                  Un code à 6 chiffres a été envoyé à{'\n'}
                   <Text style={{ color: C.accent, fontWeight: '600' }}>{email}</Text>
                 </Text>
               </View>
               <View style={{ gap: Spacing.xs }}>
                 <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Code de vérification</Text>
                 <TextInput
-                  style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.accent, fontSize: 32, fontWeight: '800', letterSpacing: 12, textAlign: 'center', minHeight: 70, paddingHorizontal: Spacing.md }}
+                  style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.accent, fontSize: 28, fontWeight: '800', letterSpacing: 6, textAlign: 'center', minHeight: 70, paddingHorizontal: Spacing.md }}
                   value={otp}
                   onChangeText={setOtp}
-                  placeholder="0000"
+                  placeholder="000000"
                   placeholderTextColor={C.textMuted}
                   keyboardType="number-pad"
-                  maxLength={4}
+                  maxLength={6}
                   autoFocus
                 />
               </View>

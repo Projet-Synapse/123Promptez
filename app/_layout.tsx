@@ -1,7 +1,9 @@
-// Powered by OnSpace.AI
 // Root layout — wires WorkspaceProvider, ProfileProvider & BotProvider to cloud auto-sync
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
+import { MaterialIcons } from '@expo/vector-icons';
+import * as SplashScreen from 'expo-splash-screen';
 import { AlertProvider, AuthProvider } from '@/template';
 import { BotProvider, type BotConfig } from '@/contexts/BotContext';
 import { WorkspaceProvider, type Workspace } from '@/contexts/WorkspaceContext';
@@ -10,6 +12,21 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AppDataProvider, useAppData } from '@/contexts/AppDataContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { useRef, useEffect, useCallback } from 'react';
+
+// ── Hydrates contexts from cloud once data is loaded ─────────────────────────
+import { useWorkspace } from '@/hooks/useWorkspace';
+import { useProfile } from '@/contexts/ProfileContext';
+import { useBot } from '@/hooks/useBot';
+
+// Every screen in this app renders icons via MaterialIcons before any
+// explicit font-loading ever happens — @expo/vector-icons lazily loads its
+// font per-icon-instance (see createIconSet.js), which on web/Electron can
+// lose a race against first paint: the glyph's Private-Use-Area codepoint
+// gets painted with the browser's fallback font (a hollow "tofu" box)
+// before the real font finishes downloading, and nothing repaints it after.
+// Preloading here — gating the whole app behind one useFonts() call — makes
+// the font available before any icon ever mounts, on every platform.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // ── Inner layout: has access to AppDataContext + contexts that need cloud sync ─
 function InnerLayout() {
@@ -55,11 +72,6 @@ function InnerLayout() {
   );
 }
 
-// ── Hydrates contexts from cloud once data is loaded ─────────────────────────
-import { useWorkspace } from '@/hooks/useWorkspace';
-import { useProfile } from '@/contexts/ProfileContext';
-import { useBot } from '@/hooks/useBot';
-
 function CloudHydrator() {
   const { loadedData, isDataLoaded } = useAppData();
   const { hydrateFromCloud: hydrateWs } = useWorkspace();
@@ -79,6 +91,14 @@ function CloudHydrator() {
 }
 
 export default function RootLayout() {
+  const [iconFontLoaded] = useFonts({ ...MaterialIcons.font });
+
+  useEffect(() => {
+    if (iconFontLoaded) SplashScreen.hideAsync().catch(() => {});
+  }, [iconFontLoaded]);
+
+  if (!iconFontLoaded) return null;
+
   return (
     <AlertProvider>
       <SafeAreaProvider>

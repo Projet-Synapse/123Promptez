@@ -98,6 +98,18 @@ export function useMockAuth(): AuthContextType {
     }
   };
 
+  const updatePassword = async (newPassword: string): Promise<LogoutResult> => {
+    context.setOperationLoading(true);
+    try {
+      return await mockAuthService.updatePassword(newPassword);
+    } catch (error) {
+      console.warn('[SDK:useMockAuth] updatePassword exception:', error);
+      return { error: 'Password update failed' };
+    } finally {
+      context.setOperationLoading(false);
+    }
+  };
+
   return {
     user: context.user,
     loading: context.loading,
@@ -111,6 +123,7 @@ export function useMockAuth(): AuthContextType {
     signInWithGoogle,
     logout,
     refreshSession,
+    updatePassword,
   };
 }
 
