@@ -19,9 +19,10 @@
       "Bash(git push *)",
       "Bash(git tag *)"
     ],
-    "ask" [
+    "ask": [
       "Read(./.env*)",
-      "Read(./**/*.keystore)",]
+      "Read(./**/*.keystore)"
+    ],
 
     "deny": [
       "Bash(rm -rf:*)",
