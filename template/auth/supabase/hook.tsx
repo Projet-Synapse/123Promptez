@@ -44,6 +44,9 @@ export function useAuth(): AuthContextType {
       updatePassword: async (): Promise<LogoutResult> => ({
         error: 'Auth function not enabled, please check configuration',
       }),
+      requestPasswordReset: async (): Promise<SendOTPResult> => ({
+        error: 'Auth function not enabled, please check configuration',
+      }),
     };
   }
 
@@ -151,6 +154,18 @@ export function useAuth(): AuthContextType {
     }
   };
 
+  const requestPasswordReset = async (email: string): Promise<SendOTPResult> => {
+    context.setOperationLoading(true);
+    try {
+      return await authService.requestPasswordReset(email);
+    } catch (error) {
+      console.warn('[Template:useAuth] requestPasswordReset exception:', error);
+      return { error: 'Failed to send password reset email' };
+    } finally {
+      context.setOperationLoading(false);
+    }
+  };
+
   const signInWithGoogle = async (): Promise<GoogleSignInResult> => {
     context.setOperationLoading(true);
     try {
@@ -180,5 +195,6 @@ export function useAuth(): AuthContextType {
     logout,
     refreshSession,
     updatePassword,
+    requestPasswordReset,
   };
 }

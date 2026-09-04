@@ -110,6 +110,18 @@ export function useMockAuth(): AuthContextType {
     }
   };
 
+  const requestPasswordReset = async (email: string): Promise<SendOTPResult> => {
+    context.setOperationLoading(true);
+    try {
+      return await mockAuthService.requestPasswordReset(email);
+    } catch (error) {
+      console.warn('[SDK:useMockAuth] requestPasswordReset exception:', error);
+      return { error: 'Failed to send password reset email' };
+    } finally {
+      context.setOperationLoading(false);
+    }
+  };
+
   return {
     user: context.user,
     loading: context.loading,
@@ -124,6 +136,7 @@ export function useMockAuth(): AuthContextType {
     logout,
     refreshSession,
     updatePassword,
+    requestPasswordReset,
   };
 }
 

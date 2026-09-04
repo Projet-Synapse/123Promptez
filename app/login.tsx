@@ -15,7 +15,7 @@ type AuthMode = 'login' | 'register';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, operationLoading } = useAuth();
+  const { sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const C = useThemeColors();
 
@@ -34,6 +34,19 @@ export default function LoginScreen() {
     }
     const { error } = await signInWithPassword(email.trim(), password);
     if (error) showAlert('Erreur de connexion', error);
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      showAlert('Email requis', 'Entrez d’abord votre adresse email ci-dessus, puis appuyez sur "Mot de passe oublié ?".');
+      return;
+    }
+    const { error } = await requestPasswordReset(email.trim());
+    if (error) { showAlert('Erreur', error); return; }
+    showAlert(
+      'Email envoyé',
+      `Si un compte existe pour ${email.trim()}, un lien de réinitialisation vient d’être envoyé. Cliquez dessus, puis rendez-vous dans Réglages ▸ Compte ▸ Modifier le mot de passe pour en choisir un nouveau.`
+    );
   };
 
   const handleRegisterSendOTP = async () => {
@@ -163,6 +176,11 @@ export default function LoginScreen() {
                     <MaterialIcons name={showPassword ? 'visibility-off' : 'visibility'} size={18} color={C.textMuted} />
                   </Pressable>
                 </View>
+                {mode === 'login' ? (
+                  <Pressable onPress={handleForgotPassword} hitSlop={8} disabled={operationLoading} style={{ alignSelf: 'flex-end' }}>
+                    <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '600' }}>Mot de passe oublié ?</Text>
+                  </Pressable>
+                ) : null}
               </View>
 
               {/* Confirm password */}

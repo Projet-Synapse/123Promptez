@@ -55,6 +55,11 @@ export interface AuthContextType {
   logout: () => Promise<LogoutResult>;
   refreshSession: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<LogoutResult>;
+  // Sends a "reset your password" email (a clickable recovery link — this is
+  // the one auth email that's *meant* to be a link, not a code: clicking it
+  // signs the user into a recovery session, from which they set a new
+  // password via updatePassword() above).
+  requestPasswordReset: (email: string) => Promise<SendOTPResult>;
 }
 
 export interface AuthConfig {

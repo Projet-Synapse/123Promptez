@@ -104,6 +104,12 @@ export class MockAuthService {
     return {};
   }
 
+  async requestPasswordReset(email: string) {
+    // Mock mode has nothing to email — simulate the round trip only.
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return {};
+  }
+
   async refreshSession() {
     const sessionData = await AsyncStorage.getItem(MOCK_STORAGE_KEYS.CURRENT_SESSION);
     if (!sessionData) return;
