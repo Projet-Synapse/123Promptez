@@ -45,15 +45,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let authSubscription: any = null;
 
     const initializeAuth = async () => {
-      
       try {
-        const currentUser = await authService.getCurrentUser();
-        
+        // On web OAuth return, URL may contain `code=` while PKCE exchange is
+        // still in flight. Poll briefly so we don't mark initialized with null
+        // and leave the user stuck on /login before onAuthStateChange fires.
+        const urlHasOAuthCode =
+          typeof window !== 'undefined' &&
+          (window.location.search.includes('code=') ||
+            window.location.hash.includes('code=') ||
+            window.location.search.includes('error=') ||
+            window.location.hash.includes('error='));
+
+        let currentUser = await authService.getCurrentUser();
+        if (!currentUser && urlHasOAuthCode) {
+          for (let i = 0; i < 3 && !currentUser; i++) {
+            await new Promise((r) => setTimeout(r, 300));
+            currentUser = await authService.getCurrentUser();
+          }
+        }
+
         if (isMounted) {
-          updateState({ 
-            user: currentUser, 
-            loading: false, 
-            initialized: true 
+          updateState({
+            user: currentUser,
+            loading: false,
+            initialized: true,
           });
         }
 
@@ -62,14 +77,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             updateState({ user: authUser });
           }
         });
-
       } catch (error) {
         console.warn('[Template:AuthProvider] Auth initialization failed:', error);
         if (isMounted) {
-          updateState({ 
-            user: null, 
-            loading: false, 
-            initialized: true 
+          updateState({
+            user: null,
+            loading: false,
+            initialized: true,
           });
         }
       }

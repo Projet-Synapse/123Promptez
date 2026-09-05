@@ -1,11 +1,12 @@
 // Powered by OnSpace.AI
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, TextInput,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useAuth, useAlert } from '@/template';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
@@ -15,7 +16,8 @@ type AuthMode = 'login' | 'register';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, signInWithGoogle, operationLoading } = useAuth();
+  const router = useRouter();
+  const { user, sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const C = useThemeColors();
 
@@ -26,6 +28,27 @@ export default function LoginScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+
+  // AuthRouter only wraps `/`, not `/login`. After password or Google OAuth
+  // (onAuthStateChange), navigate into the app explicitly.
+  useEffect(() => {
+    if (user) router.replace('/(tabs)');
+  }, [user, router]);
+
+  // Surface OAuth failures returned in the URL (redirect mismatch, etc.).
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const query = new URLSearchParams(window.location.search.replace(/^\?/, ''));
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const description = query.get('error_description') ?? hash.get('error_description');
+    const code = query.get('error') ?? hash.get('error');
+    if (!description && !code) return;
+    const message = description || code;
+    setOauthError(message);
+    showAlert('Connexion Google', message!);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [showAlert]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -86,6 +109,17 @@ export default function LoginScreen() {
             <Text style={{ fontSize: FontSize.xxl, color: C.textPrimary, fontWeight: '800', letterSpacing: -0.5 }}>LLM Builder</Text>
             <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>Construisez votre assistant IA personnalisé</Text>
           </View>
+
+          {oauthError ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.error, padding: Spacing.md }}>
+              <MaterialIcons name="error-outline" size={20} color={C.error} />
+              <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, lineHeight: 18 }}>
+                {oauthError.includes('redirect') || oauthError.includes('not allowed') || oauthError.includes('URL')
+                  ? `Adresse de retour Google non autorisée. Vérifiez les Redirect URLs Supabase (ex. …/123Promptez). Détail : ${oauthError}`
+                  : `Connexion Google refusée : ${oauthError}`}
+              </Text>
+            </View>
+          ) : null}
 
           {/* Mode tabs */}
           {step === 'form' ? (
