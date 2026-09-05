@@ -37,6 +37,10 @@ jobs:
         run: npx tsc --noEmit
       - name: Export web (base path /123Promptez for GitHub Pages)
         run: GH_PAGES_BASE_URL=/123Promptez npx expo export --platform web
+      # GH Pages serves 404.html for unknown paths but keeps the URL — copy the
+      # SPA shell so client routes like /123Promptez/builder work on refresh.
+      - name: SPA fallback (404.html → index)
+        run: cp dist/index.html dist/404.html
       - name: Configure Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
