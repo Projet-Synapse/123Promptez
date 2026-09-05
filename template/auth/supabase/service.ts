@@ -510,23 +510,46 @@ export class AuthService {
     }
   }
 
+
+  private getGoogleRedirectUrl(): string {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const { origin, pathname } = window.location;
+      const segments = pathname.split('/').filter(Boolean);
+      const base = segments[0] === '123Promptez' ? '/123Promptez' : '';
+      return `${origin}${base}/login`;
+    }
+
+    return AuthSession.makeRedirectUri({
+      scheme: 'onspaceapp',
+      path: 'auth',
+    });
+  }
+
+  private mapGoogleOAuthError(raw: string): string {
+    const msg = (raw || '').toLowerCase();
+    if (msg.includes('redirect') || msg.includes('url not allowed') || msg.includes('not allowed')) {
+      return "Adresse de retour non autorisée. Vérifiez les Redirect URLs dans Supabase Auth.";
+    }
+    if (msg.includes('provider is not enabled') || msg.includes('unsupported provider')) {
+      return 'Le fournisseur Google n’est pas activé dans Supabase Auth.';
+    }
+    if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('dismiss')) {
+      return 'Connexion Google annulée.';
+    }
+    return raw;
+  }
+
   async signInWithGoogle(): Promise<GoogleSignInResult> {
     try {
-      // Generate cross-platform redirect URL
-      const redirectUrl = AuthSession.makeRedirectUri({
-        scheme: 'onspaceapp',
-        path: 'auth'
-      });
+      const redirectUrl = this.getGoogleRedirectUrl();
 
-      // Step 1: Get OAuth URL from Supabase
       const { data, error } = await withTimeout(
         this.supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
             redirectTo: redirectUrl,
-            queryParams: { 
-              access_type: 'offline', 
-              prompt: 'consent' 
+            queryParams: {
+              prompt: 'select_account',
             },
             skipBrowserRedirect: Platform.OS !== 'web'
           }
@@ -536,26 +559,27 @@ export class AuthService {
       );
 
       if (error) {
-        return { error: `OAuth init failed: ${error.message}` };
+        return { error: this.mapGoogleOAuthError(`Échec Google : ${error.message}`) };
       }
 
       if (!data?.url) {
-        return { error: 'Failed to generate OAuth URL' };
+        return { error: 'Impossible de démarrer la connexion Google. Réessayez.' };
       }
 
-      // Web platform: Supabase handles redirect automatically
+      // Web: forcer la navigation (sur GitHub Pages le redirect interne peut ne rien faire)
       if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && data.url) {
+          window.location.assign(data.url);
+        }
         return { error: null };
       }
 
-      // Mobile platform: Manual OAuth flow
-      // Step 2: Open browser for OAuth
+      // Mobile: flux OAuth manuel
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectUrl
       );
 
-      // Step 3: Handle callback
       if (result.type === 'success') {
         const url = result.url;
         
@@ -566,60 +590,42 @@ export class AuthService {
           if (!code) {
             const error = params.get('error');
             const errorDescription = params.get('error_description');
-            return { 
-              error: errorDescription || error || 'No authorization code received'
-            };
+            
+            if (error) {
+              return { 
+                error: this.mapGoogleOAuthError(`OAuth error: ${error}${errorDescription ? ` - ${errorDescription}` : ''}`)
+              };
+            }
+            
+            return { error: 'No authorization code received' };
           }
 
-          // Exchange code for session - this triggers SIGNED_IN event
-          const { error: exchangeError } = await withTimeout(
+          const { data: sessionData, error: sessionError } = await withTimeout(
             this.supabase.auth.exchangeCodeForSession(code),
             TIMEOUT_CONFIG.AUTH_OPERATIONS,
             'ExchangeCode'
           );
 
-          if (exchangeError) {
-            return { 
-              error: `Session exchange failed: ${exchangeError.message}`
-            };
+          if (sessionError) {
+            return { error: this.mapGoogleOAuthError(`Session exchange failed: ${sessionError.message}`) };
           }
 
-          // CRITICAL: Don't poll and wait here!
-          // exchangeCodeForSession will trigger onAuthStateChange(SIGNED_IN)
-          // Just verify session exists and return immediately
-          const { data: sessionData } = await this.supabase.auth.getSession();
-          if (sessionData.session) {
-            // Session created successfully, AuthContext will update via onAuthStateChange
+          if (sessionData.user) {
             return { error: null };
           }
-
-          // If no session yet, wait briefly for it to settle
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const { data: retrySessionData } = await this.supabase.auth.getSession();
-          if (retrySessionData.session) {
-            return { error: null };
-          }
-
-          // Last resort: refresh to trigger state change
-          await this.supabase.auth.refreshSession();
-          return { error: null };
-        } catch (urlError) {
-          const errorMsg = urlError instanceof Error ? urlError.message : 'Unknown error';
+          
+          return { error: 'Failed to establish session' };
+          
+        } catch (parseError) {
           return { 
-            error: `Failed to parse callback: ${errorMsg}`
+            error: `Callback parsing failed: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`
           };
         }
       } else if (result.type === 'cancel') {
-        return { error: 'User cancelled login' };
-      } else if (result.type === 'dismiss') {
-        return { error: 'Browser dismissed' };
-      } else if (result.type === 'locked') {
-        return { error: 'Browser is locked' };
+        return { error: 'Connexion Google annulée.' };
+      } else {
+        return { error: 'OAuth authentication failed' };
       }
-
-      return { 
-        error: `Unknown result: ${result.type}`
-      };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown Google login error';
@@ -629,7 +635,7 @@ export class AuthService {
       }
       
       return { 
-        error: `Google login failed: ${errorMessage}`
+        error: this.mapGoogleOAuthError(`Google login failed: ${errorMessage}`)
       };
     }
   }
