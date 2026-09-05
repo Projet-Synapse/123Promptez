@@ -42,6 +42,10 @@ export interface WorkspaceMode {
   enabled: boolean;
   color: string;
   shortcut?: string;
+  /** Origin of this compétence — custom, or mirrored from Builder */
+  sourceType?: 'custom' | 'agent' | 'tool';
+  /** Builder customAgents.id or agentTools.id when sourceType is agent/tool */
+  sourceId?: string;
 }
 
 export interface WorkspaceDatabase {

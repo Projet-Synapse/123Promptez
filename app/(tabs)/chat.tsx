@@ -682,12 +682,13 @@ export default function ChatScreen() {
                 <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
               </View>
               <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>{t('modes')}</Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>Compétences du workspace (Builder + personnalisées)</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Activez des comportements automatiques</Text>
             </View>
             {activeWorkspace.modes.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm }}>
                 <MaterialIcons name="widgets" size={32} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucun mode configuré</Text>
+                <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucune compétence configurée</Text>
               </View>
             ) : null}
             <ScrollView showsVerticalScrollIndicator={false}>

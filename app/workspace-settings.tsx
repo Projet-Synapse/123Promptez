@@ -12,9 +12,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { ThemedInput } from '@/components';
+import { useBot } from '@/hooks/useBot';
+import { ThemedInput, Toggle } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
+import { AGENT_TOOLS } from '@/constants/config';
 import { useAlert } from '@/template';
 import type { WorkspaceMode } from '@/contexts/WorkspaceContext';
 
@@ -28,6 +30,7 @@ export default function WorkspaceSettingsScreen() {
   const insets = useSafeAreaInsets();
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
   const { workspaces, updateWorkspace, addMode, updateMode, removeMode, toggleMode } = useWorkspace();
+  const { bot } = useBot();
   const { showAlert } = useAlert();
   const router = useRouter();
 
@@ -92,6 +95,7 @@ export default function WorkspaceSettingsScreen() {
         shortcut: modeShortcut.trim() || undefined,
         color: modeColor,
         icon: modeIcon,
+        sourceType: editingMode.sourceType ?? 'custom',
       });
     } else {
       addMode(ws.id, {
@@ -102,16 +106,55 @@ export default function WorkspaceSettingsScreen() {
         color: modeColor,
         icon: modeIcon,
         enabled: false,
+        sourceType: 'custom',
       });
     }
     resetModeForm();
     setShowAddMode(false);
   };
 
+
+  const findSkillMode = (sourceType: 'agent' | 'tool', sourceId: string) =>
+    ws.modes.find(m => m.sourceType === sourceType && m.sourceId === sourceId);
+
+  const setBuilderSkillEnabled = (
+    sourceType: 'agent' | 'tool',
+    sourceId: string,
+    meta: { label: string; description: string; icon: string; color: string; promptInjection: string },
+    enabled: boolean,
+  ) => {
+    const existing = findSkillMode(sourceType, sourceId);
+    if (existing) {
+      updateMode(ws.id, existing.id, {
+        enabled,
+        label: meta.label,
+        description: meta.description,
+        icon: meta.icon,
+        color: meta.color,
+        promptInjection: meta.promptInjection,
+        sourceType,
+        sourceId,
+      });
+      return;
+    }
+    if (enabled) {
+      addMode(ws.id, {
+        label: meta.label,
+        description: meta.description,
+        promptInjection: meta.promptInjection,
+        icon: meta.icon,
+        color: meta.color,
+        enabled: true,
+        sourceType,
+        sourceId,
+      });
+    }
+  };
+
   const handleDeleteMode = (mode: WorkspaceMode) => {
     showAlert(
       `Supprimer "${mode.label}" ?`,
-      'Ce mode sera définitivement supprimé.',
+      'Cette compétence sera définitivement supprimée.',
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: () => removeMode(ws.id, mode.id) },
@@ -277,7 +320,7 @@ export default function WorkspaceSettingsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <Text style={styles.sectionLabel}>
-              <MaterialIcons name="bolt" size={13} color={C.accent} /> Modes d’interaction
+              <MaterialIcons name="bolt" size={13} color={C.accent} /> Compétences
             </Text>
             <Pressable
               onPress={() => { resetModeForm(); setShowAddMode(true); }}
@@ -293,7 +336,7 @@ export default function WorkspaceSettingsScreen() {
             <View style={styles.activeModesBanner}>
               <MaterialIcons name="bolt" size={14} color={C.accent} />
               <Text style={styles.activeModesText}>
-                {activeModes.length} mode{activeModes.length !== 1 ? 's' : ''} actif{activeModes.length !== 1 ? 's' : ''} : {activeModes.map(m => m.label).join(', ')}
+                {activeModes.length} compétence{activeModes.length !== 1 ? 's' : ''} active{activeModes.length !== 1 ? 's' : ''} : {activeModes.map(m => m.label).join(', ')}
               </Text>
             </View>
           ) : null}
@@ -302,19 +345,125 @@ export default function WorkspaceSettingsScreen() {
           <View style={styles.modeExplain}>
             <MaterialIcons name="info-outline" size={14} color={C.textMuted} />
             <Text style={styles.modeExplainText}>
-              Les modes injectent automatiquement des instructions dans le prompt lors des conversations. Activez/désactivez-les depuis le chat.
+              Les compétences injectent automatiquement des instructions dans le prompt. Sélectionnez des créations du Builder (agents / outils) ou ajoutez les vôtres.
             </Text>
           </View>
 
-          {ws.modes.length === 0 ? (
+          {/* Builder-sourced compétences */}
+          <View style={{ gap: Spacing.sm }}>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Depuis le Builder
+            </Text>
+            {(bot.customAgents ?? []).length === 0 && bot.agentTools.filter(t => t.enabled).length === 0 ? (
+              <View style={[styles.modeExplain, { marginBottom: 0 }]}>
+                <MaterialIcons name="info-outline" size={14} color={C.textMuted} />
+                <Text style={styles.modeExplainText}>
+                  Créez des agents IA ou activez des outils dans l’onglet Builder pour les sélectionner ici comme compétences.
+                </Text>
+              </View>
+            ) : null}
+
+            {(bot.customAgents ?? []).map(agent => {
+              const linked = findSkillMode('agent', agent.id);
+              const enabled = linked?.enabled ?? false;
+              return (
+                <View
+                  key={`agent-${agent.id}`}
+                  style={[
+                    styles.modeCard,
+                    enabled ? { borderColor: agent.color + '66', backgroundColor: agent.color + '08' } : null,
+                  ]}
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: agent.color + '22' }]}>
+                    <MaterialIcons name={agent.icon as any} size={20} color={agent.color} />
+                  </View>
+                  <View style={styles.modeInfo}>
+                    <View style={styles.modeTitleRow}>
+                      <Text style={styles.modeLabel}>{agent.name}</Text>
+                      <View style={[styles.shortcutBadge, { borderColor: agent.color + '44' }]}>
+                        <Text style={[styles.shortcutText, { color: agent.color }]}>Agent</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.modeDesc} numberOfLines={2}>{agent.role || agent.description}</Text>
+                  </View>
+                  <Toggle
+                    value={enabled}
+                    onToggle={() => setBuilderSkillEnabled(
+                      'agent',
+                      agent.id,
+                      {
+                        label: agent.name,
+                        description: agent.role || agent.description || 'Agent IA du Builder',
+                        icon: agent.icon || 'psychology',
+                        color: agent.color || C.accent,
+                        promptInjection: agent.promptPrefix?.trim()
+                          || `Tu agis en tant que « ${agent.name} » (${agent.role}). ${agent.description}`.trim(),
+                      },
+                      !enabled,
+                    )}
+                  />
+                </View>
+              );
+            })}
+
+            {bot.agentTools.filter(t => t.enabled).map(tool => {
+              const meta = AGENT_TOOLS.find(t => t.id === tool.id);
+              if (!meta) return null;
+              const linked = findSkillMode('tool', tool.id);
+              const enabled = linked?.enabled ?? false;
+              return (
+                <View
+                  key={`tool-${tool.id}`}
+                  style={[
+                    styles.modeCard,
+                    enabled ? { borderColor: C.primary + '66', backgroundColor: C.primary + '08' } : null,
+                  ]}
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: C.primary + '22' }]}>
+                    <MaterialIcons name={meta.icon as any} size={20} color={C.primary} />
+                  </View>
+                  <View style={styles.modeInfo}>
+                    <View style={styles.modeTitleRow}>
+                      <Text style={styles.modeLabel}>{meta.label}</Text>
+                      <View style={styles.shortcutBadge}>
+                        <Text style={styles.shortcutText}>Outil</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.modeDesc} numberOfLines={2}>{meta.description}</Text>
+                  </View>
+                  <Toggle
+                    value={enabled}
+                    onToggle={() => setBuilderSkillEnabled(
+                      'tool',
+                      tool.id,
+                      {
+                        label: meta.label,
+                        description: meta.description,
+                        icon: meta.icon,
+                        color: C.primary,
+                        promptInjection: `Tu as accès à l’outil « ${meta.label} ». ${meta.description}. Utilise-le lorsque c’est pertinent.`,
+                      },
+                      !enabled,
+                    )}
+                  />
+                </View>
+              );
+            })}
+          </View>
+
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Compétences personnalisées
+          </Text>
+
+          {ws.modes.filter(m => !m.sourceType || m.sourceType === 'custom').length === 0 ? (
             <View style={styles.emptyModes}>
               <MaterialIcons name="widgets" size={32} color={C.textMuted} />
-              <Text style={styles.emptyModesText}>Aucun mode configuré</Text>
-              <Text style={styles.emptyModesSub}>Créez des comportements automatiques activables en conversation</Text>
+              <Text style={styles.emptyModesText}>Aucune compétence configurée</Text>
+              <Text style={styles.emptyModesSub}>Activez des compétences depuis le Builder ou créez-en une personnalisée</Text>
             </View>
           ) : null}
 
-          {ws.modes.map(mode => (
+          {ws.modes.filter(m => !m.sourceType || m.sourceType === 'custom').map(mode => (
             <View
               key={mode.id}
               style={[
@@ -376,7 +525,7 @@ export default function WorkspaceSettingsScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={[styles.modalCard, { paddingBottom: insets.bottom + Spacing.lg }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editingMode ? 'Modifier le mode' : 'Nouveau mode'}</Text>
+              <Text style={styles.modalTitle}>{editingMode ? 'Modifier la compétence' : 'Nouvelle compétence'}</Text>
               <Pressable onPress={() => { resetModeForm(); setShowAddMode(false); }} hitSlop={8}>
                 <MaterialIcons name="close" size={22} color={C.textSecondary} />
               </Pressable>
@@ -384,8 +533,8 @@ export default function WorkspaceSettingsScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
               <View style={{ gap: Spacing.md, paddingBottom: Spacing.md }}>
-                <ThemedInput label="Nom du mode" value={modeLabel} onChangeText={setModeLabel} placeholder="Ex: Mode Concis, Code Review..." />
-                <ThemedInput label="Description" value={modeDesc} onChangeText={setModeDesc} placeholder="Ce que fait ce mode..." />
+                <ThemedInput label="Nom de la compétence" value={modeLabel} onChangeText={setModeLabel} placeholder="Ex: Mode Concis, Code Review..." />
+                <ThemedInput label="Description" value={modeDesc} onChangeText={setModeDesc} placeholder="Ce que fait cette compétence..." />
                 <ThemedInput
                   label="Raccourci (optionnel)"
                   value={modeShortcut}
@@ -428,7 +577,7 @@ export default function WorkspaceSettingsScreen() {
                   label="Injection de prompt"
                   value={modePrompt}
                   onChangeText={setModePrompt}
-                  placeholder="Instructions injectées automatiquement dans le prompt quand ce mode est actif..."
+                  placeholder="Instructions injectées automatiquement dans le prompt quand cette compétence est active..."
                   multiline
                   numberOfLines={5}
                   textAlignVertical="top"
@@ -442,7 +591,7 @@ export default function WorkspaceSettingsScreen() {
                     <MaterialIcons name={modeIcon as any} size={18} color={modeColor} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.modeLabel, { color: modeColor }]}>{modeLabel || 'Nom du mode'}</Text>
+                    <Text style={[styles.modeLabel, { color: modeColor }]}>{modeLabel || 'Nom de la compétence'}</Text>
                     {modeShortcut ? (
                       <View style={styles.shortcutBadge}>
                         <Text style={styles.shortcutText}>{modeShortcut}</Text>
@@ -463,7 +612,7 @@ export default function WorkspaceSettingsScreen() {
               ]}
             >
               <MaterialIcons name={editingMode ? 'save' : 'add-circle'} size={18} color={C.bg} />
-              <Text style={styles.primaryBtnText}>{editingMode ? 'Enregistrer' : 'Créer le mode'}</Text>
+              <Text style={styles.primaryBtnText}>{editingMode ? 'Enregistrer' : 'Créer la compétence'}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

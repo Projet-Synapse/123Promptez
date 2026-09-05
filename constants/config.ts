@@ -72,3 +72,55 @@ export const APP_LANGUAGES = [
   { code: 'ja', label: '日本語', flag: '🇯🇵' },
   { code: 'ar', label: 'العربية', flag: '🇸🇦' },
 ];
+
+/** Catalogue de connecteurs Builder — OAuth réel non requis (UI + persistence). */
+export const CONNECTOR_PRESETS = [
+  {
+    id: 'github',
+    label: 'GitHub',
+    icon: 'code',
+    color: '#E6EDF3',
+    description: 'Dépôts, issues et pull requests',
+    comingSoon: true,
+  },
+  {
+    id: 'supabase',
+    label: 'Supabase',
+    icon: 'storage',
+    color: '#3ECF8E',
+    description: 'Base de données, auth et edge functions',
+    comingSoon: true,
+  },
+  {
+    id: 'google',
+    label: 'Google',
+    icon: 'cloud',
+    color: '#4285F4',
+    description: 'Drive, Gmail et calendrier',
+    comingSoon: true,
+  },
+  {
+    id: 'slack',
+    label: 'Slack',
+    icon: 'forum',
+    color: '#E01E5A',
+    description: 'Canaux et notifications d’équipe',
+    comingSoon: true,
+  },
+  {
+    id: 'notion',
+    label: 'Notion',
+    icon: 'description',
+    color: '#FFFFFF',
+    description: 'Pages et bases de connaissances',
+    comingSoon: true,
+  },
+  {
+    id: 'discord',
+    label: 'Discord',
+    icon: 'chat',
+    color: '#5865F2',
+    description: 'Serveurs et webhooks Discord',
+    comingSoon: true,
+  },
+] as const;
