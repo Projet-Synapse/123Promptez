@@ -1,3 +1,7 @@
-// No privileged Node/Electron APIs are exposed to the renderer — the app is
-// a plain React Native Web bundle and doesn't need a bridge. This file only
-// exists to satisfy contextIsolation + sandbox requirements in main.js.
+// Preload bridge — vault folder pick + text file listing for desktop sync.
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronVault', {
+  pickFolder: () => ipcRenderer.invoke('vault:pick-folder'),
+  listTextFiles: (dirPath) => ipcRenderer.invoke('vault:list-text-files', dirPath),
+});

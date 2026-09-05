@@ -68,7 +68,7 @@ export default function LoginScreen() {
     if (error) { showAlert('Erreur', error); return; }
     showAlert(
       'Email envoyé',
-      `Si un compte existe pour ${email.trim()}, un lien de réinitialisation vient d’être envoyé. Cliquez dessus, puis rendez-vous dans Réglages ▸ Compte ▸ Modifier le mot de passe pour en choisir un nouveau.`
+      `Si un compte existe pour ${email.trim()}, un lien de réinitialisation vient d’être envoyé. Cliquez dessus, puis rendez-vous dans Profil pour choisir un nouveau mot de passe.`
     );
   };
 

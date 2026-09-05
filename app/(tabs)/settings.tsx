@@ -1,36 +1,41 @@
 // Theme fix: createStyles(C) pattern — styles are generated inside the component
 // using the reactive color object from useThemeColors(), NOT static StyleSheet.create() at module level.
 //
-// Settings is split into 4 top-level sections (Interface / Compte et données /
-// Assistant / À propos), selected via the pill tabs at the top — see
-// SETTINGS_SECTIONS below. Keep new settings inside one of these four, or add
-// a new section rather than growing the flat list.
+// Settings is split into 3 top-level sections (Interface / Assistant / À propos).
+// Compte was removed — auth lives on Profil. Mémoire IA lives under Assistant.
+// Keep new settings inside these sections, or add a new section rather than a flat list.
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Linking, TextInput, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { useBot } from '@/hooks/useBot';
-import { ThemedInput, SliderRow } from '@/components';
+import { ThemedInput, SliderRow, IconButton } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight, normalizeHex } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/config';
-import { useAlert, useAuth } from '@/template';
+import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
-import { useAppData } from '@/contexts/AppDataContext';
 import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService';
+import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
 
-type SettingsSection = 'ui' | 'account' | 'assistant' | 'about';
+type SettingsSection = 'ui' | 'assistant' | 'about';
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'ui', label: 'Interface', icon: 'palette' },
-  { id: 'account', label: 'Compte', icon: 'account-circle' },
-  { id: 'assistant', label: 'Assistant', icon: 'smart-toy' },
+  { id: 'assistant', label: 'Agents', icon: 'smart-toy' },
   { id: 'about', label: 'À propos', icon: 'info' },
 ];
 
+
+const MEMORY_CATEGORIES: { id: AiMemoryItem['category']; label: string; icon: string; color: string; desc: string }[] = [
+  { id: 'preference', label: 'Préférence', icon: 'tune', color: '#3D7EFF', desc: 'Style, ton, format préféré' },
+  { id: 'fact', label: 'Fait', icon: 'info', color: '#00CC6A', desc: 'Information sur vous' },
+  { id: 'goal', label: 'Objectif', icon: 'flag', color: '#FFB800', desc: 'Vos buts et ambitions' },
+  { id: 'context', label: 'Contexte', icon: 'work', color: '#FF6B35', desc: 'Contexte professionnel' },
+  { id: 'constraint', label: 'Contrainte', icon: 'block', color: '#FF4455', desc: 'Limites à respecter' },
+];
 
 function ColorRow({
   label, hint, value, isCustom, onChange,
@@ -113,20 +118,19 @@ export default function SettingsScreen() {
   const { showAlert } = useAlert();
   const { mode, toggleTheme, setTheme, customPalette, setCustomColor, resetCustomPalette, colors: themeColors } = useTheme();
   const { lang, setLang, t } = useLanguage();
-  const { user, logout, updatePassword } = useAuth();
-  const { isSyncing, lastSyncAt } = useAppData();
   const C = useThemeColors();
-  const router = useRouter();
+  const { profile, addMemory, updateMemory, removeMemory } = useProfile();
 
   const [section, setSection] = useState<SettingsSection>('ui');
   const [showModels, setShowModels] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
 
-  // Password change
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
+  // Mémoire IA (Agents)
+  const [showAddMemory, setShowAddMemory] = useState(false);
+  const [memContent, setMemContent] = useState('');
+  const [memCategory, setMemCategory] = useState<AiMemoryItem['category']>('preference');
+  const [editingMemId, setEditingMemId] = useState<string | null>(null);
+  const [editMemContent, setEditMemContent] = useState('');
 
   // Persisted on the web_search agent tool config so it survives reloads
   // and cloud sync, instead of living only in local component state.
@@ -163,27 +167,6 @@ export default function SettingsScreen() {
     'Mistral AI': '#FF6B35',
   };
 
-  const handleChangePassword = async () => {
-    if (newPassword.length < 6) {
-      showAlert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractères.');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      showAlert('Mots de passe différents', 'Les deux mots de passe ne correspondent pas.');
-      return;
-    }
-    setChangingPassword(true);
-    const { error } = await updatePassword(newPassword);
-    setChangingPassword(false);
-    if (error) {
-      showAlert('Erreur', error);
-      return;
-    }
-    setNewPassword('');
-    setConfirmNewPassword('');
-    showAlert('Mot de passe modifié', 'Votre mot de passe a été mis à jour avec succès.');
-  };
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.md, gap: 2 }}>
@@ -192,25 +175,30 @@ export default function SettingsScreen() {
       </View>
 
       {/* ── Section tabs ─────────────────────────────────────────────── */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: Spacing.md, gap: Spacing.xs, marginBottom: Spacing.sm }}>
+      <View style={{ flexDirection: 'row', paddingHorizontal: Spacing.md, gap: Spacing.sm, marginBottom: Spacing.sm, justifyContent: 'center' }}>
         {SETTINGS_SECTIONS.map(s => (
           <Pressable
             key={s.id}
             onPress={() => setSection(s.id)}
+            accessibilityRole="button"
+            accessibilityLabel={s.label}
+            // @ts-expect-error web title
+            title={s.label}
             style={({ pressed }) => [{
-              flex: 1, alignItems: 'center', gap: 4, paddingVertical: Spacing.sm,
+              width: 52, alignItems: 'center', justifyContent: 'center', paddingVertical: Spacing.sm,
               borderRadius: Radius.md, borderWidth: 1,
               borderColor: section === s.id ? C.accent : C.border,
               backgroundColor: section === s.id ? C.accentGlow : C.bgCard,
-            }, pressed && { opacity: 0.8 }]}
+              opacity: pressed ? 0.8 : 1,
+            }]}
           >
-            <MaterialIcons name={s.icon as any} size={18} color={section === s.id ? C.accent : C.textMuted} />
-            <Text style={{ fontSize: 10, fontWeight: '700', color: section === s.id ? C.accent : C.textMuted, textAlign: 'center' }}>
-              {s.label}
-            </Text>
+            <MaterialIcons name={s.icon as any} size={22} color={section === s.id ? C.accent : C.textMuted} />
           </Pressable>
         ))}
       </View>
+      <Text style={{ textAlign: 'center', fontSize: FontSize.xs, color: C.textMuted, marginBottom: Spacing.sm }}>
+        {SETTINGS_SECTIONS.find(s => s.id === section)?.label}
+      </Text>
 
       <ScrollView
         style={{ flex: 1 }}
@@ -341,141 +329,6 @@ export default function SettingsScreen() {
           </>
         ) : null}
 
-        {section === 'account' ? (
-          <>
-            {/* ── Account ────────────────────────────────────────────── */}
-            {user ? (
-              <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-                  <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: FontSize.lg, color: '#fff', fontWeight: '700' }}>{user.email?.[0]?.toUpperCase() ?? '?'}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{user.username || user.email}</Text>
-                    <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>{user.email}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent }} />
-                      <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '600' }}>Compte vérifié</Text>
-                    </View>
-                  </View>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, padding: Spacing.sm }}>
-                  <MaterialIcons name={isSyncing ? 'sync' : 'cloud-done'} size={15} color={isSyncing ? C.warning : C.accent} />
-                  <Text style={{ fontSize: FontSize.xs, color: isSyncing ? C.warning : C.textMuted, flex: 1 }}>
-                    {isSyncing ? 'Synchronisation en cours...' : lastSyncAt ? `Synchronisé à ${lastSyncAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Données sauvegardées sur le cloud'}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => showAlert('Se déconnecter ?', 'Vos données sont sauvegardées sur le cloud.', [{ text: 'Annuler', style: 'cancel' }, { text: 'Déconnexion', style: 'destructive', onPress: () => logout() }])}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.error + '15', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, borderWidth: 1, borderColor: C.error + '33' }, pressed && { opacity: 0.8 }]}
-                >
-                  <MaterialIcons name="logout" size={16} color={C.error} />
-                  <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '700' }}>Déconnexion</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Compte</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.primary + '15', borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.primary + '33' }}>
-                  <MaterialIcons name="cloud-off" size={16} color={C.primary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '600', marginBottom: 3 }}>Données locales uniquement</Text>
-                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17 }}>Créez un compte pour sauvegarder vos workspaces, conversations et configuration sur le cloud, et les retrouver sur tous vos appareils.</Text>
-                  </View>
-                </View>
-                <Pressable
-                  onPress={() => router.push('/login' as any)}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 0 }, pressed && { opacity: 0.85 }]}
-                >
-                  <MaterialIcons name="login" size={18} color={C.bg} />
-                  <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Se connecter / Créer un compte</Text>
-                </Pressable>
-              </View>
-            )}
-
-            {/* ── Change password ───────────────────────────────────── */}
-            {user ? (
-              <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  Modifier le mot de passe
-                </Text>
-                <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Nouveau mot de passe</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, minHeight: 50 }}>
-                    <MaterialIcons name="lock" size={18} color={C.textMuted} style={{ marginLeft: Spacing.md }} />
-                    <ThemedInput
-                      value={newPassword}
-                      onChangeText={setNewPassword}
-                      placeholder="Min. 6 caractères"
-                      secureTextEntry={!showNewPassword}
-                      autoComplete="new-password"
-                      style={{ flex: 1, borderWidth: 0, backgroundColor: 'transparent' }}
-                    />
-                    <Pressable onPress={() => setShowNewPassword(v => !v)} hitSlop={8} style={{ padding: Spacing.md }}>
-                      <MaterialIcons name={showNewPassword ? 'visibility-off' : 'visibility'} size={18} color={C.textMuted} />
-                    </Pressable>
-                  </View>
-                </View>
-                <View style={{ gap: Spacing.xs }}>
-                  <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Confirmer le mot de passe</Text>
-                  <ThemedInput
-                    value={confirmNewPassword}
-                    onChangeText={setConfirmNewPassword}
-                    placeholder="Répétez le nouveau mot de passe"
-                    secureTextEntry={!showNewPassword}
-                    autoComplete="new-password"
-                  />
-                </View>
-                <Pressable
-                  onPress={handleChangePassword}
-                  disabled={changingPassword || !newPassword || !confirmNewPassword}
-                  style={({ pressed }) => [{
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-                    backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md,
-                    opacity: (!newPassword || !confirmNewPassword) ? 0.5 : 1,
-                  }, pressed && { opacity: 0.85 }]}
-                >
-                  <MaterialIcons name="key" size={18} color={C.bg} />
-                  <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>
-                    {changingPassword ? 'Mise à jour…' : 'Mettre à jour le mot de passe'}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {/* ── Danger ─────────────────────────────────────────────── */}
-            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.error + '33', padding: Spacing.md, gap: Spacing.md }}>
-              <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Zone de danger
-              </Text>
-              <Pressable
-                onPress={() => showAlert(
-                  'Réinitialiser le bot ?',
-                  'Toutes vos sources, paramètres et applications connectées seront supprimés.',
-                  [
-                    { text: 'Annuler', style: 'cancel' },
-                    {
-                      text: 'Réinitialiser', style: 'destructive', onPress: () => {
-                        resetBot();
-                        showAlert('Configuration réinitialisée', 'Le bot a été restauré à ses réglages par défaut.', [{ text: 'OK' }]);
-                      },
-                    },
-                  ]
-                )}
-                style={({ pressed }) => [{
-                  flexDirection: 'row' as const, alignItems: 'center' as const, gap: Spacing.sm,
-                  backgroundColor: C.error + '15', borderRadius: Radius.md,
-                  padding: Spacing.md, borderWidth: 1, borderColor: C.error + '33',
-                }, pressed && { opacity: 0.8 }]}
-              >
-                <MaterialIcons name="delete-forever" size={18} color={C.error} />
-                <Text style={{ fontSize: FontSize.body, color: C.error, fontWeight: '600' }}>Réinitialiser la configuration</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : null}
-
         {section === 'assistant' ? (
           <>
             {/* ── API Key ────────────────────────────────────────────── */}
@@ -492,9 +345,12 @@ export default function SettingsScreen() {
                   mono
                   style={{ flex: 1 }}
                 />
-                <Pressable onPress={() => setApiKeyVisible(v => !v)} hitSlop={8} style={{ padding: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm }}>
-                  <MaterialIcons name={apiKeyVisible ? 'visibility-off' : 'visibility'} size={20} color={C.textSecondary} />
-                </Pressable>
+                <IconButton
+                  icon={apiKeyVisible ? 'visibility-off' : 'visibility'}
+                  label={apiKeyVisible ? 'Masquer la clé API' : 'Afficher la clé API'}
+                  onPress={() => setApiKeyVisible(v => !v)}
+                  backgroundColor={C.bgCardAlt}
+                />
               </View>
               {!bot.apiKey ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
@@ -638,6 +494,107 @@ export default function SettingsScreen() {
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontFamily: 'monospace' }}>
                 {bot.llmConfig.systemPrompt.length} caractères · Votre base de connaissances sera injectée automatiquement
               </Text>
+            </View>
+
+
+            {/* ── Memoire IA Agents ─────────────────────────────────── */}
+            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Mémoire IA
+                  </Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 3 }}>
+                    Souvenirs injectés dans les conversations — configuration agent
+                  </Text>
+                </View>
+                <IconButton icon="add" label="Ajouter un souvenir" onPress={() => setShowAddMemory(true)} color={C.bg} backgroundColor={C.accent} borderColor={C.accent} size={18} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
+                <MaterialIcons name="info-outline" size={14} color={C.accent} />
+                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, flex: 1, lineHeight: 17 }}>
+                  Ces informations personnalisent les réponses de l’assistant et des agents.
+                </Text>
+              </View>
+              {profile.aiMemory.length === 0 ? (
+                <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', paddingVertical: Spacing.md }}>Aucun souvenir — ajoutez ce que l’IA doit retenir</Text>
+              ) : (
+                profile.aiMemory.map(item => {
+                  const cat = MEMORY_CATEGORIES.find(c => c.id === item.category);
+                  return (
+                    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: (cat?.color || C.primary) + '66', padding: Spacing.sm + 2 }}>
+                      {editingMemId === item.id ? (
+                        <TextInput style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.primary, color: C.textPrimary, fontSize: FontSize.sm, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs }} value={editMemContent} onChangeText={setEditMemContent} onBlur={() => { if (editMemContent.trim()) updateMemory(item.id, editMemContent.trim()); setEditingMemId(null); }} autoFocus multiline />
+                      ) : (
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 10, color: cat?.color || C.textMuted, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 }}>{cat?.label || item.category}</Text>
+                          <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, lineHeight: 19 }}>{item.content}</Text>
+                        </View>
+                      )}
+                      <IconButton icon="edit" label="Modifier" bare size={14} color={C.textMuted} onPress={() => { setEditingMemId(item.id); setEditMemContent(item.content); }} />
+                      <IconButton icon="delete-outline" label="Supprimer" bare size={14} color={C.textMuted} onPress={() => showAlert('Supprimer ce souvenir ?', item.content.slice(0, 80), [{ text: 'Annuler', style: 'cancel' }, { text: 'Supprimer', style: 'destructive', onPress: () => removeMemory(item.id) }])} />
+                    </View>
+                  );
+                })
+              )}
+              {showAddMemory ? (
+                <View style={{ gap: Spacing.sm, borderTopWidth: 1, borderTopColor: C.border, paddingTop: Spacing.md }}>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }}>Nouveau souvenir</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs }}>
+                    {MEMORY_CATEGORIES.map(cat => (
+                      <Pressable key={cat.id} onPress={() => setMemCategory(cat.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: memCategory === cat.id ? cat.color : C.border, backgroundColor: memCategory === cat.id ? cat.color + '22' : C.bgCardAlt }}>
+                        <Text style={{ fontSize: FontSize.xs, color: memCategory === cat.id ? cat.color : C.textMuted, fontWeight: '700' }}>{cat.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <ThemedInput value={memContent} onChangeText={setMemContent} placeholder="Ex: Je préfère des réponses courtes…" multiline numberOfLines={3} style={{ minHeight: 72 }} />
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    <Pressable onPress={() => { setShowAddMemory(false); setMemContent(''); }} style={{ flex: 1, alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border }}>
+                      <Text style={{ color: C.textSecondary, fontWeight: '600' }}>Annuler</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (!memContent.trim()) return;
+                        addMemory({ content: memContent.trim(), category: memCategory });
+                        setMemContent(''); setMemCategory('preference'); setShowAddMemory(false);
+                      }}
+                      style={{ flex: 1, alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: C.accent }}
+                    >
+                      <Text style={{ color: C.bg, fontWeight: '700' }}>Enregistrer</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            {/* ── Zone de danger ──────────────────────────────────────── */}
+            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.error + '33', padding: Spacing.md, gap: Spacing.md }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Zone de danger
+              </Text>
+              <Pressable
+                onPress={() => showAlert(
+                  'Réinitialiser le bot ?',
+                  'Toutes vos sources, paramètres et applications connectées seront supprimés.',
+                  [
+                    { text: 'Annuler', style: 'cancel' },
+                    {
+                      text: 'Réinitialiser', style: 'destructive', onPress: () => {
+                        resetBot();
+                        showAlert('Configuration réinitialisée', 'Le bot a été restauré à ses réglages par défaut.', [{ text: 'OK' }]);
+                      },
+                    },
+                  ]
+                )}
+                style={({ pressed }) => [{
+                  flexDirection: 'row' as const, alignItems: 'center' as const, gap: Spacing.sm,
+                  backgroundColor: C.error + '15', borderRadius: Radius.md,
+                  padding: Spacing.md, borderWidth: 1, borderColor: C.error + '33',
+                }, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialIcons name="delete-forever" size={18} color={C.error} />
+                <Text style={{ fontSize: FontSize.body, color: C.error, fontWeight: '600' }}>Réinitialiser la configuration</Text>
+              </Pressable>
             </View>
 
             {/* ── Bot Color ──────────────────────────────────────────── */}

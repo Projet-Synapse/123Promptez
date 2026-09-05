@@ -1,7 +1,9 @@
+/* eslint-env node */
 // Electron main process — wraps the Expo web build (React Native Web) as a
 // desktop app for Windows/macOS/Linux. No native RN code runs here; the
 // window simply loads the same static bundle produced by `expo export --platform web`.
-const { app, BrowserWindow, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require('electron');
+const fsp = require('fs').promises;
 const path = require('path');
 const { startStaticServer } = require('./static-server');
 const { checkForUpdate } = require('./update-checker');
@@ -100,6 +102,65 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+
+const TEXT_EXT = new Set([
+  'md', 'markdown', 'txt', 'json', 'ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go',
+  'java', 'kt', 'swift', 'c', 'cpp', 'cs', 'css', 'html', 'yml', 'yaml', 'toml',
+  'env', 'sh', 'sql', 'xml', 'csv',
+]);
+
+ipcMain.handle('vault:pick-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  const dirPath = result.filePaths[0];
+  return { path: dirPath, name: path.basename(dirPath) };
+});
+
+async function listTextFilesRecursive(dirPath, prefix = '', acc = [], depth = 0) {
+  if (depth > 6 || acc.length > 200) return acc;
+  let entries;
+  try {
+    entries = await fsp.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return acc;
+  }
+  for (const entry of entries) {
+    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    const full = path.join(dirPath, entry.name);
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      await listTextFilesRecursive(full, relative, acc, depth + 1);
+    } else if (entry.isFile()) {
+      const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
+      if (!TEXT_EXT.has(ext)) continue;
+      try {
+        const stat = await fsp.stat(full);
+        if (stat.size > 512000) continue;
+        const content = await fsp.readFile(full, 'utf8');
+        acc.push({ name: entry.name, content, relativePath: relative });
+      } catch {
+        // skip unreadable
+      }
+    }
+  }
+  return acc;
+}
+
+ipcMain.handle('vault:list-text-files', async (_evt, dirPath) => {
+  if (!dirPath || typeof dirPath !== 'string') return [];
+  // Basic path safety — must exist and be a directory
+  try {
+    const st = await fsp.stat(dirPath);
+    if (!st.isDirectory()) return [];
+  } catch {
+    return [];
+  }
+  return listTextFilesRecursive(dirPath);
+});
+
 
 app.whenReady().then(async () => {
   buildMenu();

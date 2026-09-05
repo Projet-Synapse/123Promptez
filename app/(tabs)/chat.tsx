@@ -11,7 +11,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
-import { ChatBubble } from '@/components';
+import { ChatBubble, IconButton } from '@/components';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { sendChatMessage } from '@/services/chatService';
@@ -200,9 +200,7 @@ function SideDrawer({
           {/* Drawer header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border }}>
             <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Conversations</Text>
-            <Pressable onPress={onClose} hitSlop={8} style={{ padding: Spacing.xs }}>
-              <MaterialIcons name="close" size={20} color={C.textSecondary} />
-            </Pressable>
+            <IconButton icon="close" label="Fermer l’historique" onPress={onClose} bare size={20} color={C.textSecondary} />
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
@@ -484,12 +482,12 @@ export default function ChatScreen() {
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
             {/* Drawer toggle */}
-            <Pressable onPress={() => setDrawerOpen(true)} style={({ pressed }) => [{ width: 38, height: 38, borderRadius: Radius.sm, backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}>
-              <MaterialIcons name="menu" size={20} color={C.textSecondary} />
-              <View style={{ position: 'absolute', top: -4, right: -4, backgroundColor: C.primary, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+            <View style={{ position: 'relative' }}>
+              <IconButton icon="menu" label="Historique des conversations" onPress={() => setDrawerOpen(true)} backgroundColor={C.bgCardAlt} boxSize={38} />
+              <View style={{ position: 'absolute', top: -4, right: -4, backgroundColor: C.primary, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }} pointerEvents="none">
                 <Text style={{ fontSize: 9, color: '#fff', fontWeight: '700' }}>{activeWorkspace.conversations.length}</Text>
               </View>
-            </Pressable>
+            </View>
 
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
@@ -502,20 +500,30 @@ export default function ChatScreen() {
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · OnSpace AI</Text>
             </View>
 
-            <Pressable onPress={() => setShowModesPanel(true)} style={({ pressed }) => [{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: activeModes.length > 0 ? C.accentGlow : C.bgCardAlt, borderWidth: 1, borderColor: activeModes.length > 0 ? C.accent + '55' : C.border, flexDirection: 'row', gap: 2 }, pressed && { opacity: 0.7 }]}>
-              <MaterialIcons name="bolt" size={16} color={activeModes.length > 0 ? C.accent : C.textMuted} />
-              {activeModes.length > 0 ? <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>{activeModes.length}</Text> : null}
-            </Pressable>
+            <IconButton
+              icon="bolt"
+              label="Compétences / modes"
+              onPress={() => setShowModesPanel(true)}
+              boxSize={36}
+              backgroundColor={activeModes.length > 0 ? C.accentGlow : C.bgCardAlt}
+              borderColor={activeModes.length > 0 ? C.accent + '55' : C.border}
+              color={activeModes.length > 0 ? C.accent : C.textMuted}
+            />
 
-            <Pressable onPress={() => {
-              if (!activeConversation) return;
-              showAlert(t('clearConversation'), t('clearConversationMsg'), [
-                { text: t('cancel'), style: 'cancel' },
-                { text: t('delete'), style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
-              ]);
-            }} hitSlop={8}>
-              <MaterialIcons name="delete-outline" size={22} color={C.textMuted} />
-            </Pressable>
+            <IconButton
+              icon="delete-outline"
+              label="Effacer la conversation"
+              bare
+              size={22}
+              color={C.textMuted}
+              onPress={() => {
+                if (!activeConversation) return;
+                showAlert(t('clearConversation'), t('clearConversationMsg'), [
+                  { text: t('cancel'), style: 'cancel' },
+                  { text: t('delete'), style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
+                ]);
+              }}
+            />
           </View>
 
           {/* Active modes bar */}
@@ -654,9 +662,17 @@ export default function ChatScreen() {
               multiline maxLength={4000}
             />
 
-            <Pressable onPress={handleSend} disabled={isLoading || (!input.trim() && !pendingAttachment)} style={({ pressed }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: (input.trim() || pendingAttachment) && !isLoading ? C.accent : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="send" size={20} color={(input.trim() || pendingAttachment) && !isLoading ? C.bg : C.textMuted} />
-            </Pressable>
+            <IconButton
+              icon="send"
+              label="Envoyer"
+              onPress={handleSend}
+              disabled={isLoading || (!input.trim() && !pendingAttachment)}
+              boxSize={44}
+              backgroundColor={(input.trim() || pendingAttachment) && !isLoading ? C.accent : C.bgCardAlt}
+              borderColor="transparent"
+              color={(input.trim() || pendingAttachment) && !isLoading ? C.bg : C.textMuted}
+              style={{ borderRadius: 22 }}
+            />
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

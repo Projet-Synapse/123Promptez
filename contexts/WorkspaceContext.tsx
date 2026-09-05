@@ -1,5 +1,6 @@
 import React, { createContext, useState, ReactNode, useCallback, useRef } from 'react';
 import type { ChatMessage } from '@/contexts/BotContext';
+import type { VaultMeta } from '@/services/vaultService';
 
 export interface DBFile {
   id: string;
@@ -31,6 +32,8 @@ export interface DBFolder {
   files: DBFile[];
   subFolders: DBSubFolder[];
   createdAt: Date;
+  /** Optional vault source (local FS / GitHub) — metadata only in cloud sync */
+  vault?: VaultMeta;
 }
 
 export interface WorkspaceMode {
@@ -165,6 +168,8 @@ interface WorkspaceContextType {
   getActiveConversation: (workspaceId: string) => Conversation | undefined;
   // Database — folders
   addFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) => void;
+  /** Atomically create a vault folder with initial synced files */
+  addVaultFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>, files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[]) => string;
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
   // Database — sub-folders
@@ -437,6 +442,27 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   }
 
   // ─── Folders ─────────────────────────────────────────────────────
+
+  const addVaultFolder = (wid: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>, files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[]): string => {
+    const id = `folder-${Date.now()}`;
+    const now = new Date();
+    const dbFiles: DBFile[] = files.map((f, i) => ({
+      ...f,
+      id: `file-vault-${Date.now()}-${i}`,
+      size: f.content.length,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w,
+      database: {
+        ...w.database,
+        folders: [...w.database.folders, { ...folder, id, files: dbFiles, subFolders: [], createdAt: now }],
+      },
+    }));
+    return id;
+  };
+
   const addFolder = (wid: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) =>
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, database: { ...w.database, folders: [...w.database.folders, { ...folder, id: `folder-${Date.now()}`, files: [], subFolders: [], createdAt: new Date() }] } }));
   const updateFolder = (wid: string, fid: string, updates: Partial<DBFolder>) =>
@@ -490,7 +516,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
       addConversation, removeConversation, renameConversation, setActiveConversation,
       addMessageToConversation, clearConversation, getActiveConversation,
-      addFolder, updateFolder, removeFolder,
+      addFolder, addVaultFolder, updateFolder, removeFolder,
       addSubFolder, updateSubFolder, removeSubFolder,
       addFile, updateFile, removeFile, moveFile,
     }}>

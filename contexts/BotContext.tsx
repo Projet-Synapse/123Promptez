@@ -93,6 +93,7 @@ interface BotContextType {
   addConnectedApp: (app: Omit<ConnectedApp, 'id'>) => void;
   removeConnectedApp: (id: string) => void;
   toggleConnectedApp: (id: string) => void;
+  updateConnectedApp: (id: string, updates: Partial<ConnectedApp>) => void;
   /** Enable/disable a catalogue connector; creates connectedApps entry if missing (field name kept for cloud compat). */
   setPresetConnectorEnabled: (preset: Omit<ConnectedApp, 'id' | 'enabled'> & { id: string }, enabled: boolean) => void;
   // Custom agents
@@ -260,6 +261,18 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
     });
   };
 
+
+  const updateConnectedApp = (id: string, updates: Partial<ConnectedApp>) => {
+    setBot(prev => {
+      const next = {
+        ...prev,
+        connectedApps: prev.connectedApps.map(a => a.id === id ? { ...a, ...updates } : a),
+      };
+      notify(next);
+      return next;
+    });
+  };
+
   const setPresetConnectorEnabled = (
     preset: Omit<ConnectedApp, 'id' | 'enabled'> & { id: string },
     enabled: boolean,
@@ -377,7 +390,7 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
       addKBSource, removeKBSource,
       addFAQItem, removeFAQItem,
       toggleAgentTool, updateAgentToolConfig,
-      addConnectedApp, removeConnectedApp, toggleConnectedApp, setPresetConnectorEnabled,
+      addConnectedApp, removeConnectedApp, toggleConnectedApp, updateConnectedApp, setPresetConnectorEnabled,
       addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent,
       hydrateFromCloud,
       chatMessages, addChatMessage, clearChat,

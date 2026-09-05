@@ -9,11 +9,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useBot } from '@/hooks/useBot';
-import { KBSourceCard, AgentToolRow, ThemedInput } from '@/components';
+import { KBSourceCard, AgentToolRow, ThemedInput, IconButton , Toggle } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { AGENT_TOOLS, KB_SOURCE_TYPES, CONNECTOR_PRESETS } from '@/constants/config';
-import { Toggle } from '@/components';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useAlert } from '@/template';
@@ -89,7 +88,7 @@ export default function BuilderScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
   const { bot, updateBot, addKBSource, removeKBSource, addFAQItem, toggleAgentTool, addConnectedApp, removeConnectedApp,
-    setPresetConnectorEnabled, toggleConnectedApp, addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent } = useBot();
+    setPresetConnectorEnabled, toggleConnectedApp, addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent, updateConnectedApp } = useBot();
   const { showAlert } = useAlert();
   const [activeSection, setActiveSection] = useState<ActiveSection>('kb');
   const [showAddKB, setShowAddKB] = useState(false);
@@ -408,8 +407,8 @@ export default function BuilderScreen() {
               const existing = bot.connectedApps.find(a => a.id === preset.id || a.presetId === preset.id);
               const enabled = existing?.enabled ?? false;
               return (
+              <React.Fragment key={preset.id}>
                 <View
-                  key={preset.id}
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -445,7 +444,7 @@ export default function BuilderScreen() {
                       id: preset.id,
                       name: preset.label,
                       description: preset.description,
-                      webhookUrl: '',
+                      webhookUrl: existing?.webhookUrl || '',
                       icon: preset.icon,
                       color: preset.color,
                       presetId: preset.id,
@@ -453,6 +452,24 @@ export default function BuilderScreen() {
                     }, !enabled)}
                   />
                 </View>
+                {preset.id === 'github' && enabled && existing ? (
+                  <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm, marginTop: -Spacing.sm }}>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                      Personal Access Token GitHub
+                    </Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
+                      Requis pour rechercher vos dépôts comme source vault. Collez un PAT (scope repo). Stocké avec vos connecteurs synchronisés.
+                    </Text>
+                    <ThemedInput
+                      value={existing.webhookUrl?.startsWith('http') ? '' : (existing.webhookUrl || '')}
+                      onChangeText={v => updateConnectedApp(existing.id, { webhookUrl: v.trim() })}
+                      placeholder="ghp_…"
+                      secureTextEntry
+                      mono
+                    />
+                  </View>
+                ) : null}
+              </React.Fragment>
               );
             })}
 
@@ -470,9 +487,7 @@ export default function BuilderScreen() {
                       <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{app.description || app.webhookUrl}</Text>
                     </View>
                     <Toggle value={app.enabled} onToggle={() => toggleConnectedApp(app.id)} />
-                    <Pressable onPress={() => removeConnectedApp(app.id)} hitSlop={8}>
-                      <MaterialIcons name="close" size={18} color={C.textMuted} />
-                    </Pressable>
+                    <IconButton icon="close" label="Retirer le connecteur" onPress={() => removeConnectedApp(app.id)} bare size={18} color={C.textMuted} />
                   </View>
                 ))}
               </View>

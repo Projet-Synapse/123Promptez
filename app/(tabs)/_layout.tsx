@@ -26,6 +26,7 @@ export default function TabLayout() {
         tabBarStyle,
         tabBarActiveTintColor: Colors.accent,
         tabBarInactiveTintColor: Colors.textMuted,
+        tabBarShowLabel: false,
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       }}
     >
@@ -33,35 +34,40 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Builder',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="construction" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Builder',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="construction" size={size} color={color} accessibilityLabel="Builder" />,
         }}
       />
       <Tabs.Screen
         name="workspaces"
         options={{
           title: 'Workspaces',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="workspaces" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Workspaces',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="workspaces" size={size} color={color} accessibilityLabel="Workspaces" />,
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           title: 'Chat',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="chat-bubble" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Chat',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="chat-bubble" size={size} color={color} accessibilityLabel="Chat" />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Profil',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} accessibilityLabel="Profil" />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Paramètres',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="tune" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Paramètres',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="tune" size={size} color={color} accessibilityLabel="Paramètres" />,
         }}
       />
     </Tabs>
