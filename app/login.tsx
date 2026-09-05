@@ -15,7 +15,7 @@ type AuthMode = 'login' | 'register';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, operationLoading } = useAuth();
+  const { sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const C = useThemeColors();
 
@@ -63,6 +63,11 @@ export default function LoginScreen() {
     if (!otp.trim()) { showAlert('Code requis', 'Veuillez entrer le code de vérification.'); return; }
     const { error } = await verifyOTPAndLogin(email.trim(), otp.trim(), { password });
     if (error) showAlert('Code invalide', error);
+  };
+
+  const handleGoogle = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) showAlert('Erreur Google', error);
   };
 
   return (
@@ -227,18 +232,16 @@ export default function LoginScreen() {
                 <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
               </View>
 
-              {/* Google sign-in — disabled until OAuth is actually wired up (needs a
-                  Google provider configured in Auth Settings), so it can't be
-                  mistaken for a working sign-in option. */}
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 1, borderColor: C.border, opacity: 0.5 }}
+              <Pressable
+                onPress={() => void handleGoogle()}
+                disabled={operationLoading}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, paddingVertical: Spacing.md, borderWidth: 1, borderColor: C.border, opacity: operationLoading ? 0.6 : 1 }}
               >
                 <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: '#4285F4' }}>G</Text>
                 </View>
                 <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Continuer avec Google</Text>
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600' }}>· Bientôt disponible</Text>
-              </View>
+              </Pressable>
 
               {mode === 'register' ? (
                 <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.primary + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.primary + '33' }}>
