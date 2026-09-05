@@ -6,14 +6,14 @@
 // SETTINGS_SECTIONS below. Keep new settings inside one of these four, or add
 // a new section rather than growing the flat list.
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
+import { View, Text, ScrollView, Pressable, Linking, TextInput, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { useBot } from '@/hooks/useBot';
 import { ThemedInput, SliderRow } from '@/components';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize, FontWeight, normalizeHex } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/config';
 import { useAlert, useAuth } from '@/template';
@@ -31,11 +31,87 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: string }[] 
   { id: 'about', label: 'À propos', icon: 'info' },
 ];
 
+
+function ColorRow({
+  label, hint, value, isCustom, onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  isCustom: boolean;
+  onChange: (hex: string | undefined) => void;
+}) {
+  const C = useThemeColors();
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = (raw: string) => {
+    const next = normalizeHex(raw, value);
+    setDraft(next);
+    onChange(next);
+  };
+
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+      backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1,
+      borderColor: isCustom ? C.primary + '66' : C.border, padding: Spacing.sm + 2,
+    }}>
+      <View style={{
+        width: 36, height: 36, borderRadius: Radius.sm,
+        backgroundColor: normalizeHex(draft, value),
+        borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        {Platform.OS === 'web'
+          ? React.createElement('input', {
+              type: 'color',
+              value: normalizeHex(draft, '#000000'),
+              onChange: (e: any) => commit(e?.target?.value ?? draft),
+              style: {
+                width: '140%', height: '140%', border: 'none', padding: 0,
+                background: 'transparent', cursor: 'pointer',
+              },
+            })
+          : (
+            <Pressable
+              onPress={() => {
+                // Mobile: cycle a small preset if user clears via long hex edit — hex TextInput remains primary
+              }}
+              style={{ width: '100%', height: '100%' }}
+            />
+          )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{hint}</Text>
+      </View>
+      <TextInput
+        value={draft}
+        onChangeText={setDraft}
+        onBlur={() => commit(draft)}
+        onSubmitEditing={() => commit(draft)}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        placeholder="#000000"
+        placeholderTextColor={C.textMuted}
+        style={{
+          minWidth: 92, maxWidth: 110, paddingHorizontal: 8, paddingVertical: 6,
+          borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border,
+          backgroundColor: C.bg, color: C.textMono, fontFamily: 'monospace',
+          fontSize: FontSize.sm,
+        }}
+      />
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { bot, updateBot, updateLLMConfig, updateAgentToolConfig, resetBot } = useBot();
   const { showAlert } = useAlert();
-  const { mode, toggleTheme } = useTheme();
+  const { mode, toggleTheme, setTheme, customPalette, setCustomColor, resetCustomPalette, colors: themeColors } = useTheme();
   const { lang, setLang, t } = useLanguage();
   const { user, logout, updatePassword } = useAuth();
   const { isSyncing, lastSyncAt } = useAppData();
@@ -184,7 +260,7 @@ export default function SettingsScreen() {
                 {([['dark', '#0A0C10', '#3D7EFF', 'Sombre'], ['light', '#F4F6FB', '#2563EB', 'Clair']] as const).map(([m, bg, acc, label]) => (
                   <Pressable
                     key={m}
-                    onPress={() => m !== mode && toggleTheme()}
+                    onPress={() => m !== mode && setTheme(m)}
                     style={[{
                       flex: 1, borderRadius: Radius.md, padding: Spacing.md, gap: 6,
                       flexDirection: 'row' as const, alignItems: 'center' as const,
@@ -198,6 +274,42 @@ export default function SettingsScreen() {
                   </Pressable>
                 ))}
               </View>
+
+              <View style={{ height: 1, backgroundColor: C.border, marginVertical: Spacing.xs }} />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+                  <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>Couleurs personnalisées</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
+                    Texte, boutons, bordures et fond. Le mode clair/sombre adapte automatiquement le contraste selon la luminance du fond.
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={resetCustomPalette}
+                  hitSlop={8}
+                  style={({ pressed }) => [{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt }, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>Réinitialiser</Text>
+                </Pressable>
+              </View>
+
+              {([
+                { key: 'bg' as const, label: 'Fond', hint: 'Arrière-plan principal', live: themeColors.bg },
+                { key: 'bgCard' as const, label: 'Surfaces', hint: 'Cartes et panneaux', live: themeColors.bgCard },
+                { key: 'textPrimary' as const, label: 'Texte', hint: 'Police principale', live: themeColors.textPrimary },
+                { key: 'primary' as const, label: 'Boutons', hint: 'Actions primaires', live: themeColors.primary },
+                { key: 'accent' as const, label: 'Accent', hint: 'Badges et toggles', live: themeColors.accent },
+                { key: 'border' as const, label: 'Bordures', hint: 'Contours et séparateurs', live: themeColors.border },
+              ]).map(row => (
+                <ColorRow
+                  key={row.key}
+                  label={row.label}
+                  hint={row.hint}
+                  value={customPalette[row.key] ?? row.live}
+                  isCustom={Boolean(customPalette[row.key])}
+                  onChange={hex => setCustomColor(row.key, hex)}
+                />
+              ))}
             </View>
 
             {/* ── Interface Language ─────────────────────────────────── */}

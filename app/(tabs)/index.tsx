@@ -1,5 +1,5 @@
 // Powered by OnSpace.AI
-// Builder screen — KB, Agents tools, Custom AI Agents, Connected Apps
+// Builder screen — KB, Agents tools, Custom AI Agents, Connecteurs
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
@@ -12,7 +12,8 @@ import { useBot } from '@/hooks/useBot';
 import { KBSourceCard, AgentToolRow, ThemedInput } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { AGENT_TOOLS, KB_SOURCE_TYPES } from '@/constants/config';
+import { AGENT_TOOLS, KB_SOURCE_TYPES, CONNECTOR_PRESETS } from '@/constants/config';
+import { Toggle } from '@/components';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useAlert } from '@/template';
@@ -88,7 +89,7 @@ export default function BuilderScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
   const { bot, updateBot, addKBSource, removeKBSource, addFAQItem, toggleAgentTool, addConnectedApp, removeConnectedApp,
-    addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent } = useBot();
+    setPresetConnectorEnabled, toggleConnectedApp, addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent } = useBot();
   const { showAlert } = useAlert();
   const [activeSection, setActiveSection] = useState<ActiveSection>('kb');
   const [showAddKB, setShowAddKB] = useState(false);
@@ -117,7 +118,7 @@ export default function BuilderScreen() {
     { id: 'kb', label: 'Knowledge Base' },
     { id: 'agents', label: 'Outils IA' },
     { id: 'custom_agents', label: 'Agents IA', badge: (bot.customAgents ?? []).length },
-    { id: 'apps', label: 'Apps' },
+    { id: 'apps', label: 'Connecteurs' },
   ];
 
   const enabledToolsCount = bot.agentTools.filter(t => t.enabled).length;
@@ -231,7 +232,7 @@ export default function BuilderScreen() {
             <Image source={require('@/assets/images/hero-llm.png')} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={300} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(10,12,16,0.72)', padding: Spacing.md }}>
               <Text style={{ fontSize: FontSize.md, color: '#F0F4FF', fontWeight: '700' }}>Architecture agentique</Text>
-              <Text style={{ fontSize: FontSize.sm, color: '#8899BB', marginTop: 2 }}>Modèle · KB · Outils · Agents IA · Apps</Text>
+              <Text style={{ fontSize: FontSize.sm, color: '#8899BB', marginTop: 2 }}>Modèle · KB · Outils · Agents IA · Connecteurs</Text>
             </View>
           </Pressable>
         ) : null}
@@ -242,7 +243,7 @@ export default function BuilderScreen() {
             { icon: 'library-books', label: 'Sources KB', value: bot.kbSources.length },
             { icon: 'bolt', label: 'Outils actifs', value: enabledToolsCount },
             { icon: 'psychology', label: 'Agents IA', value: enabledAgentsCount },
-            { icon: 'apps', label: 'Apps', value: enabledAppsCount },
+            { icon: 'hub', label: 'Connecteurs', value: enabledAppsCount },
           ].map(stat => (
             <View key={stat.label} style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, alignItems: 'center', gap: 4 }}>
               <MaterialIcons name={stat.icon as any} size={18} color={C.primary} />
@@ -381,35 +382,109 @@ export default function BuilderScreen() {
           </View>
         ) : null}
 
-        {/* ── Apps Section ────────────────────────────────────────────── */}
+        {/* ── Connecteurs Section ──────────────────────────────────────── */}
         {activeSection === 'apps' ? (
           <View style={{ gap: Spacing.md }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Applications connectées</Text>
+              <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Connecteurs</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
+                  Activez des intégrations prêtes à l’emploi. L’OAuth complet arrive bientôt.
+                </Text>
+              </View>
               <Pressable onPress={() => setShowAddApp(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill }, pressed && { opacity: 0.75 }]}>
                 <MaterialIcons name="add" size={18} color="#fff" />
-                <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Connecter</Text>
+                <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Webhook</Text>
               </Pressable>
             </View>
-            {bot.connectedApps.length === 0 ? (
-              <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm }}>
-                <MaterialIcons name="apps" size={36} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '500' }}>Aucune application connectée</Text>
-              </View>
-            ) : (
-              bot.connectedApps.map(app => (
-                <View key={app.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, marginBottom: Spacing.sm }}>
-                  <MaterialIcons name="api" size={22} color={C.primary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>{app.name}</Text>
-                    <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{app.description || app.webhookUrl}</Text>
+
+            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, gap: Spacing.xs }}>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.sm, paddingTop: Spacing.xs, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Catalogue
+              </Text>
+            </View>
+
+            {CONNECTOR_PRESETS.map(preset => {
+              const existing = bot.connectedApps.find(a => a.id === preset.id || a.presetId === preset.id);
+              const enabled = existing?.enabled ?? false;
+              return (
+                <View
+                  key={preset.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: Spacing.md,
+                    backgroundColor: enabled ? C.accentGlow : C.bgCard,
+                    borderRadius: Radius.md,
+                    borderWidth: 1,
+                    borderColor: enabled ? C.accent + '44' : C.border,
+                    padding: Spacing.md,
+                  }}
+                >
+                  <View style={{
+                    width: 44, height: 44, borderRadius: Radius.sm,
+                    backgroundColor: (preset.color || C.primary) + '22',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MaterialIcons name={preset.icon as any} size={22} color={preset.color || C.primary} />
                   </View>
-                  <Pressable onPress={() => removeConnectedApp(app.id)} hitSlop={8}>
-                    <MaterialIcons name="close" size={18} color={C.textMuted} />
-                  </Pressable>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
+                      <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{preset.label}</Text>
+                      {preset.comingSoon ? (
+                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55' }}>
+                          <Text style={{ fontSize: 10, color: C.warning, fontWeight: '700' }}>bientôt</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 18 }}>{preset.description}</Text>
+                  </View>
+                  <Toggle
+                    value={enabled}
+                    onToggle={() => setPresetConnectorEnabled({
+                      id: preset.id,
+                      name: preset.label,
+                      description: preset.description,
+                      webhookUrl: '',
+                      icon: preset.icon,
+                      color: preset.color,
+                      presetId: preset.id,
+                      comingSoon: preset.comingSoon,
+                    }, !enabled)}
+                  />
                 </View>
-              ))
-            )}
+              );
+            })}
+
+            {/* Legacy / custom webhook connectors */}
+            {bot.connectedApps.filter(a => !a.presetId && !CONNECTOR_PRESETS.some(p => p.id === a.id)).length > 0 ? (
+              <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  Webhooks personnalisés
+                </Text>
+                {bot.connectedApps.filter(a => !a.presetId && !CONNECTOR_PRESETS.some(p => p.id === a.id)).map(app => (
+                  <View key={app.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
+                    <MaterialIcons name={(app.icon as any) || 'api'} size={22} color={C.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>{app.name}</Text>
+                      <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{app.description || app.webhookUrl}</Text>
+                    </View>
+                    <Toggle value={app.enabled} onToggle={() => toggleConnectedApp(app.id)} />
+                    <Pressable onPress={() => removeConnectedApp(app.id)} hitSlop={8}>
+                      <MaterialIcons name="close" size={18} color={C.textMuted} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {bot.connectedApps.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: Spacing.md, gap: Spacing.xs }}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center' }}>
+                  Aucun connecteur activé pour l’instant — activez un preset ci-dessus.
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -446,14 +521,14 @@ export default function BuilderScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Connecter une application</Text>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Connecter un webhook</Text>
               <Pressable onPress={() => setShowAddApp(false)} hitSlop={8}><MaterialIcons name="close" size={22} color={C.textSecondary} /></Pressable>
             </View>
-            <ThemedInput label="Nom de l'app" value={appName} onChangeText={setAppName} placeholder="Mon App Personnalisée" />
+            <ThemedInput label="Nom du connecteur" value={appName} onChangeText={setAppName} placeholder="Mon connecteur personnalisé" />
             <ThemedInput label="Description" value={appDesc} onChangeText={setAppDesc} placeholder="Ce que fait cette app..." />
             <ThemedInput label="URL Webhook" value={appWebhook} onChangeText={setAppWebhook} placeholder="https://mon-app.com/webhook" mono />
             <Pressable onPress={handleAddApp} disabled={!appName.trim() || !appWebhook.trim()} style={({ pressed }) => [{ backgroundColor: C.accent, borderRadius: Radius.md, paddingVertical: Spacing.md, alignItems: 'center', marginTop: Spacing.sm, opacity: (!appName.trim() || !appWebhook.trim()) ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
-              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Connecter l’application</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '700' }}>Ajouter le connecteur</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

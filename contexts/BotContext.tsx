@@ -26,6 +26,12 @@ export interface ConnectedApp {
   webhookUrl: string;
   description: string;
   enabled: boolean;
+  /** MaterialIcons name for catalogue presets */
+  icon?: string;
+  color?: string;
+  /** Stable catalogue id (github, supabase, …) — kept alongside legacy webhook apps */
+  presetId?: string;
+  comingSoon?: boolean;
 }
 
 // Custom AI agent definition
@@ -87,6 +93,8 @@ interface BotContextType {
   addConnectedApp: (app: Omit<ConnectedApp, 'id'>) => void;
   removeConnectedApp: (id: string) => void;
   toggleConnectedApp: (id: string) => void;
+  /** Enable/disable a catalogue connector; creates connectedApps entry if missing (field name kept for cloud compat). */
+  setPresetConnectorEnabled: (preset: Omit<ConnectedApp, 'id' | 'enabled'> & { id: string }, enabled: boolean) => void;
   // Custom agents
   addCustomAgent: (agent: Omit<CustomAgent, 'id'>) => void;
   updateCustomAgent: (id: string, updates: Partial<CustomAgent>) => void;
@@ -252,6 +260,52 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
     });
   };
 
+  const setPresetConnectorEnabled = (
+    preset: Omit<ConnectedApp, 'id' | 'enabled'> & { id: string },
+    enabled: boolean,
+  ) => {
+    setBot(prev => {
+      const apps = prev.connectedApps ?? [];
+      const existing = apps.find(a => a.id === preset.id || a.presetId === preset.id);
+      let connectedApps: ConnectedApp[];
+      if (existing) {
+        connectedApps = apps.map(a =>
+          a.id === existing.id
+            ? {
+                ...a,
+                enabled,
+                name: preset.name,
+                description: preset.description,
+                icon: preset.icon ?? a.icon,
+                color: preset.color ?? a.color,
+                presetId: preset.presetId ?? preset.id,
+                comingSoon: preset.comingSoon ?? a.comingSoon,
+                webhookUrl: a.webhookUrl || preset.webhookUrl || '',
+              }
+            : a,
+        );
+      } else {
+        connectedApps = [
+          ...apps,
+          {
+            id: preset.id,
+            name: preset.name,
+            description: preset.description,
+            webhookUrl: preset.webhookUrl || '',
+            enabled,
+            icon: preset.icon,
+            color: preset.color,
+            presetId: preset.presetId ?? preset.id,
+            comingSoon: preset.comingSoon,
+          },
+        ];
+      }
+      const next = { ...prev, connectedApps };
+      notify(next);
+      return next;
+    });
+  };
+
   // ── Custom agents ────────────────────────────────────────────────────────────
   const addCustomAgent = (agent: Omit<CustomAgent, 'id'>) => {
     const newAgent: CustomAgent = { ...agent, id: `agent-${Date.now()}` };
@@ -303,7 +357,9 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
       kbSources: data.kbSources ? data.kbSources.map(s => ({ ...s, addedAt: new Date(s.addedAt) })) : prev.kbSources,
       agentTools: data.agentTools ?? prev.agentTools,
       customAgents: data.customAgents ?? prev.customAgents ?? [],
-      connectedApps: data.connectedApps ?? prev.connectedApps,
+      connectedApps: (data as any).connectedApps
+        ?? (data as any).connectors
+        ?? prev.connectedApps,
       faqItems: data.faqItems ?? prev.faqItems,
     }));
   }, []);
@@ -321,7 +377,7 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
       addKBSource, removeKBSource,
       addFAQItem, removeFAQItem,
       toggleAgentTool, updateAgentToolConfig,
-      addConnectedApp, removeConnectedApp, toggleConnectedApp,
+      addConnectedApp, removeConnectedApp, toggleConnectedApp, setPresetConnectorEnabled,
       addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent,
       hydrateFromCloud,
       chatMessages, addChatMessage, clearChat,
