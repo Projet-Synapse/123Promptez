@@ -80,8 +80,8 @@ export const CONNECTOR_PRESETS = [
     label: 'GitHub',
     icon: 'code',
     color: '#E6EDF3',
-    description: 'Dépôts, issues et pull requests',
-    comingSoon: true,
+    description: 'Recherche de dépôts pour les dossiers vault (Personal Access Token)',
+    comingSoon: false,
   },
   {
     id: 'supabase',

@@ -6,3 +6,7 @@ export { KBSourceCard } from './feature/KBSourceCard';
 export { AgentToolRow } from './feature/AgentToolRow';
 export { ChatBubble } from './feature/ChatBubble';
 export { SliderRow } from './feature/SliderRow';
+
+export { Tooltip, withNativeTitle } from './ui/Tooltip';
+export { IconButton } from './ui/IconButton';
+export { VaultFolderPanel } from './feature/VaultFolderPanel';

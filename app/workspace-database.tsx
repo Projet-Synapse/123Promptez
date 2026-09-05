@@ -9,6 +9,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
+import { VaultFolderPanel } from '@/components/feature/VaultFolderPanel';
+import { IconButton } from '@/components/ui/IconButton';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useAlert } from '@/template';
@@ -139,20 +141,27 @@ function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder | DBSubFol
 }
 
 function InsertBar({ onText, onFile, onImage, onLink }: { onText: () => void; onFile: () => void; onImage: () => void; onLink: () => void }) {
-  const C = useThemeColors();
   const btns = [
-    { icon: 'edit-note', label: 'Texte', onPress: onText, color: '#FFB800' },
-    { icon: 'upload-file', label: 'Fichier', onPress: onFile, color: '#3D7EFF' },
-    { icon: 'image', label: 'Image', onPress: onImage, color: '#00CC6A' },
-    { icon: 'link', label: 'Lien', onPress: onLink, color: '#9B59B6' },
+    { icon: 'edit-note' as const, label: 'Texte', onPress: onText, color: '#FFB800' },
+    { icon: 'upload-file' as const, label: 'Fichier', onPress: onFile, color: '#3D7EFF' },
+    { icon: 'image' as const, label: 'Image', onPress: onImage, color: '#00CC6A' },
+    { icon: 'link' as const, label: 'Lien', onPress: onLink, color: '#9B59B6' },
   ];
   return (
-    <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+    <View style={{ flexDirection: 'row', gap: Spacing.sm, justifyContent: 'space-between' }}>
       {btns.map(b => (
-        <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: Spacing.sm + 2, borderRadius: Radius.md, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.75 }]}>
-          <MaterialIcons name={b.icon as any} size={20} color={b.color} />
-          <Text style={{ fontSize: 11, color: b.color, fontWeight: '700' }}>{b.label}</Text>
-        </Pressable>
+        <View key={b.label} style={{ flex: 1, alignItems: 'center' }}>
+          <IconButton
+            icon={b.icon}
+            label={b.label}
+            onPress={b.onPress}
+            color={b.color}
+            backgroundColor={b.color + '12'}
+            borderColor={b.color + '44'}
+            boxSize={44}
+            size={22}
+          />
+        </View>
       ))}
     </View>
   );
@@ -192,7 +201,7 @@ export default function WorkspaceDatabaseScreen() {
   const insets = useSafeAreaInsets();
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
   const {
-    workspaces, addFolder, removeFolder,
+    workspaces, addFolder, addVaultFolder, updateFolder, removeFolder,
     addSubFolder, removeSubFolder,
     addFile, updateFile, removeFile,
   } = useWorkspace();
@@ -270,6 +279,32 @@ export default function WorkspaceDatabaseScreen() {
   const displayedFiles = useMemo(() => sortFiles(rawFiles, sortKey, sortOrder), [rawFiles, sortKey, sortOrder]);
 
   const totalFiles = ws ? ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0) : 0;
+
+
+  const replaceFolderFiles = (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[]) => {
+    const targetWs = workspaces.find(w => w.id === workspaceId);
+    if (!targetWs) return;
+    let fid = folderId;
+    if (folderId === '__latest_vault__') {
+      const vaults = targetWs.database.folders.filter(f => f.vault);
+      const latest = vaults[vaults.length - 1];
+      if (!latest) return;
+      fid = latest.id;
+    }
+    // Clear then re-add — removeFile/addFile via updateFolder files array
+    updateFolder(workspaceId, fid, {
+      files: files.map((f, i) => ({
+        id: `file-vault-${Date.now()}-${i}`,
+        name: f.name,
+        type: f.type,
+        content: f.content,
+        tags: f.tags,
+        size: f.content.length,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })),
+    } as any);
+  };
 
   if (!ws) {
     return (
@@ -385,9 +420,7 @@ export default function WorkspaceDatabaseScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       {/* Top Bar */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <Pressable onPress={goBack} hitSlop={8} style={{ padding: Spacing.xs }}>
-          <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
-        </Pressable>
+        <IconButton icon="arrow-back" label="Retour" onPress={goBack} bare size={22} color={C.textPrimary} />
         <View style={{ flex: 1 }}>
           {/* Breadcrumb */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
@@ -413,16 +446,16 @@ export default function WorkspaceDatabaseScreen() {
         </View>
         {/* Add folder button */}
         {currentNav.kind !== 'subfolder' ? (
-          <Pressable
+          <IconButton
+            icon="create-new-folder"
+            label={currentNav.kind === 'folder' ? 'Nouveau sous-dossier' : 'Nouveau dossier'}
             onPress={() => {
               resetFolderForm();
               if (currentNav.kind === 'folder') setShowAddSubFolder(true);
               else setShowAddFolder(true);
             }}
-            style={({ pressed }) => [{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
-          >
-            <MaterialIcons name={currentNav.kind === 'folder' ? 'create-new-folder' : 'create-new-folder'} size={20} color={C.primary} />
-          </Pressable>
+            color={C.primary}
+          />
         ) : null}
       </View>
 
@@ -452,11 +485,24 @@ export default function WorkspaceDatabaseScreen() {
           />
         </View>
 
-        {/* Folders (root level) */}
-        {currentNav.kind === 'root' && ws.database.folders.length > 0 ? (
+        {/* Vault folders */}
+        {currentNav.kind === 'root' ? (
+          <VaultFolderPanel
+            workspaceId={ws.id}
+            folders={ws.database.folders}
+            onOpenFolder={pushFolder}
+            addVaultFolder={addVaultFolder}
+            updateFolder={updateFolder}
+            removeFolder={removeFolder}
+            replaceFolderFiles={replaceFolderFiles}
+          />
+        ) : null}
+
+        {/* Folders (root level) — non-vault */}
+        {currentNav.kind === 'root' && ws.database.folders.filter(f => !f.vault).length > 0 ? (
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
-            {ws.database.folders.map(folder => (
+            {ws.database.folders.filter(f => !f.vault).map(folder => (
               <FolderCard key={folder.id} folder={folder} onPress={() => pushFolder(folder)} onDelete={() => handleDeleteFolder(folder)} />
             ))}
           </View>
