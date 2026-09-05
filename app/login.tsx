@@ -29,6 +29,7 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const [forgotHint, setForgotHint] = useState<string | null>(null);
 
   // AuthRouter only wraps `/`, not `/login`. After password or Google OAuth
   // (onAuthStateChange), navigate into the app explicitly.
@@ -60,15 +61,21 @@ export default function LoginScreen() {
   };
 
   const handleForgotPassword = async () => {
-    if (!email.trim()) {
-      showAlert('Email requis', 'Entrez d’abord votre adresse email ci-dessus, puis appuyez sur "Mot de passe oublié ?".');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setForgotHint('Entrez votre adresse email ci-dessus, puis réessayez.');
       return;
     }
-    const { error } = await requestPasswordReset(email.trim());
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setForgotHint('Adresse email invalide.');
+      return;
+    }
+    setForgotHint(null);
+    const { error } = await requestPasswordReset(trimmed);
     if (error) { showAlert('Erreur', error); return; }
     showAlert(
       'Email envoyé',
-      `Si un compte existe pour ${email.trim()}, un lien de réinitialisation vient d’être envoyé. Cliquez dessus, puis rendez-vous dans Profil pour choisir un nouveau mot de passe.`
+      `Si un compte existe pour ${trimmed}, un lien de réinitialisation vient d’être envoyé. Cliquez dessus, puis rendez-vous dans Profil pour choisir un nouveau mot de passe.`
     );
   };
 
@@ -187,7 +194,7 @@ export default function LoginScreen() {
                   <TextInput
                     style={{ flex: 1, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm }}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(v) => { setEmail(v); if (forgotHint) setForgotHint(null); }}
                     placeholder="votre@email.com"
                     placeholderTextColor={C.textMuted}
                     keyboardType="email-address"
@@ -195,6 +202,9 @@ export default function LoginScreen() {
                     autoComplete="email"
                   />
                 </View>
+                {forgotHint ? (
+                  <Text style={{ fontSize: FontSize.xs, color: C.error, marginTop: 2 }}>{forgotHint}</Text>
+                ) : null}
               </View>
 
               {/* Password */}
@@ -276,6 +286,9 @@ export default function LoginScreen() {
                 </View>
                 <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Continuer avec Google</Text>
               </Pressable>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', lineHeight: 16 }}>
+                Connexion OAuth — aucun numéro de téléphone ni 2FA Google n’est requis.
+              </Text>
 
               {mode === 'register' ? (
                 <View style={{ flexDirection: 'row', gap: Spacing.xs, alignItems: 'flex-start', backgroundColor: C.primary + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.primary + '33' }}>

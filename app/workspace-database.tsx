@@ -72,7 +72,14 @@ function sortFiles(files: DBFile[], key: SortKey, order: SortOrder): DBFile[] {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => void; onDelete: () => void }) {
+function locEquals(a: FileLocation, b: FileLocation): boolean {
+  if (a === null && b === null) return true;
+  if (typeof a === 'string' && typeof b === 'string') return a === b;
+  if (a && b && typeof a === 'object' && typeof b === 'object') return a.folderId === b.folderId && a.subId === b.subId;
+  return false;
+}
+
+function FileRow({ file, onPress, onMove, onDelete }: { file: DBFile; onPress: () => void; onMove: () => void; onDelete: () => void }) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
   return (
@@ -99,6 +106,9 @@ function FileRow({ file, onPress, onDelete }: { file: DBFile; onPress: () => voi
           </View>
         ) : null}
       </View>
+      <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
+        <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
+      </Pressable>
       <Pressable onPress={onDelete} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
         <MaterialIcons name="delete-outline" size={18} color={C.textMuted} />
       </Pressable>
@@ -203,7 +213,7 @@ export default function WorkspaceDatabaseScreen() {
   const {
     workspaces, addFolder, addVaultFolder, updateFolder, removeFolder,
     addSubFolder, removeSubFolder,
-    addFile, updateFile, removeFile,
+    addFile, updateFile, removeFile, moveFile,
   } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
@@ -234,6 +244,7 @@ export default function WorkspaceDatabaseScreen() {
   const [showAddLink, setShowAddLink] = useState(false);
   const [editingFile, setEditingFile] = useState<DBFile | null>(null);
   const [viewingFile, setViewingFile] = useState<DBFile | null>(null);
+  const [movingFile, setMovingFile] = useState<DBFile | null>(null);
 
   // Folder/sub-folder form
   const [folderName, setFolderName] = useState('');
@@ -305,6 +316,25 @@ export default function WorkspaceDatabaseScreen() {
       })),
     } as any);
   };
+
+  const moveDestinations = useMemo(() => {
+    if (!ws) return [] as { label: string; location: FileLocation; icon: string; color: string }[];
+    const dests: { label: string; location: FileLocation; icon: string; color: string }[] = [
+      { label: 'Racine', location: null, icon: 'home', color: C.accent },
+    ];
+    for (const folder of ws.database.folders) {
+      dests.push({ label: folder.name, location: folder.id, icon: folder.icon || 'folder', color: folder.color });
+      for (const sub of folder.subFolders ?? []) {
+        dests.push({
+          label: `${folder.name} / ${sub.name}`,
+          location: { folderId: folder.id, subId: sub.id },
+          icon: sub.icon || 'folder',
+          color: sub.color || folder.color,
+        });
+      }
+    }
+    return dests.filter(d => !locEquals(d.location, currentLocation));
+  }, [ws, currentLocation, C.accent]);
 
   if (!ws) {
     return (
@@ -395,6 +425,13 @@ export default function WorkspaceDatabaseScreen() {
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, currentLocation, file.id) },
     ]);
+  };
+  const handleConfirmMove = (to: FileLocation) => {
+    if (!movingFile) return;
+    moveFile(ws.id, movingFile.id, currentLocation, to);
+    const name = movingFile.name;
+    setMovingFile(null);
+    showAlert('Fichier déplacé', `"${name}" a été déplacé.`);
   };
   const handleDeleteFolder = (folder: DBFolder) => {
     showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) et ${folder.subFolders?.length ?? 0} sous-dossier(s) seront supprimés.`, [
@@ -543,11 +580,63 @@ export default function WorkspaceDatabaseScreen() {
             </View>
           ) : (
             displayedFiles.map(file => (
-              <FileRow key={file.id} file={file} onPress={() => handleOpenFileViewer(file)} onDelete={() => handleDeleteFile(file)} />
+              <FileRow
+                key={file.id}
+                file={file}
+                onPress={() => handleOpenFileViewer(file)}
+                onMove={() => setMovingFile(file)}
+                onDelete={() => handleDeleteFile(file)}
+              />
             ))
           )}
         </View>
       </ScrollView>
+
+      {/* ─── Move file modal ─────────────────────────────────────── */}
+      <Modal visible={!!movingFile} transparent animationType="slide" onRequestClose={() => setMovingFile(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 }}>
+                <MaterialIcons name="drive-file-move" size={20} color={C.accent} />
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
+                  Déplacer vers…{movingFile ? ` — ${movingFile.name}` : ''}
+                </Text>
+              </View>
+              <Pressable onPress={() => setMovingFile(null)} hitSlop={8}>
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+              <View style={{ gap: Spacing.sm, paddingBottom: Spacing.sm }}>
+                {moveDestinations.length === 0 ? (
+                  <Text style={{ fontSize: FontSize.sm, color: C.textMuted, textAlign: 'center', paddingVertical: Spacing.lg }}>
+                    Aucune autre destination disponible. Créez un dossier pour déplacer ce fichier.
+                  </Text>
+                ) : (
+                  moveDestinations.map((dest, i) => (
+                    <Pressable
+                      key={`${i}-${dest.label}`}
+                      onPress={() => handleConfirmMove(dest.location)}
+                      style={({ pressed }) => [{
+                        flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+                        backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1,
+                        borderColor: C.border, padding: Spacing.md,
+                      }, pressed && { opacity: 0.8 }]}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: dest.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+                        <MaterialIcons name={dest.icon as any} size={18} color={dest.color} />
+                      </View>
+                      <Text style={{ flex: 1, fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }} numberOfLines={2}>{dest.label}</Text>
+                      <MaterialIcons name="chevron-right" size={20} color={C.textMuted} />
+                    </Pressable>
+                  ))
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ─── Add Folder / Sub-folder Modal ────────────────────────── */}
       <Modal visible={showAddFolder || showAddSubFolder} transparent animationType="slide">
