@@ -24,7 +24,7 @@ jobs:
       - run: npx expo export --platform web --output-dir dist
       - name: Zip web build
         run: cd dist && zip -r ../123Promptez-web.zip .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-build
           path: 123Promptez-web.zip
@@ -81,7 +81,7 @@ jobs:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
       - name: Rename APK
         run: cp android/app/build/outputs/apk/release/app-release.apk 123Promptez-android.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-apk
           path: 123Promptez-android.apk
@@ -116,7 +116,7 @@ jobs:
             \( -iname '*.dmg' -o -iname '*.zip' -o -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \) \
             -exec cp {} out/ \;
           ls -la out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.os }}
           path: out/*
