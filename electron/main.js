@@ -74,6 +74,12 @@ async function runUpdateCheck({ silentIfUpToDate }) {
   }
 }
 
+function sendShortcut(action) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:shortcut', action);
+  }
+}
+
 function buildMenu() {
   const template = [
     ...(process.platform === 'darwin'
@@ -90,8 +96,38 @@ function buildMenu() {
           ],
         }]
       : []),
+    {
+      label: 'Fichier',
+      submenu: [
+        {
+          label: 'Nouvelle conversation',
+          accelerator: 'CommandOrControl+N',
+          click: () => sendShortcut('new-conversation'),
+        },
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      label: 'Affichage',
+      submenu: [
+        {
+          label: 'Palette de commandes',
+          accelerator: 'CommandOrControl+K',
+          click: () => sendShortcut('command-palette'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
     {
       label: 'Aide',

@@ -19,6 +19,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
 import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
+import { useWorkspace } from '@/hooks/useWorkspace';
+import { buildExportBundle, downloadJson, parseImportBundle } from '@/services/exportService';
+import { useToast } from '@/contexts/ToastContext';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 
 type SettingsSection = 'ui' | 'assistant' | 'about';
 
@@ -114,12 +119,14 @@ function ColorRow({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { bot, updateBot, updateLLMConfig, updateAgentToolConfig, resetBot } = useBot();
+  const { bot, updateBot, updateLLMConfig, updateAgentToolConfig, resetBot, hydrateFromCloud: hydrateBotFromHook } = useBot();
   const { showAlert } = useAlert();
   const { mode, toggleTheme, setTheme, customPalette, setCustomColor, resetCustomPalette, colors: themeColors } = useTheme();
   const { lang, setLang, t } = useLanguage();
   const C = useThemeColors();
-  const { profile, addMemory, updateMemory, removeMemory } = useProfile();
+  const { profile, addMemory, updateMemory, removeMemory, hydrateFromCloud: hydrateProfile } = useProfile();
+  const { workspaces, hydrateFromCloud: hydrateWorkspaces } = useWorkspace();
+  const { showToast } = useToast();
 
   const [section, setSection] = useState<SettingsSection>('ui');
   const [showModels, setShowModels] = useState(false);
@@ -567,6 +574,69 @@ export default function SettingsScreen() {
               ) : null}
             </View>
 
+
+            {/* ── Export / Import ─────────────────────────────────────── */}
+            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
+              <View>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Export / Import
+                </Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 3, lineHeight: 17 }}>
+                  Téléchargez un JSON (workspaces, base de connaissances, mémoire IA). Les jetons GitHub sont masqués à l’export.
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+                <Pressable
+                  onPress={() => {
+                    const bundle = buildExportBundle({ workspaces, bot, profile, includeWorkspaces: true, includeKB: true, includeMemory: true });
+                    const ok = downloadJson(`123promptez-export-${new Date().toISOString().slice(0, 10)}.json`, bundle);
+                    if (ok) showToast('Export JSON téléchargé', { tone: 'success' });
+                    else {
+                      Clipboard.setStringAsync(JSON.stringify(bundle, null, 2));
+                      showToast('JSON copié dans le presse-papiers', { tone: 'info' });
+                    }
+                  }}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: C.primary + '18', borderWidth: 1, borderColor: C.primary + '44' }, pressed && { opacity: 0.75 }]}
+                >
+                  <MaterialIcons name="download" size={16} color={C.primary} />
+                  <Text style={{ fontSize: FontSize.sm, color: C.primary, fontWeight: '700' }}>Exporter JSON</Text>
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    try {
+                      const result = await DocumentPicker.getDocumentAsync({ type: ['application/json', 'text/plain', '*/*'], copyToCacheDirectory: true, multiple: false });
+                      if (result.canceled || !result.assets?.length) return;
+                      const raw = await (await fetch(result.assets[0].uri)).text();
+                      const parsed = parseImportBundle(raw);
+                      if (!parsed.ok) { showAlert('Import impossible', parsed.error); return; }
+                      showAlert(
+                        'Importer ces données ?',
+                        'Les workspaces / KB / mémoire présents dans le fichier remplaceront les données locales correspondantes.',
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          {
+                            text: 'Importer', style: 'destructive', onPress: () => {
+                              const b = parsed.bundle;
+                              if (b.workspaces) hydrateWorkspaces(b.workspaces);
+                              if (b.bot_config) hydrateBotFromHook(b.bot_config as any);
+                              if (b.profile) hydrateProfile(b.profile as any);
+                              showToast('Import terminé', { tone: 'success' });
+                            },
+                          },
+                        ]
+                      );
+                    } catch (e: any) {
+                      showAlert('Erreur', e?.message ?? 'Import échoué');
+                    }
+                  }}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.75 }]}
+                >
+                  <MaterialIcons name="upload-file" size={16} color={C.textSecondary} />
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '700' }}>Importer JSON</Text>
+                </Pressable>
+              </View>
+            </View>
+
             {/* ── Zone de danger ──────────────────────────────────────── */}
             <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.error + '33', padding: Spacing.md, gap: Spacing.md }}>
               <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -581,7 +651,7 @@ export default function SettingsScreen() {
                     {
                       text: 'Réinitialiser', style: 'destructive', onPress: () => {
                         resetBot();
-                        showAlert('Configuration réinitialisée', 'Le bot a été restauré à ses réglages par défaut.', [{ text: 'OK' }]);
+                        showToast('Configuration réinitialisée', { tone: 'success' });
                       },
                     },
                   ]

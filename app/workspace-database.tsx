@@ -14,6 +14,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useAlert } from '@/template';
+import { useToast } from '@/contexts/ToastContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import type { DBFile, DBFolder, DBSubFolder, FileLocation } from '@/contexts/WorkspaceContext';
@@ -79,11 +80,21 @@ function locEquals(a: FileLocation, b: FileLocation): boolean {
   return false;
 }
 
-function FileRow({ file, onPress, onMove, onDelete }: { file: DBFile; onPress: () => void; onMove: () => void; onDelete: () => void }) {
+function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onToggleSelect }: {
+  file: DBFile; onPress: () => void; onMove: () => void; onDelete: () => void;
+  selectMode?: boolean; selected?: boolean; onToggleSelect?: () => void;
+}) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}>
+    <Pressable
+      onPress={() => (selectMode ? onToggleSelect?.() : onPress())}
+      onLongPress={() => onToggleSelect?.()}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: selected ? C.primary + '18' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? C.primary + '55' : C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}
+    >
+      {selectMode ? (
+        <MaterialIcons name={selected ? 'check-box' : 'check-box-outline-blank'} size={20} color={selected ? C.primary : C.textMuted} style={{ marginTop: 8 }} />
+      ) : null}
       <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
         <MaterialIcons name={info.icon as any} size={18} color={info.color} />
       </View>
@@ -106,12 +117,16 @@ function FileRow({ file, onPress, onMove, onDelete }: { file: DBFile; onPress: (
           </View>
         ) : null}
       </View>
-      <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
-        <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
-      </Pressable>
-      <Pressable onPress={onDelete} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
-        <MaterialIcons name="delete-outline" size={18} color={C.textMuted} />
-      </Pressable>
+      {!selectMode ? (
+        <>
+          <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
+            <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
+          </Pressable>
+          <Pressable onPress={onDelete} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
+            <MaterialIcons name="delete-outline" size={18} color={C.textMuted} />
+          </Pressable>
+        </>
+      ) : null}
     </Pressable>
   );
 }
@@ -216,6 +231,11 @@ export default function WorkspaceDatabaseScreen() {
     addFile, updateFile, removeFile, moveFile,
   } = useWorkspace();
   const { showAlert } = useAlert();
+  const { showToast } = useToast();
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const toggleSelectFile = (id: string) => setSelectedFileIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const exitSelectMode = () => { setSelectMode(false); setSelectedFileIds(new Set()); };
   const router = useRouter();
   const C = useThemeColors();
 
@@ -376,7 +396,7 @@ export default function WorkspaceDatabaseScreen() {
     const name = linkName.trim() || linkUrl.trim();
     addFile(ws.id, currentLocation, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
     setLinkUrl(''); setLinkName(''); setShowAddLink(false);
-    showAlert('Lien ajouté', `"${name}" a été ajouté à votre base de données.`);
+    showToast(`Lien « ${name} » ajouté`, { tone: 'success' });
   };
 
   const handlePickFile = async () => {
@@ -391,7 +411,7 @@ export default function WorkspaceDatabaseScreen() {
         if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué]';
       } catch { content = `[Fichier importé: ${asset.name}]`; }
       addFile(ws.id, currentLocation, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
-      showAlert('Fichier importé', `"${asset.name}" a été ajouté.`);
+      showToast(`Fichier « ${asset.name} » importé`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
@@ -404,7 +424,7 @@ export default function WorkspaceDatabaseScreen() {
       const asset = result.assets[0];
       const imgName = asset.uri.split('/').pop() ?? 'image.jpg';
       addFile(ws.id, currentLocation, { name: imgName, type: 'note', content: `[IMAGE: ${imgName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`, tags: ['image', 'importé'] });
-      showAlert('Image ajoutée', `"${imgName}" a été ajoutée.`);
+      showToast(`Image « ${imgName} » ajoutée`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
@@ -426,12 +446,40 @@ export default function WorkspaceDatabaseScreen() {
       { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, currentLocation, file.id) },
     ]);
   };
+  const bulkDeleteSelectedFiles = () => {
+    const n = selectedFileIds.size;
+    if (n === 0) return;
+    showAlert(`Supprimer ${n} fichier(s) ?`, 'Cette action est définitive.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => {
+        selectedFileIds.forEach(id => removeFile(ws.id, currentLocation, id));
+        exitSelectMode();
+        showToast(`${n} fichier(s) supprimé(s)`, { tone: 'success' });
+      }},
+    ]);
+  };
+  const bulkMoveSelectedFiles = (to: FileLocation) => {
+    selectedFileIds.forEach(id => moveFile(ws.id, id, currentLocation, to));
+    const n = selectedFileIds.size;
+    exitSelectMode();
+    setMovingFile(null);
+    showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
+  };
   const handleConfirmMove = (to: FileLocation) => {
     if (!movingFile) return;
+    if (movingFile.id === '__bulk__' || (selectMode && selectedFileIds.size > 0 && selectedFileIds.has(movingFile.id))) {
+      const ids = movingFile.id === '__bulk__' ? selectedFileIds : new Set([movingFile.id, ...selectedFileIds]);
+      ids.forEach(id => { if (id !== '__bulk__') moveFile(ws.id, id, currentLocation, to); });
+      const n = [...ids].filter(id => id !== '__bulk__').length;
+      setMovingFile(null);
+      exitSelectMode();
+      showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
+      return;
+    }
     moveFile(ws.id, movingFile.id, currentLocation, to);
     const name = movingFile.name;
     setMovingFile(null);
-    showAlert('Fichier déplacé', `"${name}" a été déplacé.`);
+    showToast(`« ${name} » déplacé`, { tone: 'success' });
   };
   const handleDeleteFolder = (folder: DBFolder) => {
     showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) et ${folder.subFolders?.length ?? 0} sous-dossier(s) seront supprimés.`, [
@@ -565,7 +613,39 @@ export default function WorkspaceDatabaseScreen() {
               {currentNav.kind === 'root' ? 'Fichiers racine' : 'Fichiers'}
               {displayedFiles.length > 0 ? ` (${displayedFiles.length})` : ''}
             </Text>
+            {displayedFiles.length > 0 ? (
+              <Pressable onPress={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: selectMode ? C.accent + '66' : C.border, backgroundColor: selectMode ? C.accent + '18' : C.bgCardAlt }, pressed && { opacity: 0.75 }]}>
+                <MaterialIcons name={selectMode ? 'close' : 'checklist'} size={14} color={selectMode ? C.accent : C.textMuted} />
+                <Text style={{ fontSize: FontSize.xs, color: selectMode ? C.accent : C.textMuted, fontWeight: '700' }}>{selectMode ? 'Annuler' : 'Sélectionner'}</Text>
+              </Pressable>
+            ) : null}
           </View>
+          {selectMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' }}>
+              <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary }}>{selectedFileIds.size} sélectionné(s)</Text>
+              <Pressable
+                onPress={() => {
+                  if (selectedFileIds.size === 1) {
+                    const id = [...selectedFileIds][0];
+                    const f = displayedFiles.find(x => x.id === id);
+                    if (f) setMovingFile(f);
+                  } else if (selectedFileIds.size > 1) {
+                    // Open move modal using a synthetic marker
+                    setMovingFile({ id: '__bulk__', name: `${selectedFileIds.size} fichiers`, type: 'note', content: '', tags: [], size: 0, createdAt: new Date(), updatedAt: new Date() } as DBFile);
+                  }
+                }}
+                disabled={selectedFileIds.size === 0}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, opacity: selectedFileIds.size === 0 ? 0.4 : 1 }, pressed && { opacity: 0.7 }]}
+              >
+                <MaterialIcons name="drive-file-move" size={14} color={C.textSecondary} />
+                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '700' }}>Déplacer</Text>
+              </Pressable>
+              <Pressable onPress={bulkDeleteSelectedFiles} disabled={selectedFileIds.size === 0} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: C.error + '18', borderWidth: 1, borderColor: C.error + '55', opacity: selectedFileIds.size === 0 ? 0.4 : 1 }, pressed && { opacity: 0.7 }]}>
+                <MaterialIcons name="delete-outline" size={14} color={C.error} />
+                <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Supprimer</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {/* Sort bar */}
           {rawFiles.length > 1 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -586,6 +666,12 @@ export default function WorkspaceDatabaseScreen() {
                 onPress={() => handleOpenFileViewer(file)}
                 onMove={() => setMovingFile(file)}
                 onDelete={() => handleDeleteFile(file)}
+                selectMode={selectMode}
+                selected={selectedFileIds.has(file.id)}
+                onToggleSelect={() => {
+                  if (!selectMode) setSelectMode(true);
+                  toggleSelectFile(file.id);
+                }}
               />
             ))
           )}

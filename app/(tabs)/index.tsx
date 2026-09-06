@@ -388,7 +388,7 @@ export default function BuilderScreen() {
               <View style={{ flex: 1, paddingRight: Spacing.sm }}>
                 <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Connecteurs</Text>
                 <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
-                  Activez des intégrations prêtes à l’emploi. L’OAuth complet arrive bientôt.
+                  Activez des intégrations. GitHub fonctionne via Personal Access Token (recherche de dépôts vault). OAuth complet pour les autres connecteurs : bientôt.
                 </Text>
               </View>
               <Pressable onPress={() => setShowAddApp(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill }, pressed && { opacity: 0.75 }]}>
@@ -458,7 +458,9 @@ export default function BuilderScreen() {
                       Personal Access Token GitHub
                     </Text>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
-                      Requis pour rechercher vos dépôts comme source vault. Collez un PAT (scope repo). Stocké avec vos connecteurs synchronisés.
+                      1) github.com → Settings → Developer settings → Personal access tokens
+2) Créez un token (classic) avec le scope « repo » (ou « public_repo » pour les dépôts publics)
+3) Collez-le ici — il est stocké dans la config bot synchronisée (cloud). Utilisé pour la recherche/import vault.
                     </Text>
                     <ThemedInput
                       value={existing.webhookUrl?.startsWith('http') ? '' : (existing.webhookUrl || '')}

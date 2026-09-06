@@ -156,7 +156,8 @@ export async function sendChatMessage(
   onToken?: (token: string) => void,
   profile?: UserProfile | null,
   dueTasks?: any[],
-  langInjection?: string
+  langInjection?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const resolvedProfile = profile ?? null;
   const resolvedDueTasks = dueTasks ?? [];
@@ -196,6 +197,7 @@ export async function sendChatMessage(
         maxTokens: bot.llmConfig.maxTokens,
         topP: bot.llmConfig.topP,
       }),
+      signal,
     });
 
     if (!response.ok) {
@@ -211,6 +213,10 @@ export async function sendChatMessage(
       const decoder = new TextDecoder();
       let buffer = '';
       while (true) {
+        if (signal?.aborted) {
+          try { await reader.cancel(); } catch { /* ignore */ }
+          throw new DOMException('Aborted', 'AbortError');
+        }
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -255,6 +261,11 @@ export async function sendChatMessage(
 
     return fullText || 'Aucune réponse reçue.';
   } catch (error: any) {
+    if (error?.name === 'AbortError' || signal?.aborted) {
+      const err = new Error('Génération interrompue');
+      (err as any).name = 'AbortError';
+      throw err;
+    }
     console.error('[chatService] Error:', error.message);
     throw error;
   }
