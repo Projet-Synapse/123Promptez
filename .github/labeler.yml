@@ -1,0 +1,20 @@
+app:
+  - app/**/*
+components:
+  - components/**/*
+contexts-hooks:
+  - contexts/**/*
+  - hooks/**/*
+services:
+  - services/**/*
+supabase:
+  - supabase/**/*
+electron:
+  - electron/**/*
+ci:
+  - .github/**/*
+dependencies:
+  - package.json
+  - pnpm-lock.yaml
+documentation:
+  - '**/*.md'
