@@ -165,6 +165,8 @@ interface WorkspaceContextType {
   setActiveConversation: (workspaceId: string, conversationId: string) => void;
   addMessageToConversation: (workspaceId: string, conversationId: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearConversation: (workspaceId: string, conversationId: string) => void;
+  /** Keep messages strictly before messageId (drops that message and everything after). */
+  truncateMessagesAfter: (workspaceId: string, conversationId: string, messageId: string) => void;
   getActiveConversation: (workspaceId: string) => Conversation | undefined;
   // Database — folders
   addFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) => void;
@@ -424,6 +426,20 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   };
   const clearConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, messages: [], updatedAt: new Date() } : c) } : w));
+
+  const truncateMessagesAfter = (wid: string, cid: string, messageId: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      return {
+        ...w,
+        conversations: w.conversations.map(c => {
+          if (c.id !== cid) return c;
+          const idx = c.messages.findIndex(m => m.id === messageId);
+          if (idx < 0) return c;
+          return { ...c, messages: c.messages.slice(0, idx), updatedAt: new Date() };
+        }),
+      };
+    }));
   const getActiveConversation = (wid: string) => {
     const ws = workspaces.find(w => w.id === wid);
     return ws?.conversations.find(c => c.id === ws.activeConversationId);
@@ -515,7 +531,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
       addConversation, removeConversation, renameConversation, setActiveConversation,
-      addMessageToConversation, clearConversation, getActiveConversation,
+      addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       addSubFolder, updateSubFolder, removeSubFolder,
       addFile, updateFile, removeFile, moveFile,

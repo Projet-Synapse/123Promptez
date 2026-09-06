@@ -10,6 +10,7 @@ interface AppDataContextType {
   lastSyncAt: Date | null;
   syncError: string | null;
   triggerSync: (dataType: 'workspaces' | 'bot_config' | 'profile', data: unknown) => Promise<void>;
+  retrySync: () => Promise<void>;
   loadedData: {
     workspaces: unknown | null;
     bot_config: unknown | null;
@@ -31,6 +32,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     profile: unknown | null;
   }>({ workspaces: null, bot_config: null, profile: null });
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const lastPayloads = useRef<Partial<Record<'workspaces' | 'bot_config' | 'profile', unknown>>>({});
 
   // Load all data when user logs in
   useEffect(() => {
@@ -60,20 +62,28 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const triggerSync = useCallback(async (dataType: 'workspaces' | 'bot_config' | 'profile', data: unknown) => {
     if (!user?.id) return;
+    lastPayloads.current[dataType] = data;
     setIsSyncing(true);
     setSyncError(null);
     try {
       await saveToCloud(user.id, dataType, data);
       setLastSyncAt(new Date());
     } catch (e: any) {
-      setSyncError(e.message ?? 'Sync failed');
+      setSyncError(e.message ?? 'Échec de synchronisation');
     } finally {
       setIsSyncing(false);
     }
   }, [user?.id]);
 
+  const retrySync = useCallback(async () => {
+    const entries = Object.entries(lastPayloads.current) as ['workspaces' | 'bot_config' | 'profile', unknown][];
+    for (const [type, data] of entries) {
+      if (data != null) await triggerSync(type, data);
+    }
+  }, [triggerSync]);
+
   return (
-    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, triggerSync, loadedData, isDataLoaded }}>
+    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, triggerSync, retrySync, loadedData, isDataLoaded }}>
       {children}
     </AppDataContext.Provider>
   );

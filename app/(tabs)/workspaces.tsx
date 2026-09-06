@@ -14,6 +14,8 @@ import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAlert } from '@/template';
 import { useRouter } from 'expo-router';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useCommandPalette } from '@/contexts/CommandPaletteContext';
+import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import type { Workspace } from '@/contexts/WorkspaceContext';
 
 const WORKSPACE_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455', '#00BFFF', '#FF69B4'];
@@ -35,6 +37,7 @@ export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
   const { t } = useLanguage();
+  const { openPalette } = useCommandPalette();
   const {
     workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace,
     updateWorkspace, removeWorkspace, addConversation, removeConversation,
@@ -108,6 +111,14 @@ export default function WorkspacesScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.xs }}>
+        <Pressable onPress={openPalette} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 10 }, pressed && { opacity: 0.8 }]}>
+          <MaterialIcons name="search" size={18} color={C.textMuted} />
+          <Text style={{ flex: 1, color: C.textMuted, fontSize: FontSize.sm }}>Rechercher…</Text>
+          <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>⌘K</Text>
+        </Pressable>
+        <SyncIndicator compact />
+      </View>
       <ScrollView
         contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }}
         showsVerticalScrollIndicator={false}

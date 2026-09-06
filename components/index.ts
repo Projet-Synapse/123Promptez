@@ -10,3 +10,5 @@ export { SliderRow } from './feature/SliderRow';
 export { Tooltip, withNativeTitle } from './ui/Tooltip';
 export { IconButton } from './ui/IconButton';
 export { VaultFolderPanel } from './feature/VaultFolderPanel';
+export { SyncIndicator } from './feature/SyncIndicator';
+export { CommandPalette } from './feature/CommandPalette';

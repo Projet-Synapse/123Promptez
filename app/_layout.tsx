@@ -11,6 +11,9 @@ import { ProfileProvider, type UserProfile } from '@/contexts/ProfileContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AppDataProvider, useAppData } from '@/contexts/AppDataContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
+import { ToastProvider } from '@/contexts/ToastContext';
+import { CommandPaletteProvider } from '@/contexts/CommandPaletteContext';
+import { CommandPalette } from '@/components/feature/CommandPalette';
 import { useRef, useEffect, useCallback } from 'react';
 
 // ── Hydrates contexts from cloud once data is loaded ─────────────────────────
@@ -57,6 +60,7 @@ function InnerLayout() {
       <WorkspaceProvider onDataChange={onWorkspacesChange}>
         <BotProvider onDataChange={onBotChange}>
           <CloudHydrator />
+          <CommandPalette />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="index" />
@@ -104,11 +108,15 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <AuthProvider>
-              <AppDataProvider>
-                <InnerLayout />
-              </AppDataProvider>
-            </AuthProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <AppDataProvider>
+                  <CommandPaletteProvider>
+                    <InnerLayout />
+                  </CommandPaletteProvider>
+                </AppDataProvider>
+              </AuthProvider>
+            </ToastProvider>
           </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>

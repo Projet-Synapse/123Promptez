@@ -1,6 +1,6 @@
 // Theme fix: inline styles with useThemeColors()
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Radius, Spacing, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
@@ -10,11 +10,15 @@ interface ChatBubbleProps {
   message: ChatMessage;
   botName: string;
   botColor: string;
+  onCopy?: () => void;
+  onRegenerate?: () => void;
+  showActions?: boolean;
 }
 
-export function ChatBubble({ message, botName, botColor }: ChatBubbleProps) {
+export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, showActions }: ChatBubbleProps) {
   const C = useThemeColors();
   const isUser = message.role === 'user';
+  const actionsVisible = showActions !== false && (!!onCopy || (!isUser && !!onRegenerate));
 
   return (
     <View style={{
@@ -60,9 +64,25 @@ export function ChatBubble({ message, botName, botColor }: ChatBubbleProps) {
           </View>
         ) : null}
 
-        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 4, marginLeft: 4 }}>
-          {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4, marginLeft: 4 }}>
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+            {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          {actionsVisible ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              {onCopy ? (
+                <Pressable onPress={onCopy} hitSlop={8} accessibilityLabel="Copier" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+                  <MaterialIcons name="content-copy" size={13} color={C.textMuted} />
+                </Pressable>
+              ) : null}
+              {!isUser && onRegenerate ? (
+                <Pressable onPress={onRegenerate} hitSlop={8} accessibilityLabel="Régénérer" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+                  <MaterialIcons name="refresh" size={14} color={C.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {isUser ? (

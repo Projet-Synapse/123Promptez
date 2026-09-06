@@ -13,6 +13,7 @@ export async function saveToCloud(userId: string, dataType: DataType, data: unkn
     );
   if (error) {
     console.error(`[CloudSync] Failed to save ${dataType}:`, error.message);
+    throw new Error(error.message);
   }
 }
 

@@ -19,6 +19,10 @@ import { useAlert } from '@/template';
 import { useLanguage } from '@/contexts/LanguageContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
+import { useToast } from '@/contexts/ToastContext';
+import { useCommandPalette } from '@/contexts/CommandPaletteContext';
+import { SyncIndicator } from '@/components/feature/SyncIndicator';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -137,6 +141,33 @@ function SideDrawer({
 
   // Pinned conversation ids
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  // Multi-select
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedConvKeys, setSelectedConvKeys] = useState<Set<string>>(new Set());
+  const convKey = (wsId: string, convId: string) => `${wsId}::${convId}`;
+  const toggleSelectConv = (wsId: string, convId: string) => {
+    const k = convKey(wsId, convId);
+    setSelectedConvKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedConvKeys(new Set()); };
+  const bulkDeleteSelected = () => {
+    const n = selectedConvKeys.size;
+    if (n === 0) return;
+    showAlert(`Supprimer ${n} conversation(s) ?`, 'Cette action est définitive.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => {
+        selectedConvKeys.forEach(k => {
+          const [wsId, convId] = k.split('::');
+          removeConversation(wsId, convId);
+        });
+        exitSelectMode();
+      }},
+    ]);
+  };
 
   // Expanded workspace sections
   const [expandedWsIds, setExpandedWsIds] = useState<Set<string>>(new Set([activeWorkspace.id]));
@@ -200,8 +231,33 @@ function SideDrawer({
           {/* Drawer header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border }}>
             <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Conversations</Text>
-            <IconButton icon="close" label="Fermer l’historique" onPress={onClose} bare size={20} color={C.textSecondary} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <IconButton
+                icon={selectMode ? 'close' : 'checklist'}
+                label={selectMode ? 'Quitter la sélection' : 'Sélection multiple'}
+                onPress={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+                bare
+                size={20}
+                color={selectMode ? C.accent : C.textSecondary}
+              />
+              <IconButton icon="close" label="Fermer l’historique" onPress={onClose} bare size={20} color={C.textSecondary} />
+            </View>
           </View>
+          {selectMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.bgCardAlt }}>
+              <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600' }}>
+                {selectedConvKeys.size} sélectionnée(s)
+              </Text>
+              <Pressable
+                onPress={bulkDeleteSelected}
+                disabled={selectedConvKeys.size === 0}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: C.error + '22', borderWidth: 1, borderColor: C.error + '55', opacity: selectedConvKeys.size === 0 ? 0.4 : 1 }, pressed && { opacity: 0.7 }]}
+              >
+                <MaterialIcons name="delete-outline" size={14} color={C.error} />
+                <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Supprimer</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
             {workspaces.map(ws => {
@@ -256,15 +312,31 @@ function SideDrawer({
                         return (
                           <Pressable
                             key={conv.id}
-                            onPress={() => { if (!isRenaming) { onNavigate(ws.id, conv.id); onClose(); } }}
+                            onPress={() => {
+                              if (isRenaming) return;
+                              if (selectMode) { toggleSelectConv(ws.id, conv.id); return; }
+                              onNavigate(ws.id, conv.id); onClose();
+                            }}
+                            onLongPress={() => {
+                              if (isRenaming) return;
+                              if (!selectMode) setSelectMode(true);
+                              toggleSelectConv(ws.id, conv.id);
+                            }}
                             style={({ pressed }) => [{
                               flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
                               paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
                               paddingLeft: Spacing.lg,
-                              backgroundColor: isActiveConv ? ws.color + '18' : 'transparent',
+                              backgroundColor: selectedConvKeys.has(convKey(ws.id, conv.id)) ? C.primary + '18' : (isActiveConv ? ws.color + '18' : 'transparent'),
                               borderLeftWidth: 2, borderLeftColor: isPinned ? ws.color + '88' : 'transparent',
                             }, pressed && !isRenaming && { opacity: 0.75 }]}
                           >
+                            {selectMode ? (
+                              <MaterialIcons
+                                name={selectedConvKeys.has(convKey(ws.id, conv.id)) ? 'check-box' : 'check-box-outline-blank'}
+                                size={18}
+                                color={selectedConvKeys.has(convKey(ws.id, conv.id)) ? C.primary : C.textMuted}
+                              />
+                            ) : null}
                             <View style={{ width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCard, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                               {isPinned
                                 ? <MaterialIcons name="push-pin" size={13} color={ws.color} />
@@ -295,7 +367,7 @@ function SideDrawer({
                               ) : null}
                             </View>
                             {/* Actions */}
-                            {!isRenaming ? (
+                            {!isRenaming && !selectMode ? (
                               <View style={{ flexDirection: 'column', gap: 2, flexShrink: 0 }}>
                                 <Pressable onPress={() => togglePin(conv.id)} hitSlop={8} style={{ padding: 3 }}>
                                   <MaterialIcons name={isPinned ? 'push-pin' : 'push-pin'} size={13} color={isPinned ? ws.color : C.textMuted} />
@@ -307,7 +379,7 @@ function SideDrawer({
                                   <MaterialIcons name="delete-outline" size={13} color={C.textMuted} />
                                 </Pressable>
                               </View>
-                            ) : (
+                            ) : !isRenaming && selectMode ? null : (
                               <Pressable onPress={confirmRename} style={{ padding: 4, backgroundColor: ws.color + '22', borderRadius: 4 }}>
                                 <MaterialIcons name="check" size={14} color={ws.color} />
                               </Pressable>
@@ -334,11 +406,13 @@ export default function ChatScreen() {
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace,
-    addMessageToConversation, clearConversation, getActiveConversation,
+    addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
     getDueTasks, completeTask,
   } = useWorkspace();
   const { profile } = useProfile();
   const { showAlert } = useAlert();
+  const { showToast } = useToast();
+  const { openPalette } = useCommandPalette();
   const { t, systemInjection } = useLanguage();
   const C = useThemeColors();
 
@@ -356,11 +430,26 @@ export default function ChatScreen() {
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; content: string } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const lastUserMsgRef = useRef<string>('');
 
   const activeConversation = getActiveConversation(activeWorkspace.id);
   const chatMessages = activeConversation?.messages ?? [];
 
   useEffect(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, [chatMessages, streamingText]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const api = (window as any).electronApp;
+    if (!api?.onShortcut) return;
+    const unsub = api.onShortcut((action: string) => {
+      if (action === 'new-conversation') {
+        const id = addConversation(activeWorkspace.id);
+        setActiveConversation(activeWorkspace.id, id);
+      }
+    });
+    return typeof unsub === 'function' ? unsub : undefined;
+  }, [activeWorkspace.id, addConversation, setActiveConversation]);
 
   const activeModes = activeWorkspace.modes.filter((m: any) => m.enabled);
   const currentModeInfo = RESPONSE_MODES.find(m => m.id === responseMode) ?? RESPONSE_MODES[0];
@@ -394,23 +483,36 @@ export default function ChatScreen() {
   };
 
   // ── Send ─────────────────────────────────────────────────────────
-  const handleSend = async () => {
-    let msg = input.trim();
-    if ((!msg && !pendingAttachment) || isLoading || !activeConversation) return;
-
-    // Append attachment content to message
-    if (pendingAttachment) {
-      msg = msg
-        ? `${msg}\n\n[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`
-        : `[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`;
-      setPendingAttachment(null);
+  const handleStop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsLoading(false);
+    setLoadingStep('');
+    setActiveTools([]);
+    if (streamingText) {
+      // Keep partial response if any
+      if (activeConversation && streamingText.trim()) {
+        addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_' });
+      }
+      setStreamingText('');
     }
+    showToast('Génération arrêtée', { tone: 'warning' });
+  };
 
-    setInput(''); setIsLoading(true); setStreamingText(''); setLoadingStep('Analyse du contexte...');
-    addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: msg });
-    const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
+  const handleCopyMessage = async (content: string) => {
+    try {
+      await Clipboard.setStringAsync(content);
+      showToast('Message copié', { tone: 'success' });
+    } catch {
+      showToast('Impossible de copier', { tone: 'error' });
+    }
+  };
 
-    // Adjust bot params for response mode
+  const runGeneration = async (msg: string, history: { role: string; content: string }[]) => {
+    if (!activeConversation) return;
+    setIsLoading(true); setStreamingText(''); setLoadingStep('Analyse du contexte...');
+    lastUserMsgRef.current = msg;
+
     const modeInfo = RESPONSE_MODES.find(m => m.id === responseMode) ?? RESPONSE_MODES[0];
     const adjustedBot = {
       ...bot,
@@ -420,27 +522,26 @@ export default function ChatScreen() {
         maxTokens: Math.max(256, bot.llmConfig.maxTokens + modeInfo.tokensMod),
       },
     };
-
-    // Compute active tools for status display
-    const currentEnabledTools = bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id);
+    const currentEnabledTools = bot.agentTools.filter((tool: any) => tool.enabled).map((tool: any) => tool.id);
     setActiveTools(currentEnabledTools);
-
-    // Build lang injection with mode context
     const modeInjection = responseMode !== 'auto' && responseMode !== 'normal'
       ? `\n[MODE: ${modeInfo.label.toUpperCase()}] ${modeInfo.desc}.`
       : '';
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       let full = '';
-      // Show progressive loading steps
-      setTimeout(() => { if (isLoading) setLoadingStep('Construction du prompt...'); }, 400);
-      setTimeout(() => { if (isLoading) setLoadingStep('Génération en cours...'); }, 900);
+      setTimeout(() => { if (abortRef.current === controller) setLoadingStep('Construction du prompt...'); }, 400);
+      setTimeout(() => { if (abortRef.current === controller) setLoadingStep('Génération en cours...'); }, 900);
       await sendChatMessage(
-        msg, history, adjustedBot, activeWorkspace,
+        msg, history as any, adjustedBot, activeWorkspace,
         (token) => { full = token; setStreamingText(full); setLoadingStep(''); },
         profile,
         getDueTasks(activeWorkspace.id),
-        (systemInjection ?? '') + modeInjection
+        (systemInjection ?? '') + modeInjection,
+        controller.signal,
       );
       setStreamingText('');
       setLoadingStep('');
@@ -449,8 +550,46 @@ export default function ChatScreen() {
     } catch (err: any) {
       setStreamingText('');
       setLoadingStep('');
-      showAlert('Erreur', err.message || 'Erreur lors de la génération');
-    } finally { setIsLoading(false); setActiveTools([]); }
+      if (err?.name === 'AbortError' || String(err?.message || '').includes('interrompue')) {
+        // handled by handleStop / abort
+      } else {
+        showAlert('Erreur', err.message || 'Erreur lors de la génération');
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setIsLoading(false); setActiveTools([]);
+    }
+  };
+
+  const handleRegenerate = async (assistantMsgId: string) => {
+    if (isLoading || !activeConversation) return;
+    const msgs = activeConversation.messages;
+    const idx = msgs.findIndex((m: any) => m.id === assistantMsgId);
+    if (idx < 0) return;
+    let userIdx = idx - 1;
+    while (userIdx >= 0 && msgs[userIdx].role !== 'user') userIdx--;
+    if (userIdx < 0) return;
+    const userMsg = msgs[userIdx].content;
+    const history = msgs.slice(0, userIdx).map((m: any) => ({ role: m.role, content: m.content }));
+    truncateMessagesAfter(activeWorkspace.id, activeConversation.id, assistantMsgId);
+    await runGeneration(userMsg, history);
+  };
+
+  const handleSend = async () => {
+    let msg = input.trim();
+    if ((!msg && !pendingAttachment) || isLoading || !activeConversation) return;
+
+    if (pendingAttachment) {
+      msg = msg
+        ? `${msg}\n\n[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`
+        : `[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`;
+      setPendingAttachment(null);
+    }
+
+    setInput('');
+    addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: msg });
+    const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
+    await runGeneration(msg, history);
   };
 
   const handleNavigate = (wsId: string, convId?: string) => {
@@ -500,6 +639,15 @@ export default function ChatScreen() {
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · OnSpace AI</Text>
             </View>
 
+            <SyncIndicator compact />
+            <IconButton
+              icon="search"
+              label="Recherche globale (Ctrl+K)"
+              onPress={openPalette}
+              boxSize={36}
+              backgroundColor={C.bgCardAlt}
+              color={C.textMuted}
+            />
             <IconButton
               icon="bolt"
               label="Compétences / modes"
@@ -582,8 +730,19 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            {chatMessages.map((msg: any) => (
-              <ChatBubble key={msg.id} message={msg} botName={bot.name} botColor={bot.avatarColor} />
+            {chatMessages.map((msg: any, idx: number) => (
+              <ChatBubble
+                key={msg.id}
+                message={msg}
+                botName={bot.name}
+                botColor={bot.avatarColor}
+                onCopy={() => handleCopyMessage(msg.content)}
+                onRegenerate={
+                  msg.role === 'assistant' && idx === chatMessages.length - 1 && !isLoading
+                    ? () => handleRegenerate(msg.id)
+                    : undefined
+                }
+              />
             ))}
 
             {streamingText ? (
@@ -662,17 +821,30 @@ export default function ChatScreen() {
               multiline maxLength={4000}
             />
 
-            <IconButton
-              icon="send"
-              label="Envoyer"
-              onPress={handleSend}
-              disabled={isLoading || (!input.trim() && !pendingAttachment)}
-              boxSize={44}
-              backgroundColor={(input.trim() || pendingAttachment) && !isLoading ? C.accent : C.bgCardAlt}
-              borderColor="transparent"
-              color={(input.trim() || pendingAttachment) && !isLoading ? C.bg : C.textMuted}
-              style={{ borderRadius: 22 }}
-            />
+            {isLoading ? (
+              <IconButton
+                icon="stop"
+                label="Arrêter la génération"
+                onPress={handleStop}
+                boxSize={44}
+                backgroundColor={C.error}
+                borderColor="transparent"
+                color="#fff"
+                style={{ borderRadius: 22 }}
+              />
+            ) : (
+              <IconButton
+                icon="send"
+                label="Envoyer"
+                onPress={handleSend}
+                disabled={!input.trim() && !pendingAttachment}
+                boxSize={44}
+                backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
+                borderColor="transparent"
+                color={(input.trim() || pendingAttachment) ? C.bg : C.textMuted}
+                style={{ borderRadius: 22 }}
+              />
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
