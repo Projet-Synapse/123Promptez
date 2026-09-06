@@ -369,8 +369,8 @@ function SideDrawer({
                             {/* Actions */}
                             {!isRenaming && !selectMode ? (
                               <View style={{ flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                                <Pressable onPress={() => togglePin(conv.id)} hitSlop={8} style={{ padding: 3 }}>
-                                  <MaterialIcons name={isPinned ? 'push-pin' : 'push-pin'} size={13} color={isPinned ? ws.color : C.textMuted} />
+                                <Pressable onPress={() => togglePin(conv.id)} hitSlop={8} style={{ padding: 3 }} accessibilityLabel={isPinned ? 'Désépingler' : 'Épingler'}>
+                                  <MaterialIcons name="push-pin" size={13} color={isPinned ? ws.color : C.textMuted} style={{ transform: [{ rotate: isPinned ? '0deg' : '45deg' }] }} />
                                 </Pressable>
                                 <Pressable onPress={() => { setRenamingConvKey({ wsId: ws.id, convId: conv.id }); setRenameVal(conv.title); }} hitSlop={8} style={{ padding: 3 }}>
                                   <MaterialIcons name="edit" size={13} color={C.textMuted} />
@@ -793,6 +793,13 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
+          {/* Astuce raccourci clavier (web/desktop uniquement) */}
+          {Platform.OS === 'web' ? (
+            <View style={{ paddingHorizontal: Spacing.md, paddingTop: 2, backgroundColor: C.bg }}>
+              <Text style={{ fontSize: 10, color: C.textMuted }}>↵ Envoyer · Maj + ↵ Nouvelle ligne</Text>
+            </View>
+          ) : null}
+
           {/* Input bar */}
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs, paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm, paddingBottom: insets.bottom + Spacing.sm, backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border }}>
             {/* Attach + mode button */}
@@ -819,6 +826,14 @@ export default function ChatScreen() {
               placeholder={pendingAttachment ? `Message + "${pendingAttachment.name}"` : t('typeMessage')}
               placeholderTextColor={C.textMuted}
               multiline maxLength={4000}
+              onKeyPress={Platform.OS === 'web' ? (e: any) => {
+                // Entrée envoie le message, Maj+Entrée insère un saut de ligne (évite un clic à chaque message)
+                const composing = e?.nativeEvent?.isComposing ?? e?.isComposing;
+                if (e?.key === 'Enter' && !e?.shiftKey && !composing) {
+                  e.preventDefault?.();
+                  handleSend();
+                }
+              } : undefined}
             />
 
             {isLoading ? (
