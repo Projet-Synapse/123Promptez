@@ -159,7 +159,7 @@ export default function WorkspaceTasksScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn2}>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn2} accessibilityRole="button" accessibilityLabel="Retour">
           <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
         </Pressable>
         <View style={[styles.wsIcon, { backgroundColor: ws.color + '22' }]}>
@@ -348,10 +348,10 @@ export default function WorkspaceTasksScreen() {
                         <Text style={styles.completeBtnText}>Marquer accomplie</Text>
                       </Pressable>
                     ) : null}
-                    <Pressable onPress={() => openEdit(task)} hitSlop={8} style={styles.iconBtn}>
+                    <Pressable onPress={() => openEdit(task)} hitSlop={8} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={`Modifier « ${task.title} »`}>
                       <MaterialIcons name="edit" size={16} color={C.textSecondary} />
                     </Pressable>
-                    <Pressable onPress={() => handleDelete(task)} hitSlop={8} style={styles.iconBtn}>
+                    <Pressable onPress={() => handleDelete(task)} hitSlop={8} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={`Supprimer « ${task.title} »`}>
                       <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
                     </Pressable>
                   </View>
@@ -379,7 +379,7 @@ export default function WorkspaceTasksScreen() {
           <View style={[styles.modalCard, { paddingBottom: insets.bottom + Spacing.lg }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingTask ? 'Modifier la tâche' : 'Nouvelle tâche'}</Text>
-              <Pressable onPress={() => { resetForm(); setShowModal(false); }} hitSlop={8}>
+              <Pressable onPress={() => { resetForm(); setShowModal(false); }} hitSlop={8} accessibilityRole="button" accessibilityLabel="Fermer">
                 <MaterialIcons name="close" size={22} color={C.textSecondary} />
               </Pressable>
             </View>

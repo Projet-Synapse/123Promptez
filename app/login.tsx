@@ -1,7 +1,7 @@
 // Powered by OnSpace.AI
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, TextInput,
+  View, Text, Pressable, TextInput,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +17,7 @@ type AuthMode = 'login' | 'register';
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, sendOTP, verifyOTPAndLogin, signInWithPassword, signUpWithPassword, requestPasswordReset, signInWithGoogle, operationLoading } = useAuth();
+  const { user, sendOTP, verifyOTPAndLogin, signInWithPassword, requestPasswordReset, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const C = useThemeColors();
 

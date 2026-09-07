@@ -33,7 +33,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // ── Inner layout: has access to AppDataContext + contexts that need cloud sync ─
 function InnerLayout() {
-  const { triggerSync, loadedData, isDataLoaded } = useAppData();
+  const { triggerSync } = useAppData();
 
   // Debounce refs per data type
   const wsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -14,7 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
 import { ThemedInput, Toggle } from '@/components';
-import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { AGENT_TOOLS } from '@/constants/config';
 import { useAlert } from '@/template';

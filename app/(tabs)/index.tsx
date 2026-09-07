@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput,
+  Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -87,7 +87,7 @@ function CustomAgentCard({ agent, onToggle, onEdit, onDelete }: { agent: CustomA
 export default function BuilderScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
-  const { bot, updateBot, addKBSource, removeKBSource, addFAQItem, toggleAgentTool, addConnectedApp, removeConnectedApp,
+  const { bot, updateBot, addKBSource, removeKBSource, toggleAgentTool, addConnectedApp, removeConnectedApp,
     setPresetConnectorEnabled, toggleConnectedApp, addCustomAgent, updateCustomAgent, removeCustomAgent, toggleCustomAgent, updateConnectedApp } = useBot();
   const { showAlert } = useAlert();
   const [activeSection, setActiveSection] = useState<ActiveSection>('kb');

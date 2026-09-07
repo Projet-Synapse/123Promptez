@@ -458,13 +458,6 @@ export default function WorkspaceDatabaseScreen() {
       }},
     ]);
   };
-  const bulkMoveSelectedFiles = (to: FileLocation) => {
-    selectedFileIds.forEach(id => moveFile(ws.id, id, currentLocation, to));
-    const n = selectedFileIds.size;
-    exitSelectMode();
-    setMovingFile(null);
-    showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
-  };
   const handleConfirmMove = (to: FileLocation) => {
     if (!movingFile) return;
     if (movingFile.id === '__bulk__' || (selectMode && selectedFileIds.size > 0 && selectedFileIds.has(movingFile.id))) {

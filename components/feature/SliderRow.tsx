@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { Spacing, FontSize } from '@/constants/theme';
+import { FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface SliderRowProps {
