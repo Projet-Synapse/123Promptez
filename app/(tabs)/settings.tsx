@@ -18,6 +18,7 @@ import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
 import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService';
+import { useDesktopUpdates } from '@/hooks/useDesktopUpdates';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { buildExportBundle, downloadJson, parseImportBundle } from '@/services/exportService';
@@ -148,8 +149,13 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version ?? '1.1.0';
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const desktopUpdates = useDesktopUpdates();
 
   const runUpdateCheck = async () => {
+    if (desktopUpdates.isDesktop) {
+      await desktopUpdates.checkForUpdates();
+      return;
+    }
     setCheckingUpdate(true);
     const result = await checkForUpdate(appVersion);
     setCheckingUpdate(false);
@@ -165,6 +171,18 @@ export default function SettingsScreen() {
   }, []);
 
   const selectedModel = LLM_MODELS.find(m => m.id === bot.llmConfig.model) || LLM_MODELS[0];
+
+  const desktopStatusLabel = (): string => {
+    switch (desktopUpdates.stage) {
+      case 'checking': return 'Vérification…';
+      case 'available': return desktopUpdates.latestVersion ? `Version ${desktopUpdates.latestVersion} disponible` : 'Mise à jour disponible';
+      case 'downloading': return 'Téléchargement…';
+      case 'ready': return 'Prête à installer';
+      case 'error': return 'Échec de la vérification';
+      case 'up-to-date': return 'À jour ✓';
+      default: return 'Non vérifié';
+    }
+  };
 
   const providerColor: Record<string, string> = {
     OpenAI: '#10A37F',
@@ -692,10 +710,101 @@ export default function SettingsScreen() {
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={{ fontSize: FontSize.body, color: C.textPrimary }}>Version installée</Text>
-              <Text style={{ fontSize: FontSize.body, color: C.textMuted, fontFamily: 'monospace' }}>{appVersion}</Text>
+              <Text style={{ fontSize: FontSize.body, color: C.textMuted, fontFamily: 'monospace' }}>
+                {desktopUpdates.isDesktop ? desktopUpdates.currentVersion : appVersion}
+              </Text>
             </View>
 
-            {updateCheck?.available ? (
+            {desktopUpdates.isDesktop ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: FontSize.body, color: C.textPrimary }}>Statut</Text>
+                  <Text style={{ fontSize: FontSize.body, color: C.textMuted }}>{desktopStatusLabel()}</Text>
+                </View>
+
+                {desktopUpdates.error ? (
+                  <Text style={{ fontSize: FontSize.xs, color: C.error }}>{desktopUpdates.error}</Text>
+                ) : null}
+
+                {desktopUpdates.stage === 'downloading' ? (
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary }}>
+                      Téléchargement… {typeof desktopUpdates.progress === 'number' ? `${desktopUpdates.progress}%` : ''}
+                    </Text>
+                    <View style={{ height: 4, borderRadius: 2, backgroundColor: C.bgCardAlt }}>
+                      <View style={{
+                        height: 4, borderRadius: 2,
+                        width: `${Math.max(4, desktopUpdates.progress ?? 4)}%`,
+                        backgroundColor: C.accent,
+                      }} />
+                    </View>
+                  </View>
+                ) : null}
+
+                {desktopUpdates.stage === 'ready' ? (
+                  <Pressable
+                    onPress={desktopUpdates.installUpdate}
+                    style={({ pressed }) => [{
+                      flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                      backgroundColor: C.accent, borderRadius: Radius.md,
+                      padding: Spacing.md,
+                    }, pressed && { opacity: 0.8 }]}
+                  >
+                    <MaterialIcons name="restart-alt" size={18} color={C.bg} />
+                    <Text style={{ fontSize: FontSize.body, color: C.bg, fontWeight: '600' }}>
+                      Redémarrer et installer{desktopUpdates.latestVersion ? ` · v${desktopUpdates.latestVersion}` : ''}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    onPress={runUpdateCheck}
+                    disabled={desktopUpdates.stage === 'checking'}
+                    style={({ pressed }) => [{
+                      flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                      backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+                      padding: Spacing.md, borderWidth: 1, borderColor: C.border,
+                    }, pressed && { opacity: 0.75 }]}
+                  >
+                    <MaterialIcons name="refresh" size={18} color={C.textSecondary} />
+                    <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>
+                      {desktopUpdates.stage === 'checking' ? 'Vérification…' : 'Vérifier les mises à jour'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {/* Option « mise à jour automatique » (desktop uniquement). */}
+                <Pressable
+                  onPress={() => void desktopUpdates.setAutoUpdate(!desktopUpdates.autoUpdate)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: desktopUpdates.autoUpdate }}
+                  style={({ pressed }) => [{
+                    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+                    backgroundColor: C.bgCardAlt, borderRadius: Radius.md,
+                    borderWidth: 1, borderColor: C.border, padding: Spacing.md,
+                  }, pressed && { opacity: 0.8 }]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>
+                      Mise à jour automatique
+                    </Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>
+                      Télécharge les nouvelles versions en arrière-plan et les installe à la fermeture de l&apos;application.
+                    </Text>
+                  </View>
+                  <View style={{
+                    width: 52, height: 28, borderRadius: 14,
+                    backgroundColor: desktopUpdates.autoUpdate ? C.accent : C.bg,
+                    borderWidth: 1, borderColor: C.border, justifyContent: 'center', paddingHorizontal: 3,
+                  }}>
+                    <View style={{
+                      width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
+                      alignItems: 'center', justifyContent: 'center',
+                      alignSelf: desktopUpdates.autoUpdate ? 'flex-end' : 'flex-start',
+                    }} />
+                  </View>
+                </Pressable>
+              </>
+            ) : updateCheck?.available ? (
               <Pressable
                 onPress={() => Linking.openURL(updateCheck.url)}
                 style={({ pressed }) => [{
