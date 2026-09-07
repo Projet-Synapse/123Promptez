@@ -112,8 +112,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
+          # Les manifestes latest*.yml (et les blockmaps du téléchargement
+          # différentiel) sont indispensables à electron-updater côté app
+          # installée : sans eux, pas de mise à jour automatique.
           find release -maxdepth 1 -type f \
-            \( -iname '*.dmg' -o -iname '*.zip' -o -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \) \
+            \( -iname '*.dmg' -o -iname '*.zip' -o -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \
+               -o -iname 'latest*.yml' -o -iname '*.blockmap' \) \
             -exec cp {} out/ \;
           ls -la out
       - uses: actions/upload-artifact@v4
@@ -138,7 +142,8 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( \
             -iname '*.zip' -o -iname '*.apk' -o -iname '*.dmg' -o \
-            -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' \) \
+            -iname '*.exe' -o -iname '*.AppImage' -o -iname '*.deb' -o \
+            -iname 'latest*.yml' -o -iname '*.blockmap' \) \
             -exec cp {} release-assets/ \;
           ls -la release-assets
       - name: Create release

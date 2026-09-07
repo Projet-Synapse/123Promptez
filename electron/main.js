@@ -3,10 +3,11 @@
 // desktop app for Windows/macOS/Linux. No native RN code runs here; the
 // window simply loads the same static bundle produced by `expo export --platform web`.
 const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require('electron');
+const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
 const { startStaticServer } = require('./static-server');
-const { checkForUpdate } = require('./update-checker');
+const { autoUpdater } = require('electron-updater');
 
 // In dev, point ELECTRON_START_URL at the Expo web dev server
 // (npm run web / expo start --web, usually http://localhost:8081) — that
@@ -15,6 +16,118 @@ const DEV_START_URL = process.env.ELECTRON_START_URL;
 
 let mainWindow = null;
 let staticServer = null;
+
+// ── Mise à jour automatique (préférence persistée) ──────────────────────────
+// L'option vit côté process principal (userData/preferences.json) : le
+// renderer ne fait que l'afficher et la basculer via updates:get-auto /
+// updates:set-auto. Désactivée par défaut — comportement historique.
+let autoUpdateEnabled = false;
+
+function prefsPath() {
+  return path.join(app.getPath('userData'), 'preferences.json');
+}
+
+function loadUpdatePref() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(prefsPath(), 'utf8'));
+    if (typeof raw?.autoUpdate === 'boolean') autoUpdateEnabled = raw.autoUpdate;
+  } catch {
+    // Premier lancement ou fichier illisible : on garde la valeur par défaut.
+  }
+}
+
+function saveUpdatePref() {
+  try {
+    fs.writeFileSync(prefsPath(), JSON.stringify({ autoUpdate: autoUpdateEnabled }), 'utf8');
+  } catch (err) {
+    console.error('[updates] écriture des préférences impossible:', err);
+  }
+}
+
+function applyUpdateFlags() {
+  autoUpdater.autoDownload = autoUpdateEnabled;
+  autoUpdater.autoInstallOnAppQuit = autoUpdateEnabled;
+}
+
+function sendUpdateEvent(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updates:event', payload);
+  }
+}
+
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+
+  loadUpdatePref();
+  applyUpdateFlags();
+
+  autoUpdater.on('checking-for-update', () => sendUpdateEvent({ type: 'checking' }));
+  autoUpdater.on('update-available', (info) =>
+    sendUpdateEvent({ type: 'available', version: info.version }));
+  autoUpdater.on('update-not-available', (info) =>
+    sendUpdateEvent({ type: 'not-available', version: info.version }));
+  autoUpdater.on('download-progress', (p) =>
+    sendUpdateEvent({ type: 'progress', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (info) =>
+    sendUpdateEvent({ type: 'downloaded', version: info.version }));
+  autoUpdater.on('error', (err) =>
+    sendUpdateEvent({ type: 'error', message: String(err?.message ?? err) }));
+
+  // Vérification silencieuse au lancement ; en mode auto, une version
+  // détectée se télécharge toute seule (autoDownload) et l'installeur
+  // remplace l'app à la prochaine fermeture. En mode manuel, ce sont les
+  // dialogs ci-dessous qui proposent de télécharger puis redémarrer.
+  autoUpdater.checkForUpdates().catch((err) =>
+    console.error('[updates] vérification au démarrage échouée:', err));
+}
+
+// En mode manuel, traduit les événements en dialogs (l'app n'avait pas de
+// filet electron-updater avant : on garde une expérience bouton, sans rien
+// imposer). En mode auto, un seul dialog quand la version est prête.
+function setupManualUpdateDialogs() {
+  if (!app.isPackaged) return;
+  let manualDownloadStarted = false;
+
+  autoUpdater.on('update-available', async (info) => {
+    if (autoUpdateEnabled || manualDownloadStarted) return;
+    manualDownloadStarted = true;
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Télécharger', 'Plus tard'],
+      defaultId: 0,
+      message: `Une nouvelle version est disponible (v${info.version})`,
+      detail: `Vous utilisez actuellement la version ${app.getVersion()}.`,
+    });
+    if (response === 0) {
+      autoUpdater.downloadUpdate().catch((err) =>
+        console.error('[updates] téléchargement échoué:', err));
+    }
+  });
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    if (autoUpdateEnabled) {
+      // L'installation se fera toute seule à la fermeture ; on propose
+      // quand même de redémarrer tout de suite.
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['Redémarrer et installer', 'À la fermeture'],
+        defaultId: 0,
+        message: `La version ${info.version} est prête à installer`,
+        detail: "Elle s'installera automatiquement à la fermeture de l'application, ou redémarrez maintenant.",
+      });
+      if (response === 0) autoUpdater.quitAndInstall(false, true);
+    } else {
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['Redémarrer et installer', 'Plus tard'],
+        defaultId: 0,
+        message: `La version ${info.version} a été téléchargée`,
+        detail: 'Redémarrer maintenant pour l\'installer ?',
+      });
+      if (response === 0) autoUpdater.quitAndInstall(false, true);
+    }
+  });
+}
 
 function createWindow(startUrl) {
   mainWindow = new BrowserWindow({
@@ -45,8 +158,21 @@ function createWindow(startUrl) {
 }
 
 async function runUpdateCheck({ silentIfUpToDate }) {
-  const result = await checkForUpdate(app.getVersion());
-  if (!result) {
+  // La vérification passe désormais par electron-updater : en mode manuel,
+  // les dialogs « version disponible / prête à installer » sont gérés par
+  // setupManualUpdateDialogs (déclenchés par les événements). Ici on ne
+  // gère que le cas explicite « déjà à jour » et l'échec réseau.
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const latest = result?.updateInfo?.version;
+    if (!silentIfUpToDate && !autoUpdateEnabled && latest === app.getVersion()) {
+      dialog.showMessageBox({
+        type: 'info',
+        message: 'Vous utilisez déjà la dernière version.',
+        detail: `Version actuelle : ${app.getVersion()}`,
+      });
+    }
+  } catch {
     if (!silentIfUpToDate) {
       dialog.showMessageBox({
         type: 'info',
@@ -54,23 +180,6 @@ async function runUpdateCheck({ silentIfUpToDate }) {
         detail: "Vérifiez votre connexion, ou réessayez plus tard.",
       });
     }
-    return;
-  }
-  if (result.available) {
-    const { response } = await dialog.showMessageBox({
-      type: 'info',
-      buttons: ['Télécharger', 'Plus tard'],
-      defaultId: 0,
-      message: `Une nouvelle version est disponible (v${result.latestVersion})`,
-      detail: `Vous utilisez actuellement la version ${app.getVersion()}.`,
-    });
-    if (response === 0) shell.openExternal(result.url);
-  } else if (!silentIfUpToDate) {
-    dialog.showMessageBox({
-      type: 'info',
-      message: 'Vous utilisez déjà la dernière version.',
-      detail: `Version actuelle : ${app.getVersion()}`,
-    });
   }
 }
 
@@ -197,6 +306,50 @@ ipcMain.handle('vault:list-text-files', async (_evt, dirPath) => {
   return listTextFilesRecursive(dirPath);
 });
 
+// ── Updates IPC ──────────────────────────────────────────────────────────────
+ipcMain.on('app:version', (event) => {
+  event.returnValue = app.getVersion();
+});
+
+ipcMain.handle('updates:check', async () => {
+  if (!app.isPackaged) {
+    return { updateAvailable: false, error: 'Mises à jour désactivées en développement' };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version;
+    return { updateAvailable: version !== app.getVersion(), version };
+  } catch (error) {
+    console.error('[updates] vérification échouée:', error);
+    return { updateAvailable: false, error: String(error?.message ?? error) };
+  }
+});
+
+ipcMain.handle('updates:download', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (error) {
+    console.error('[updates] téléchargement échoué:', error);
+    return { ok: false, error: String(error?.message ?? error) };
+  }
+});
+
+// Redémarre l'app, l'installeur remplace la version installée, puis relance.
+ipcMain.on('updates:install', () => {
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+});
+
+ipcMain.handle('updates:get-auto', () => autoUpdateEnabled);
+
+ipcMain.handle('updates:set-auto', (_event, enabled) => {
+  autoUpdateEnabled = Boolean(enabled);
+  saveUpdatePref();
+  applyUpdateFlags();
+  console.log(`[updates] mise à jour automatique ${autoUpdateEnabled ? 'activée' : 'désactivée'}`);
+  return autoUpdateEnabled;
+});
+
 
 app.whenReady().then(async () => {
   buildMenu();
@@ -212,7 +365,8 @@ app.whenReady().then(async () => {
   createWindow(startUrl);
 
   // Silent on startup — only interrupts the user when an update actually exists.
-  runUpdateCheck({ silentIfUpToDate: true });
+  setupAutoUpdate();
+  setupManualUpdateDialogs();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(startUrl);

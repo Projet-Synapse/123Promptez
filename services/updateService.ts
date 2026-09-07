@@ -3,11 +3,10 @@
 // silent/auto-download anywhere: the caller decides how to surface it (a
 // banner, a dialog, ...) and the user always chooses to go get it themselves.
 //
-// This is the RN/web counterpart of electron/update-checker.js — the two
-// are kept deliberately separate (different runtimes: Metro/RN vs plain
-// Node in Electron's main process) but implement the same comparison, and
-// GITHUB_REPO must be kept in sync between them.
-const GITHUB_REPO = 'catelyn2332-design/123Promptez';
+// This is the RN/web counterpart of the electron-updater pipeline in
+// electron/main.js — on desktop the bridge (services/desktopUpdates.ts) is
+// authoritative; this lightweight check only serves web and mobile.
+const GITHUB_REPO = 'Projet-Synapse/123Promptez';
 
 export interface UpdateCheckResult {
   available: boolean;
