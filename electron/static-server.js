@@ -33,15 +33,33 @@ const MIME_TYPES = {
   '.wasm': 'application/wasm',
 };
 
+// Port fixe de préférence : l'origine http fait partie de l'URL de redirection
+// OAuth (template/auth/supabase/service.ts → getGoogleRedirectUrl renvoie
+// `${origin}/login`) ET du localStorage qui conserve la session Supabase.
+// Avec un port éphémère, l'URL de retour change à chaque lancement : elle ne
+// peut pas être ajoutée aux Redirect URLs autorisées du projet Supabase
+// (erreur renvoyée juste après le login Google), et la session est perdue à
+// chaque relance de l'app. Si le port est déjà pris, on retombe sur un port
+// éphémère : l'app démarre quand même, la connexion Google en moins.
+const PREFERRED_PORT = 47823;
+
 /**
  * Serves `rootDir` as static files on 127.0.0.1 (loopback only — never
- * exposed to the network). Resolves on an ephemeral free port.
+ * exposed to the network). Prefers PREFERRED_PORT so the origin is stable
+ * across launches; falls back to an ephemeral port if it is busy.
  * @param {string} rootDir
  * @returns {Promise<{ server: import('http').Server, url: string }>}
  */
 function startStaticServer(rootDir) {
   const root = path.resolve(rootDir);
 
+  return listenOn(root, PREFERRED_PORT).catch((err) => {
+    if (err && err.code === 'EADDRINUSE') return listenOn(root, 0);
+    throw err;
+  });
+}
+
+function listenOn(root, port) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       let pathname;
@@ -74,9 +92,9 @@ function startStaticServer(rootDir) {
     });
 
     server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      resolve({ server, url: `http://127.0.0.1:${port}/` });
+    server.listen(port, '127.0.0.1', () => {
+      const { port: bound } = server.address();
+      resolve({ server, url: `http://127.0.0.1:${bound}/` });
     });
   });
 }
