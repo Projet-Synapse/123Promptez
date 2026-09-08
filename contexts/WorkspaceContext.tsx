@@ -62,6 +62,8 @@ export interface Conversation {
   messages: ChatMessage[];
   createdAt: Date;
   updatedAt: Date;
+  /** Pinned conversations are kept at the top of history lists. Persisted & cloud-synced. */
+  pinned?: boolean;
 }
 
 export type TaskFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -162,6 +164,7 @@ interface WorkspaceContextType {
   addConversation: (workspaceId: string, title?: string) => string;
   removeConversation: (workspaceId: string, conversationId: string) => void;
   renameConversation: (workspaceId: string, conversationId: string, title: string) => void;
+  togglePinConversation: (workspaceId: string, conversationId: string) => void;
   setActiveConversation: (workspaceId: string, conversationId: string) => void;
   addMessageToConversation: (workspaceId: string, conversationId: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearConversation: (workspaceId: string, conversationId: string) => void;
@@ -411,6 +414,8 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     }));
   const renameConversation = (wid: string, cid: string, title: string) =>
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, title, updatedAt: new Date() } : c) } : w));
+  const togglePinConversation = (wid: string, cid: string) =>
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, pinned: !c.pinned } : c) } : w));
   const setActiveConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, activeConversationId: cid } : w));
   const addMessageToConversation = (wid: string, cid: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
@@ -530,7 +535,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addMode, updateMode, removeMode, toggleMode, getActiveModes,
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
-      addConversation, removeConversation, renameConversation, setActiveConversation,
+      addConversation, removeConversation, renameConversation, togglePinConversation, setActiveConversation,
       addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       addSubFolder, updateSubFolder, removeSubFolder,

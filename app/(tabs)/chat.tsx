@@ -117,6 +117,7 @@ function SideDrawer({
   addConversation,
   removeConversation,
   renameConversation,
+  togglePinConversation,
   onNavigate,
 }: {
   open: boolean;
@@ -128,6 +129,7 @@ function SideDrawer({
   addConversation: (wsId: string) => void;
   removeConversation: (wsId: string, convId: string) => void;
   renameConversation: (wsId: string, convId: string, name: string) => void;
+  togglePinConversation: (wsId: string, convId: string) => void;
   onNavigate: (wsId: string, convId?: string) => void;
 }) {
   const C = useThemeColors();
@@ -139,8 +141,6 @@ function SideDrawer({
   const [renamingConvKey, setRenamingConvKey] = useState<{ wsId: string; convId: string } | null>(null);
   const [renameVal, setRenameVal] = useState('');
 
-  // Pinned conversation ids
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   // Multi-select
   const [selectMode, setSelectMode] = useState(false);
   const [selectedConvKeys, setSelectedConvKeys] = useState<Set<string>>(new Set());
@@ -179,15 +179,6 @@ function SideDrawer({
       useNativeDriver: true,
     }).start();
   }, [open]);
-
-  const togglePin = (convId: string) => {
-    setPinnedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(convId)) next.delete(convId);
-      else next.add(convId);
-      return next;
-    });
-  };
 
   const toggleExpandWs = (wsId: string) => {
     setExpandedWsIds(prev => {
@@ -263,9 +254,10 @@ function SideDrawer({
             {workspaces.map(ws => {
               const isCurrentWs = ws.id === activeWorkspace.id;
               const isExpanded = expandedWsIds.has(ws.id);
-              const pinned = ws.conversations.filter((c: any) => pinnedIds.has(c.id));
-              const unpinned = ws.conversations.filter((c: any) => !pinnedIds.has(c.id));
-              const sortedConvs = [...pinned, ...unpinned].reverse();
+              const pinned = ws.conversations.filter((c: any) => c.pinned);
+              const unpinned = ws.conversations.filter((c: any) => !c.pinned);
+              // Most-recent-first within each group, pinned conversations always on top.
+              const sortedConvs = [...pinned].reverse().concat([...unpinned].reverse());
 
               return (
                 <View key={ws.id}>
@@ -306,7 +298,7 @@ function SideDrawer({
                       ) : null}
                       {sortedConvs.map((conv: any) => {
                         const isActiveConv = conv.id === ws.activeConversationId && isCurrentWs;
-                        const isPinned = pinnedIds.has(conv.id);
+                        const isPinned = !!conv.pinned;
                         const isRenaming = renamingConvKey?.wsId === ws.id && renamingConvKey?.convId === conv.id;
                         const lastMsg = conv.messages[conv.messages.length - 1];
                         return (
@@ -369,7 +361,7 @@ function SideDrawer({
                             {/* Actions */}
                             {!isRenaming && !selectMode ? (
                               <View style={{ flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                                <Pressable onPress={() => togglePin(conv.id)} hitSlop={8} style={{ padding: 3 }} accessibilityLabel={isPinned ? 'Désépingler' : 'Épingler'}>
+                                <Pressable onPress={() => togglePinConversation(ws.id, conv.id)} hitSlop={8} style={{ padding: 3 }} accessibilityLabel={isPinned ? 'Désépingler' : 'Épingler'}>
                                   <MaterialIcons name="push-pin" size={13} color={isPinned ? ws.color : C.textMuted} style={{ transform: [{ rotate: isPinned ? '0deg' : '45deg' }] }} />
                                 </Pressable>
                                 <Pressable onPress={() => { setRenamingConvKey({ wsId: ws.id, convId: conv.id }); setRenameVal(conv.title); }} hitSlop={8} style={{ padding: 3 }}>
@@ -405,7 +397,7 @@ export default function ChatScreen() {
   const { bot } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
-    renameConversation, setActiveConversation, setActiveWorkspace,
+    renameConversation, togglePinConversation, setActiveConversation, setActiveWorkspace,
     addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
     getDueTasks, completeTask,
   } = useWorkspace();
@@ -432,11 +424,39 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastUserMsgRef = useRef<string>('');
+  // Whether the viewport is close enough to the bottom to auto-follow new content.
+  const isNearBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const prevMsgCountRef = useRef(0);
 
   const activeConversation = getActiveConversation(activeWorkspace.id);
   const chatMessages = activeConversation?.messages ?? [];
 
-  useEffect(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, [chatMessages, streamingText]);
+  // Auto-follow the bottom only while the user is already there (or just sent a
+  // message) — reading older messages during a long streaming reply shouldn't
+  // yank the scroll position back down.
+  useEffect(() => {
+    const justSentMessage = chatMessages.length > prevMsgCountRef.current && chatMessages[chatMessages.length - 1]?.role === 'user';
+    prevMsgCountRef.current = chatMessages.length;
+    if (isNearBottomRef.current || justSentMessage) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      setShowScrollToBottom(false);
+    }
+  }, [chatMessages, streamingText]);
+
+  const handleMessagesScroll = (e: any) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const nearBottom = distanceFromBottom < 120;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollToBottom(!nearBottom && chatMessages.length > 0);
+  };
+
+  const scrollToBottom = () => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+    isNearBottomRef.current = true;
+    setShowScrollToBottom(false);
+  };
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -612,6 +632,7 @@ export default function ChatScreen() {
         addConversation={addConversation}
         removeConversation={removeConversation}
         renameConversation={renameConversation}
+        togglePinConversation={togglePinConversation}
         onNavigate={handleNavigate}
       />
 
@@ -690,7 +711,14 @@ export default function ChatScreen() {
           ) : null}
 
           {/* Messages */}
-          <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: 0, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: Spacing.md, gap: 0, paddingBottom: insets.bottom + 80 }}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleMessagesScroll}
+            scrollEventThrottle={100}
+          >
             {chatMessages.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
                 <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
@@ -781,6 +809,24 @@ export default function ChatScreen() {
               </View>
             ) : null}
           </ScrollView>
+
+          {/* Scroll-to-bottom FAB — appears once the user has scrolled away from the latest message */}
+          {showScrollToBottom ? (
+            <Pressable
+              onPress={scrollToBottom}
+              accessibilityLabel="Revenir au dernier message"
+              style={({ pressed }) => [{
+                position: 'absolute', right: Spacing.md, bottom: 96,
+                width: 38, height: 38, borderRadius: 19,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border,
+                shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4,
+              }, pressed && { opacity: 0.8 }]}
+            >
+              <MaterialIcons name="arrow-downward" size={18} color={C.textPrimary} />
+              {isLoading ? <View style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 5, backgroundColor: C.accent }} /> : null}
+            </Pressable>
+          ) : null}
 
           {/* Pending attachment badge */}
           {pendingAttachment ? (

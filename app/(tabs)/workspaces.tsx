@@ -41,7 +41,7 @@ export default function WorkspacesScreen() {
   const {
     workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace,
     updateWorkspace, removeWorkspace, addConversation, removeConversation,
-    renameConversation, setActiveConversation,
+    renameConversation, togglePinConversation, setActiveConversation,
   } = useWorkspace();
   const { showAlert } = useAlert();
   const router = useRouter();
@@ -235,7 +235,11 @@ export default function WorkspacesScreen() {
                       <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: ws.color }}>{t('new')}</Text>
                     </Pressable>
                   </View>
-                  {[...ws.conversations].reverse().map(conv => {
+                  {(() => {
+                    const pinned = ws.conversations.filter(c => c.pinned);
+                    const unpinned = ws.conversations.filter(c => !c.pinned);
+                    return [...pinned].reverse().concat([...unpinned].reverse());
+                  })().map(conv => {
                     const isActiveConv = conv.id === ws.activeConversationId && ws.id === activeWorkspaceId;
                     const lastMsg = conv.messages[conv.messages.length - 1];
                     const isRenamingConv = renamingConvKey?.wsId === ws.id && renamingConvKey?.convId === conv.id;
@@ -243,10 +247,13 @@ export default function WorkspacesScreen() {
                       <Pressable
                         key={conv.id}
                         onPress={() => !isRenamingConv && handleSelectAndNavigate(ws.id, conv.id)}
-                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: isActiveConv ? ws.color + '66' : C.border, padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && !isRenamingConv && { opacity: 0.75 }]}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: conv.pinned ? ws.color + '88' : (isActiveConv ? ws.color + '66' : C.border), padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && !isRenamingConv && { opacity: 0.75 }]}
                       >
                         <View style={{ width: 34, height: 34, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
-                          <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={16} color={isActiveConv ? ws.color : C.textMuted} />
+                          {conv.pinned
+                            ? <MaterialIcons name="push-pin" size={15} color={ws.color} />
+                            : <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={16} color={isActiveConv ? ws.color : C.textMuted} />
+                          }
                         </View>
                         <View style={{ flex: 1, gap: 2 }}>
                           {isRenamingConv ? (
@@ -277,6 +284,9 @@ export default function WorkspacesScreen() {
                             </Pressable>
                           ) : (
                             <>
+                              <Pressable onPress={() => togglePinConversation(ws.id, conv.id)} hitSlop={10} style={{ padding: Spacing.xs }} accessibilityLabel={conv.pinned ? 'Désépingler' : 'Épingler'}>
+                                <MaterialIcons name="push-pin" size={14} color={conv.pinned ? ws.color : C.textMuted} style={{ transform: [{ rotate: conv.pinned ? '0deg' : '45deg' }] }} />
+                              </Pressable>
                               <Pressable onPress={() => startRenameConv(ws.id, conv.id, conv.title)} hitSlop={10} style={{ padding: Spacing.xs }}>
                                 <MaterialIcons name="edit" size={14} color={C.textMuted} />
                               </Pressable>
