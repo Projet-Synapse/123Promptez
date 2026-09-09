@@ -4,8 +4,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Modal,
-  Animated, Dimensions,
+  Animated, Dimensions, Linking,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
@@ -26,6 +27,19 @@ import { SyncIndicator } from '@/components/feature/SyncIndicator';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
+
+// Libellés conviviaux des outils agent (les bulles géantes ont été retirées au profit du popover « + »)
+const TOOL_LABELS: Record<string, { label: string; icon: string; color: string }> = {
+  web_search:      { label: 'Recherche web',         icon: 'travel-explore',   color: '#3D7EFF' },
+  image_analysis:  { label: 'Analyse d\'image',      icon: 'image-search',     color: '#00CC6A' },
+  db_access:       { label: 'Accès base de données', icon: 'storage',          color: '#FF6B35' },
+  automation:      { label: 'Automatisation',        icon: 'precision-manufacturing', color: '#9B59B6' },
+  code_exec:       { label: 'Exécution de code',     icon: 'terminal',         color: '#FFB800' },
+  file_read:       { label: 'Lecture de fichier',    icon: 'folder-open',      color: '#00BFFF' },
+};
+function toolInfo(id: string) {
+  return TOOL_LABELS[id] ?? { label: id, icon: 'bolt', color: '#8899BB' };
+}
 
 // ─── Response Modes ───────────────────────────────────────────────────────────
 type ResponseMode = 'auto' | 'normal' | 'quick' | 'deep';
@@ -48,9 +62,34 @@ function formatRelativeTime(date: Date): string {
   return `Il y a ${days}j`;
 }
 
-// ─── Attachment action sheet ──────────────────────────────────────────────────
-function AttachSheet({
+// ─── Activity feed (before the answer) ────────────────────────────────────────
+export type ActivityStatus = 'running' | 'done';
+export interface ChatActivity { key: string; label: string; icon: string; status: ActivityStatus }
+
+function ActivityFeed({ activities }: { activities: ChatActivity[] }) {
+  const C = useThemeColors();
+  if (activities.length === 0) return null;
+  return (
+    <View style={{ gap: 5, marginBottom: Spacing.xs }}>
+      {activities.map(a => (
+        <View key={a.key} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+          {a.status === 'running'
+            ? <ActivityIndicator size="small" color={C.accent} />
+            : <MaterialIcons name="check-circle" size={14} color="#00CC6A" />}
+          <MaterialIcons name={a.icon as any} size={13} color={a.status === 'running' ? C.accent : C.textMuted} />
+          <Text style={{ fontSize: FontSize.xs, color: a.status === 'running' ? C.accent : C.textSecondary, fontWeight: a.status === 'running' ? '600' : '400' }}>
+            {a.label}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Plus popover (mini-panel above the + button) ─────────────────────────────
+function PlusPopover({
   visible, onClose, onPickFile, onPickImage, responseMode, onChangeMode,
+  tools, onToggleTool, bottomInset,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -58,51 +97,167 @@ function AttachSheet({
   onPickImage: () => void;
   responseMode: ResponseMode;
   onChangeMode: (m: ResponseMode) => void;
+  tools: { id: string; enabled: boolean }[];
+  onToggleTool: (id: string) => void;
+  bottomInset: number;
 }) {
   const C = useThemeColors();
-  const insets = useSafeAreaInsets();
+  if (!visible) return null;
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }} onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
-          <View style={{ width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.xs }} />
+    <View style={{ position: 'absolute', inset: 0, zIndex: 200 }} pointerEvents="box-none">
+      <Pressable style={{ flex: 1 }} onPress={onClose} />
+      <View style={{
+        position: 'absolute', left: Spacing.sm, bottom: bottomInset + 76,
+        width: 300, backgroundColor: C.bgCard, borderRadius: Radius.lg,
+        borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm,
+        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
+      }}>
+        {/* Joindre + mode de réponse */}
+        <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+          {[
+            { icon: 'upload-file', label: 'Fichier', color: '#3D7EFF', onPress: () => { onClose(); setTimeout(onPickFile, 250); } },
+            { icon: 'image', label: 'Image', color: '#00CC6A', onPress: () => { onClose(); setTimeout(onPickImage, 250); } },
+          ].map(b => (
+            <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: Spacing.sm + 2, borderRadius: Radius.md, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.7 }]}>
+              <MaterialIcons name={b.icon as any} size={18} color={b.color} />
+              <Text style={{ fontSize: FontSize.sm, color: b.color, fontWeight: '700' }}>{b.label}</Text>
+            </Pressable>
+          ))}
+        </View>
 
-          {/* Attachments */}
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Joindre</Text>
-          <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-            {[
-              { icon: 'upload-file', label: 'Fichier', color: '#3D7EFF', onPress: () => { onClose(); setTimeout(onPickFile, 300); } },
-              { icon: 'image', label: 'Image', color: '#00CC6A', onPress: () => { onClose(); setTimeout(onPickImage, 300); } },
-            ].map(b => (
-              <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ flex: 1, alignItems: 'center', gap: 6, paddingVertical: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.7 }]}>
-                <MaterialIcons name={b.icon as any} size={24} color={b.color} />
-                <Text style={{ fontSize: FontSize.sm, color: b.color, fontWeight: '700' }}>{b.label}</Text>
+        {/* Mode de réponse — chips compactes */}
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          {RESPONSE_MODES.map(m => {
+            const active = responseMode === m.id;
+            return (
+              <Pressable key={m.id} onPress={() => onChangeMode(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: active ? m.color + '88' : C.border, backgroundColor: active ? m.color + '18' : C.bgCardAlt }}>
+                <MaterialIcons name={m.icon as any} size={13} color={active ? m.color : C.textMuted} />
+                <Text style={{ fontSize: FontSize.xs, color: active ? m.color : C.textSecondary, fontWeight: '600' }}>{m.label}</Text>
               </Pressable>
-            ))}
-          </View>
+            );
+          })}
+        </View>
 
-          {/* Response mode */}
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: Spacing.xs }}>Mode de réponse</Text>
-          <View style={{ gap: Spacing.xs }}>
-            {RESPONSE_MODES.map(m => {
-              const active = responseMode === m.id;
-              return (
-                <Pressable key={m.id} onPress={() => { onChangeMode(m.id); onClose(); }} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: active ? m.color + '88' : C.border, backgroundColor: active ? m.color + '12' : C.bgCardAlt }, pressed && { opacity: 0.75 }]}>
-                  <View style={{ width: 38, height: 38, borderRadius: Radius.sm, backgroundColor: m.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-                    <MaterialIcons name={m.icon as any} size={20} color={m.color} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.body, color: active ? m.color : C.textPrimary, fontWeight: '600' }}>{m.label}</Text>
-                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>{m.desc}</Text>
-                  </View>
-                  {active ? <MaterialIcons name="check-circle" size={20} color={m.color} /> : null}
-                </Pressable>
-              );
-            })}
+        <View style={{ height: 1, backgroundColor: C.border }} />
+
+        {/* Outils disponibles */}
+        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Outils</Text>
+        <View style={{ gap: 2 }}>
+          {tools.map(t => {
+            const info = toolInfo(t.id);
+            return (
+              <Pressable
+                key={t.id}
+                onPress={() => onToggleTool(t.id)}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 7, paddingHorizontal: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
+              >
+                <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name={info.icon as any} size={14} color={info.color} />
+                </View>
+                <Text style={{ flex: 1, fontSize: FontSize.sm, color: t.enabled ? C.textPrimary : C.textMuted, fontWeight: t.enabled ? '600' : '400' }}>{info.label}</Text>
+                <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: t.enabled ? info.color : C.bgCardAlt, borderWidth: 1, borderColor: t.enabled ? info.color : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
+                  <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: t.enabled ? '#fff' : C.textMuted, alignSelf: t.enabled ? 'flex-end' : 'flex-start' }} />
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Quick access panel (top-right button) ────────────────────────────────────
+function QuickAccessPanel({
+  visible, onClose, workspace, onOpenDatabase, onOpenInstructions, onOpenExternal,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  workspace: any;
+  onOpenDatabase: () => void;
+  onOpenInstructions: () => void;
+  onOpenExternal: (url: string) => void;
+}) {
+  const C = useThemeColors();
+  const [webMode, setWebMode] = useState<'menu' | 'web' | 'sandbox'>('menu');
+  const [url, setUrl] = useState('');
+  if (!visible) return null;
+
+  const dbFileCount = workspace.database.rootFiles.length
+    + workspace.database.folders.reduce((n: number, f: any) => n + f.files.length + (f.subFolders ?? []).reduce((m: number, s: any) => m + s.files.length, 0), 0);
+
+  return (
+    <View style={{ position: 'absolute', inset: 0, zIndex: 150 }} pointerEvents="box-none">
+      <Pressable style={{ flex: 1 }} onPress={onClose} />
+      <View style={{
+        position: 'absolute', top: 60, right: Spacing.sm,
+        width: 300, backgroundColor: C.bgCard, borderRadius: Radius.lg,
+        borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.xs,
+        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
+      }}>
+        {webMode === 'menu' ? (
+          [
+            { icon: 'folder', label: 'Base de données', desc: `${dbFileCount} fichier(s) · dossiers & fichiers`, color: '#FF6B35', onPress: onOpenDatabase },
+            { icon: 'psychology', label: 'Instructions du workspace', desc: 'Consulter le prompt système', color: '#9B59B6', onPress: onOpenInstructions },
+            { icon: 'language', label: 'Ouvrir une page web', desc: 'Naviguer vers une URL', color: '#3D7EFF', onPress: () => setWebMode('web') },
+            { icon: 'code', label: 'Ouvrir un sandbox', desc: 'Éditeur de code en ligne', color: '#00CC6A', onPress: () => setWebMode('sandbox') },
+          ].map(item => (
+            <Pressable key={item.label} onPress={item.onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.sm + 2, borderRadius: Radius.md, backgroundColor: C.bgCardAlt }, pressed && { opacity: 0.7 }]}>
+              <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: item.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name={item.icon as any} size={18} color={item.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>{item.label}</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1 }}>{item.desc}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={18} color={C.textMuted} />
+            </Pressable>
+          ))
+        ) : (
+          <View style={{ gap: Spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+              <Pressable onPress={() => setWebMode('menu')} hitSlop={8} style={{ padding: 2 }}>
+                <MaterialIcons name="arrow-back" size={18} color={C.textSecondary} />
+              </Pressable>
+              <MaterialIcons name={webMode === 'web' ? 'language' : 'code'} size={16} color={webMode === 'web' ? '#3D7EFF' : '#00CC6A'} />
+              <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }}>
+                {webMode === 'web' ? 'Ouvrir une page web' : 'Ouvrir un sandbox'}
+              </Text>
+            </View>
+            {webMode === 'web' ? (
+              <TextInput
+                style={{ backgroundColor: C.bg, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, color: C.textPrimary, fontSize: FontSize.sm }}
+                value={url}
+                onChangeText={setUrl}
+                placeholder="https://exemple.com"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                onSubmitEditing={() => url.trim() && onOpenExternal(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`)}
+              />
+            ) : (
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
+                Ouvre un éditeur de code en ligne (CodeSandbox) lié à ce workspace — pratique quand l'IA génère du code.
+              </Text>
+            )}
+            <Pressable
+              onPress={() => {
+                if (webMode === 'web') {
+                  if (!url.trim()) return;
+                  onOpenExternal(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
+                } else {
+                  onOpenExternal('https://codesandbox.io/s/');
+                }
+              }}
+              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: webMode === 'web' ? '#3D7EFF' : '#00CC6A', opacity: webMode === 'web' && !url.trim() ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '700' }}>Ouvrir</Text>
+            </Pressable>
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -402,7 +557,8 @@ function SideDrawer({
 // ─── Main Chat Screen ─────────────────────────────────────────────────────────
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  const { bot } = useBot();
+  const router = useRouter();
+  const { bot, toggleAgentTool } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace,
@@ -419,11 +575,12 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
-  const [loadingStep, setLoadingStep] = useState<string>('');
-  const [activeTools, setActiveTools] = useState<string[]>([]);
+  const [activities, setActivities] = useState<ChatActivity[]>([]);
   const [showModesPanel, setShowModesPanel] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [showAttachSheet, setShowAttachSheet] = useState(false);
+  const [showPlusPopover, setShowPlusPopover] = useState(false);
+  const [showQuickAccess, setShowQuickAccess] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>('auto');
 
   // Attachment context: appended to the next message
@@ -487,8 +644,7 @@ export default function ChatScreen() {
     abortRef.current?.abort();
     abortRef.current = null;
     setIsLoading(false);
-    setLoadingStep('');
-    setActiveTools([]);
+    setActivities([]);
     if (streamingText) {
       // Keep partial response if any
       if (activeConversation && streamingText.trim()) {
@@ -508,9 +664,17 @@ export default function ChatScreen() {
     }
   };
 
+  // Ajoute une activité au flux défilant affiché pendant que l'IA travaille
+  const pushActivity = (key: string, label: string, icon: string) => {
+    setActivities(prev => {
+      const without = prev.filter(a => a.key !== key);
+      return [...without.map(a => ({ ...a, status: 'done' as ActivityStatus })), { key, label, icon, status: 'running' as ActivityStatus }];
+    });
+  };
+
   const runGeneration = async (msg: string, history: { role: string; content: string }[]) => {
     if (!activeConversation) return;
-    setIsLoading(true); setStreamingText(''); setLoadingStep('Analyse du contexte...');
+    setIsLoading(true); setStreamingText('');
     lastUserMsgRef.current = msg;
 
     const modeInfo = RESPONSE_MODES.find(m => m.id === responseMode) ?? RESPONSE_MODES[0];
@@ -523,41 +687,62 @@ export default function ChatScreen() {
       },
     };
     const currentEnabledTools = bot.agentTools.filter((tool: any) => tool.enabled).map((tool: any) => tool.id);
-    setActiveTools(currentEnabledTools);
     const modeInjection = responseMode !== 'auto' && responseMode !== 'normal'
       ? `\n[MODE: ${modeInfo.label.toUpperCase()}] ${modeInfo.desc}.`
       : '';
+
+    // Séquence d'activités défilantes avant/durant la réponse
+    const wsDbFiles = [
+      ...activeWorkspace.database.rootFiles,
+      ...activeWorkspace.database.folders.flatMap((f: any) => [
+        ...f.files,
+        ...(f.subFolders ?? []).flatMap((s: any) => s.files),
+      ]),
+    ];
+    setActivities([{ key: 'reason', label: 'Raisonnement…', icon: 'psychology', status: 'running' }]);
+    const activityTimers: ReturnType<typeof setTimeout>[] = [];
+    let t = 450;
+    const scheduleActivity = (delay: number, key: string, label: string, icon: string, cond = true) => {
+      if (!cond) return;
+      activityTimers.push(setTimeout(() => { if (abortRef.current) pushActivity(key, label, icon); }, delay));
+    };
+    scheduleActivity(t, 'db', `Consultation des fichiers du workspace (${wsDbFiles.length})…`, 'folder-open', wsDbFiles.length > 0); t += 650;
+    scheduleActivity(t, 'read', 'Lecture de fichier…', 'description', currentEnabledTools.includes('file_read')); t += 550;
+    scheduleActivity(t, 'write', 'Modification de fichier…', 'edit-document', currentEnabledTools.includes('db_access')); t += 550;
+    scheduleActivity(t, 'term', 'Terminal — exécution de commande…', 'terminal', currentEnabledTools.includes('code_exec'));
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       let full = '';
-      setTimeout(() => { if (abortRef.current === controller) setLoadingStep('Construction du prompt...'); }, 400);
-      setTimeout(() => { if (abortRef.current === controller) setLoadingStep('Génération en cours...'); }, 900);
+      scheduleActivity(t + 400, 'gen', 'Rédaction de la réponse…', 'chat-bubble');
       await sendChatMessage(
         msg, history as any, adjustedBot, activeWorkspace,
-        (token) => { full = token; setStreamingText(full); setLoadingStep(''); },
+        (token) => {
+          full = token; setStreamingText(full);
+          pushActivity('gen', 'Rédaction de la réponse…', 'chat-bubble');
+        },
         profile,
         getDueTasks(activeWorkspace.id),
         (systemInjection ?? '') + modeInjection,
         controller.signal,
       );
       setStreamingText('');
-      setLoadingStep('');
+      setActivities([]);
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: full });
       getDueTasks(activeWorkspace.id).forEach((task: any) => completeTask(activeWorkspace.id, task.id));
     } catch (err: any) {
       setStreamingText('');
-      setLoadingStep('');
+      setActivities([]);
       if (err?.name === 'AbortError' || String(err?.message || '').includes('interrompue')) {
         // handled by handleStop / abort
       } else {
         showAlert('Erreur', err.message || 'Erreur lors de la génération');
       }
     } finally {
+      activityTimers.forEach(clearTimeout);
       if (abortRef.current === controller) abortRef.current = null;
-      setIsLoading(false); setActiveTools([]);
     }
   };
 
@@ -597,7 +782,17 @@ export default function ChatScreen() {
     if (convId) setActiveConversation(wsId, convId);
   };
 
-  const enabledTools = bot.agentTools.filter((tool: any) => tool.enabled);
+  // ── Accès rapide : DB / instructions / web / sandbox ──────────────
+  const openWorkspaceDatabase = () => {
+    setShowQuickAccess(false);
+    router.push({ pathname: '/workspace-database', params: { wsId: activeWorkspace.id } });
+  };
+
+  const openExternal = (url: string) => {
+    setShowQuickAccess(false);
+    if (Platform.OS === 'web') window.open(url, '_blank', 'noopener');
+    else Linking.openURL(url).catch(() => showToast('Impossible d\'ouvrir le lien', { tone: 'error' }));
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -658,6 +853,17 @@ export default function ChatScreen() {
               color={activeModes.length > 0 ? C.accent : C.textMuted}
             />
 
+            {/* Accès rapide workspace : base de données, instructions, page web / sandbox */}
+            <IconButton
+              icon="apps"
+              label="Accès rapide workspace"
+              onPress={() => setShowQuickAccess(v => !v)}
+              boxSize={36}
+              backgroundColor={showQuickAccess ? C.accentGlow : C.bgCardAlt}
+              borderColor={showQuickAccess ? C.accent + '55' : C.border}
+              color={showQuickAccess ? C.accent : C.textMuted}
+            />
+
             <IconButton
               icon="delete-outline"
               label="Effacer la conversation"
@@ -710,16 +916,7 @@ export default function ChatScreen() {
                     ))}
                   </View>
                 ) : null}
-                {enabledTools.length > 0 ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, justifyContent: 'center' }}>
-                    {enabledTools.map((tool: any) => (
-                      <View key={tool.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accentGlow, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '33' }}>
-                        <MaterialIcons name="bolt" size={12} color={C.accent} />
-                        <Text style={{ fontSize: FontSize.xs, color: C.accent, fontFamily: 'monospace' }}>{tool.id}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
+                {/* Les outils disponibles sont consultables via le bouton « + » (mini-panneau) */}
                 <View style={{ gap: Spacing.sm, width: '100%', paddingHorizontal: Spacing.sm }}>
                   {['Que peux-tu faire pour moi ?', 'Résume ta base de connaissances', 'Comment tu fonctionnes ?'].map(s => (
                     <Pressable key={s} onPress={() => setInput(s)} style={({ pressed }) => [{ backgroundColor: C.bgCard, borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.7 }]}>
@@ -750,9 +947,16 @@ export default function ChatScreen() {
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name="smart-toy" size={14} color="#fff" />
                 </View>
-                <View style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, flexDirection: 'row' }}>
-                  <Text style={{ flex: 1, color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22 }}>{streamingText}</Text>
-                  <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
+                <View style={{ flex: 1, gap: Spacing.xs }}>
+                  {activities.length > 0 ? (
+                    <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm }}>
+                      <ActivityFeed activities={activities} />
+                    </View>
+                  ) : null}
+                  <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, flexDirection: 'row' }}>
+                    <Text style={{ flex: 1, color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22 }}>{streamingText}</Text>
+                    <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
+                  </View>
                 </View>
               </View>
             ) : null}
@@ -764,19 +968,10 @@ export default function ChatScreen() {
                 </View>
                 <View style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, gap: Spacing.xs }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-                    <ActivityIndicator size="small" color={C.accent} />
-                    <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '600' }}>{loadingStep || t('generating')}</Text>
+                    <MaterialIcons name="smart-toy" size={14} color={C.accent} />
+                    <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '700' }}>{t('generating')}</Text>
                   </View>
-                  {activeTools.length > 0 ? (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-                      {activeTools.map(tool => (
-                        <View key={tool} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.accent + '18', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '33' }}>
-                          <MaterialIcons name="bolt" size={10} color={C.accent} />
-                          <Text style={{ fontSize: 10, color: C.accent, fontFamily: 'monospace' }}>{tool}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
+                  <ActivityFeed activities={activities} />
                 </View>
               </View>
             ) : null}
@@ -802,21 +997,25 @@ export default function ChatScreen() {
 
           {/* Input bar */}
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs, paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm, paddingBottom: insets.bottom + Spacing.sm, backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border }}>
-            {/* Attach + mode button */}
+            {/* Attach + mode + tools popover button */}
             <Pressable
-              onPress={() => setShowAttachSheet(true)}
+              onPress={() => setShowPlusPopover(v => !v)}
               style={({ pressed }) => [{
                 width: 44, height: 44, borderRadius: 22,
                 alignItems: 'center', justifyContent: 'center',
-                backgroundColor: responseMode !== 'auto' ? currentModeInfo.color + '22' : C.bgCard,
+                backgroundColor: showPlusPopover
+                  ? (responseMode !== 'auto' ? currentModeInfo.color + '33' : C.accentGlow)
+                  : responseMode !== 'auto' ? currentModeInfo.color + '22' : C.bgCard,
                 borderWidth: 1,
-                borderColor: responseMode !== 'auto' ? currentModeInfo.color + '66' : C.border,
+                borderColor: showPlusPopover
+                  ? (responseMode !== 'auto' ? currentModeInfo.color + '88' : C.accent + '66')
+                  : responseMode !== 'auto' ? currentModeInfo.color + '66' : C.border,
               }, pressed && { opacity: 0.7 }]}
             >
               <MaterialIcons
-                name={responseMode !== 'auto' ? currentModeInfo.icon as any : 'add'}
+                name={showPlusPopover ? 'close' : (responseMode !== 'auto' ? currentModeInfo.icon as any : 'add')}
                 size={20}
-                color={responseMode !== 'auto' ? currentModeInfo.color : C.textSecondary}
+                color={showPlusPopover ? C.textPrimary : (responseMode !== 'auto' ? currentModeInfo.color : C.textSecondary)}
               />
             </Pressable>
 
@@ -864,15 +1063,57 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* Attach + Mode sheet */}
-      <AttachSheet
-        visible={showAttachSheet}
-        onClose={() => setShowAttachSheet(false)}
+      {/* Mini-panneau « + » : pièces jointes, mode de réponse, outils */}
+      <PlusPopover
+        visible={showPlusPopover}
+        onClose={() => setShowPlusPopover(false)}
         onPickFile={handlePickFile}
         onPickImage={handlePickImage}
         responseMode={responseMode}
         onChangeMode={setResponseMode}
+        tools={bot.agentTools}
+        onToggleTool={toggleAgentTool}
+        bottomInset={insets.bottom}
       />
+
+      {/* Panneau d'accès rapide (bouton en haut à droite) */}
+      <QuickAccessPanel
+        visible={showQuickAccess}
+        onClose={() => setShowQuickAccess(false)}
+        workspace={activeWorkspace}
+        onOpenDatabase={openWorkspaceDatabase}
+        onOpenInstructions={() => { setShowQuickAccess(false); setShowInstructions(true); }}
+        onOpenExternal={openExternal}
+      />
+
+      {/* Instructions du workspace (lecture) */}
+      <Modal visible={showInstructions} transparent animationType="fade">
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }} onPress={() => setShowInstructions(false)}>
+          <Pressable style={{ width: '100%', maxWidth: 560, maxHeight: '80%', backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }} onPress={() => {}}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: activeWorkspace.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="psychology" size={18} color={activeWorkspace.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Instructions du workspace</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{activeWorkspace.name}</Text>
+              </View>
+              <IconButton icon="close" label="Fermer" bare size={20} color={C.textSecondary} onPress={() => setShowInstructions(false)} />
+            </View>
+            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: Spacing.xs }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 20, fontFamily: 'monospace' }}>
+                {activeWorkspace.systemPrompt || 'Aucune instruction définie pour ce workspace. Vous pouvez en ajouter dans les paramètres du workspace.'}
+              </Text>
+            </ScrollView>
+            <Pressable
+              onPress={() => { setShowInstructions(false); router.push({ pathname: '/workspace-settings', params: { wsId: activeWorkspace.id } }); }}
+              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: activeWorkspace.color + '22', borderWidth: 1, borderColor: activeWorkspace.color + '55' }, pressed && { opacity: 0.75 }]}
+            >
+              <Text style={{ fontSize: FontSize.sm, color: activeWorkspace.color, fontWeight: '700' }}>Modifier les instructions</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Modes Panel */}
       <Modal visible={showModesPanel} transparent animationType="slide">
