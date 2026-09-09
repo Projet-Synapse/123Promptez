@@ -1,15 +1,17 @@
 // Powered by OnSpace.AI
 // Workspace Database — sub-folders + file sorting system
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput,
+  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
+import { useBot } from '@/hooks/useBot';
 import { VaultFolderPanel } from '@/components/feature/VaultFolderPanel';
+import { resyncLocalVault } from '@/services/vaultService';
 import { IconButton } from '@/components/ui/IconButton';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
@@ -165,33 +167,6 @@ function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder | DBSubFol
   );
 }
 
-function InsertBar({ onText, onFile, onImage, onLink }: { onText: () => void; onFile: () => void; onImage: () => void; onLink: () => void }) {
-  const btns = [
-    { icon: 'edit-note' as const, label: 'Texte', onPress: onText, color: '#FFB800' },
-    { icon: 'upload-file' as const, label: 'Fichier', onPress: onFile, color: '#3D7EFF' },
-    { icon: 'image' as const, label: 'Image', onPress: onImage, color: '#00CC6A' },
-    { icon: 'link' as const, label: 'Lien', onPress: onLink, color: '#9B59B6' },
-  ];
-  return (
-    <View style={{ flexDirection: 'row', gap: Spacing.sm, justifyContent: 'space-between' }}>
-      {btns.map(b => (
-        <View key={b.label} style={{ flex: 1, alignItems: 'center' }}>
-          <IconButton
-            icon={b.icon}
-            label={b.label}
-            onPress={b.onPress}
-            color={b.color}
-            backgroundColor={b.color + '12'}
-            borderColor={b.color + '44'}
-            boxSize={44}
-            size={22}
-          />
-        </View>
-      ))}
-    </View>
-  );
-}
-
 // ─── Sort Bar ─────────────────────────────────────────────────────────────────
 function SortBar({ sortKey, sortOrder, onChange }: { sortKey: SortKey; sortOrder: SortOrder; onChange: (k: SortKey, o: SortOrder) => void }) {
   const C = useThemeColors();
@@ -232,6 +207,7 @@ export default function WorkspaceDatabaseScreen() {
   } = useWorkspace();
   const { showAlert } = useAlert();
   const { showToast } = useToast();
+  const { bot } = useBot();
   const [selectMode, setSelectMode] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const toggleSelectFile = (id: string) => setSelectedFileIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -240,6 +216,51 @@ export default function WorkspaceDatabaseScreen() {
   const C = useThemeColors();
 
   const ws = workspaces.find(w => w.id === wsId);
+
+  // ── Vault racine du projet ───────────────────────────────────────
+  // Le premier dossier vault configuré devient la racine : ses dossiers et
+  // fichiers sont affichés directement, plus de distinction vault/racine.
+  const rootVault = useMemo(() => ws?.database.folders.find(f => f.vault) ?? null, [ws]);
+  const [vaultPath, setVaultPath] = useState(rootVault?.vault?.path ?? '');
+  useEffect(() => { setVaultPath(rootVault?.vault?.path ?? ''); }, [rootVault?.id, rootVault?.vault?.path]);
+
+  const handleRootVaultSync = async () => {
+    if (!rootVault?.vault || !ws) return;
+    const wid = ws.id;
+    const folder = ws.database.folders.find(f => f.id === rootVault.id);
+    if (!folder?.vault) return;
+    setBusyVault(true);
+    try {
+      if (folder.vault.sourceKind === 'local') {
+        const result = await resyncLocalVault(folder.vault);
+        if (result) {
+          updateFolder(wid, folder.id, { vault: result.meta });
+          if (result.files.length) replaceFolderFiles(wid, folder.id, result.files);
+          showToast(result.meta.syncMessage || 'Vault resynchronisé', { tone: 'success' });
+        }
+      } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName) {
+        const { resolveGitHubToken, importGitHubRepoAsVault } = await import('@/services/vaultService');
+        const token = resolveGitHubToken(bot.connectedApps);
+        if (!token) { showAlert('Jeton GitHub manquant', 'Configurez un Personal Access Token dans Builder ▸ Connecteurs.'); return; }
+        const result = await importGitHubRepoAsVault(token, {
+          id: folder.vault.repoId || 0,
+          full_name: folder.vault.repoFullName,
+          description: null,
+          private: false,
+          html_url: folder.vault.path || '',
+          default_branch: 'main',
+        });
+        updateFolder(wid, folder.id, { vault: result.meta });
+        if (result.files.length) replaceFolderFiles(wid, folder.id, result.files);
+        showToast('Vault GitHub resynchronisé', { tone: 'success' });
+      }
+    } catch (e: any) {
+      showAlert('Erreur sync', e?.message ?? 'Échec');
+    } finally {
+      setBusyVault(false);
+    }
+  };
+  const [busyVault, setBusyVault] = useState(false);
 
   // ── Navigation stack ─────────────────────────────────────────────
   const [navStack, setNavStack] = useState<NavItem[]>([{ kind: 'root' }]);
@@ -258,6 +279,7 @@ export default function WorkspaceDatabaseScreen() {
   const handleSortChange = (k: SortKey, o: SortOrder) => { setSortKey(k); setSortOrder(o); };
 
   // ── Modal state ──────────────────────────────────────────────────
+  const [showInsert, setShowInsert] = useState(false);
   const [showAddFolder, setShowAddFolder] = useState(false);
   const [showAddSubFolder, setShowAddSubFolder] = useState(false);
   const [showAddFile, setShowAddFile] = useState(false);
@@ -296,16 +318,28 @@ export default function WorkspaceDatabaseScreen() {
     return { folderId: currentNav.folder.id, subId: currentNav.sub.id };
   }, [currentNav]);
 
-  // Keep folder/subfolder references fresh from ws state
+  // Localisation réelle d'un fichier affiché à la racine (fusion vault + racine)
+  const fileLocationOf = (file: DBFile): FileLocation => {
+    if (currentNav.kind !== 'root') return currentLocation;
+    if (ws?.database.rootFiles.some(f => f.id === file.id)) return null;
+    if (rootVault?.files.some(f => f.id === file.id)) return rootVault.id;
+    return null;
+  };
+  // À la racine avec un vault configuré, les nouveaux fichiers vont dans le vault
+  const insertLocation: FileLocation = currentNav.kind === 'root' && rootVault ? rootVault.id : currentLocation;
   const liveFolder = currentNav.kind !== 'root' ? ws?.database.folders.find(f => f.id === (currentNav as any).folder.id) ?? null : null;
   const liveSub = currentNav.kind === 'subfolder' && liveFolder ? liveFolder.subFolders?.find(s => s.id === (currentNav as any).sub.id) ?? null : null;
 
   const rawFiles: DBFile[] = useMemo(() => {
     if (!ws) return [];
-    if (currentNav.kind === 'root') return ws.database.rootFiles;
+    if (currentNav.kind === 'root') {
+      // Vault racine : ses fichiers sont affichés à la racine, mélangés aux fichiers racine
+      const vaultFiles = rootVault?.files ?? [];
+      return [...ws.database.rootFiles, ...vaultFiles];
+    }
     if (currentNav.kind === 'folder') return liveFolder?.files ?? [];
     return liveSub?.files ?? [];
-  }, [ws, currentNav, liveFolder, liveSub]);
+  }, [ws, currentNav, liveFolder, liveSub, rootVault]);
 
   const displayedFiles = useMemo(() => sortFiles(rawFiles, sortKey, sortOrder), [rawFiles, sortKey, sortOrder]);
 
@@ -387,14 +421,14 @@ export default function WorkspaceDatabaseScreen() {
 
   const handleAddTextFile = () => {
     if (!fileName.trim() || !fileContent.trim()) return;
-    addFile(ws.id, currentLocation, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    addFile(ws.id, insertLocation, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
     resetFileForm(); setShowAddFile(false);
   };
 
   const handleAddLink = () => {
     if (!linkUrl.trim()) return;
     const name = linkName.trim() || linkUrl.trim();
-    addFile(ws.id, currentLocation, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
+    addFile(ws.id, insertLocation, { name, type: 'url', content: linkUrl.trim(), tags: ['lien'] });
     setLinkUrl(''); setLinkName(''); setShowAddLink(false);
     showToast(`Lien « ${name} » ajouté`, { tone: 'success' });
   };
@@ -410,7 +444,7 @@ export default function WorkspaceDatabaseScreen() {
         content = await response.text();
         if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué]';
       } catch { content = `[Fichier importé: ${asset.name}]`; }
-      addFile(ws.id, currentLocation, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
+      addFile(ws.id, insertLocation, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
       showToast(`Fichier « ${asset.name} » importé`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
@@ -423,7 +457,7 @@ export default function WorkspaceDatabaseScreen() {
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
       const imgName = asset.uri.split('/').pop() ?? 'image.jpg';
-      addFile(ws.id, currentLocation, { name: imgName, type: 'note', content: `[IMAGE: ${imgName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`, tags: ['image', 'importé'] });
+      addFile(ws.id, insertLocation, { name: imgName, type: 'note', content: `[IMAGE: ${imgName}]\nDimensions: ${asset.width}x${asset.height}px\nURI: ${asset.uri}`, tags: ['image', 'importé'] });
       showToast(`Image « ${imgName} » ajoutée`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
@@ -437,13 +471,13 @@ export default function WorkspaceDatabaseScreen() {
   };
   const handleSaveFile = () => {
     if (!editingFile || !editorName.trim()) return;
-    updateFile(ws.id, currentLocation, editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
+    updateFile(ws.id, fileLocationOf(editingFile), editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
     setEditingFile(null);
   };
   const handleDeleteFile = (file: DBFile) => {
     showAlert(`Supprimer "${file.name}" ?`, 'Ce fichier sera définitivement supprimé.', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, currentLocation, file.id) },
+      { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, fileLocationOf(file), file.id) },
     ]);
   };
   const bulkDeleteSelectedFiles = () => {
@@ -452,14 +486,14 @@ export default function WorkspaceDatabaseScreen() {
     showAlert(`Supprimer ${n} fichier(s) ?`, 'Cette action est définitive.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => {
-        selectedFileIds.forEach(id => removeFile(ws.id, currentLocation, id));
+        selectedFileIds.forEach(id => { const f = displayedFiles.find(x => x.id === id); if (f) removeFile(ws.id, fileLocationOf(f), id); });
         exitSelectMode();
         showToast(`${n} fichier(s) supprimé(s)`, { tone: 'success' });
       }},
     ]);
   };
   const bulkMoveSelectedFiles = (to: FileLocation) => {
-    selectedFileIds.forEach(id => moveFile(ws.id, id, currentLocation, to));
+    selectedFileIds.forEach(id => { const f = displayedFiles.find(x => x.id === id); if (f) moveFile(ws.id, id, fileLocationOf(f), to); });
     const n = selectedFileIds.size;
     exitSelectMode();
     setMovingFile(null);
@@ -469,14 +503,14 @@ export default function WorkspaceDatabaseScreen() {
     if (!movingFile) return;
     if (movingFile.id === '__bulk__' || (selectMode && selectedFileIds.size > 0 && selectedFileIds.has(movingFile.id))) {
       const ids = movingFile.id === '__bulk__' ? selectedFileIds : new Set([movingFile.id, ...selectedFileIds]);
-      ids.forEach(id => { if (id !== '__bulk__') moveFile(ws.id, id, currentLocation, to); });
+      ids.forEach(id => { if (id !== '__bulk__') { const f = displayedFiles.find(x => x.id === id); if (f) moveFile(ws.id, id, fileLocationOf(f), to); } });
       const n = [...ids].filter(id => id !== '__bulk__').length;
       setMovingFile(null);
       exitSelectMode();
       showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
       return;
     }
-    moveFile(ws.id, movingFile.id, currentLocation, to);
+    moveFile(ws.id, movingFile.id, fileLocationOf(movingFile), to);
     const name = movingFile.name;
     setMovingFile(null);
     showToast(`« ${name} » déplacé`, { tone: 'success' });
@@ -529,6 +563,38 @@ export default function WorkspaceDatabaseScreen() {
             }
           </Text>
         </View>
+        {/* Insert collapsible (texte / fichier / image / lien) */}
+        {currentNav.kind !== 'subfolder' ? (
+          <View>
+            <IconButton
+              icon={showInsert ? 'close' : 'add-circle'}
+              label="Insérer"
+              onPress={() => setShowInsert(v => !v)}
+              color={showInsert ? C.accent : C.primary}
+              backgroundColor={showInsert ? C.accent + '18' : undefined}
+              borderColor={showInsert ? C.accent + '55' : undefined}
+            />
+            {showInsert ? (
+              <>
+                <Pressable style={{ position: 'absolute', top: 48, right: 0, left: -300, bottom: -600 }} onPress={() => setShowInsert(false)} />
+                <View style={{ position: 'absolute', top: 48, right: 0, flexDirection: 'row', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6, zIndex: 50 }}>
+                  {[
+                    { icon: 'edit-note', label: 'Texte', color: '#FFB800', onPress: () => { setShowInsert(false); resetFileForm(); setShowAddFile(true); } },
+                    { icon: 'upload-file', label: 'Fichier', color: '#3D7EFF', onPress: () => { setShowInsert(false); handlePickFile(); } },
+                    { icon: 'image', label: 'Image', color: '#00CC6A', onPress: () => { setShowInsert(false); handlePickImage(); } },
+                    { icon: 'link', label: 'Lien', color: '#9B59B6', onPress: () => { setShowInsert(false); setLinkUrl(''); setLinkName(''); setShowAddLink(true); } },
+                  ].map(b => (
+                    <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs, borderRadius: Radius.sm, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.7 }]}>
+                      <MaterialIcons name={b.icon as any} size={20} color={b.color} />
+                      <Text style={{ fontSize: FontSize.xs, color: b.color, fontWeight: '700' }}>{b.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
         {/* Add folder button */}
         {currentNav.kind !== 'subfolder' ? (
           <IconButton
@@ -546,32 +612,51 @@ export default function WorkspaceDatabaseScreen() {
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
 
-        {/* Stats (root only) */}
-        {currentNav.kind === 'root' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: ws.color + '33', backgroundColor: ws.color + '0A', padding: Spacing.md }}>
-            <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
+        {/* Vault racine du projet : barre compacte avec chemin éditable */}
+        {currentNav.kind === 'root' && rootVault ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: (rootVault.color || '#9B59B6') + '44', padding: Spacing.sm, flexWrap: 'wrap' }}>
+            <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: (rootVault.color || '#9B59B6') + '22', alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialIcons name={(rootVault.icon as any) || 'lock'} size={16} color={rootVault.color || '#9B59B6'} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>Base de données — {ws.name}</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }}>{ws.database.folders.length} dossier(s) · {totalFiles} fichier(s)</Text>
+            <View style={{ flex: 1, minWidth: 150, gap: 3 }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }}>
+                Vault racine — {rootVault.name}
+                {rootVault.vault?.sourceKind === 'github' ? ' (GitHub)' : ''}
+              </Text>
+              <TextInput
+                style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, color: C.textSecondary, fontSize: FontSize.xs, paddingHorizontal: Spacing.sm, paddingVertical: 4, fontFamily: 'monospace' }}
+                value={vaultPath}
+                onChangeText={setVaultPath}
+                placeholder="Chemin du dossier vault (ex: C:\projets\mon-vault)"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                onEndEditing={() => {
+                  if (rootVault.vault && vaultPath.trim() !== (rootVault.vault.path ?? '')) {
+                    updateFolder(ws.id, rootVault.id, { vault: { ...rootVault.vault, path: vaultPath.trim() } });
+                    showToast('Chemin du vault enregistré', { tone: 'success' });
+                  }
+                }}
+              />
             </View>
+            {busyVault ? <ActivityIndicator size="small" color={C.accent} /> : null}
+            <IconButton icon="sync" label="Resynchroniser le vault" bare size={18} color={C.accent} onPress={() => handleRootVaultSync()} />
+            <IconButton
+              icon="link-off"
+              label="Détacher le vault racine"
+              bare
+              size={18}
+              color={C.textMuted}
+              onPress={() => showAlert(`Détacher « ${rootVault.name} » ?`, 'Le dossier vault et ses fichiers seront retirés de ce workspace.', [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Détacher', style: 'destructive', onPress: () => removeFolder(ws.id, rootVault.id) },
+              ])}
+            />
           </View>
         ) : null}
 
-        {/* Insert Bar */}
-        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Insérer</Text>
-          <InsertBar
-            onText={() => { resetFileForm(); setShowAddFile(true); }}
-            onFile={handlePickFile}
-            onImage={handlePickImage}
-            onLink={() => { setLinkUrl(''); setLinkName(''); setShowAddLink(true); }}
-          />
-        </View>
-
-        {/* Vault folders */}
-        {currentNav.kind === 'root' ? (
+        {/* Configuration du vault (uniquement s'il n'y en a pas encore) */}
+        {currentNav.kind === 'root' && !rootVault ? (
           <VaultFolderPanel
             workspaceId={ws.id}
             folders={ws.database.folders}
@@ -583,13 +668,18 @@ export default function WorkspaceDatabaseScreen() {
           />
         ) : null}
 
-        {/* Folders (root level) — non-vault */}
-        {currentNav.kind === 'root' && ws.database.folders.filter(f => !f.vault).length > 0 ? (
+        {/* Dossiers (racine) — non-vault + sous-dossiers du vault racine */}
+        {currentNav.kind === 'root' && (
+          ws.database.folders.filter(f => !f.vault).length > 0 || (rootVault?.subFolders?.length ?? 0) > 0
+        ) ? (
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
             {ws.database.folders.filter(f => !f.vault).map(folder => (
               <FolderCard key={folder.id} folder={folder} onPress={() => pushFolder(folder)} onDelete={() => handleDeleteFolder(folder)} />
             ))}
+            {rootVault ? (rootVault.subFolders ?? []).map(sub => (
+              <FolderCard key={sub.id} folder={sub} onPress={() => pushSubFolder(rootVault, sub)} onDelete={() => handleDeleteSubFolder(rootVault, sub)} />
+            )) : null}
           </View>
         ) : null}
 
@@ -610,7 +700,7 @@ export default function WorkspaceDatabaseScreen() {
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: Spacing.xs }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-              {currentNav.kind === 'root' ? 'Fichiers racine' : 'Fichiers'}
+              Fichiers
               {displayedFiles.length > 0 ? ` (${displayedFiles.length})` : ''}
             </Text>
             {displayedFiles.length > 0 ? (
