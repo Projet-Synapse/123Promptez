@@ -24,6 +24,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useToast } from '@/contexts/ToastContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { SyncIndicator } from '@/components/feature/SyncIndicator';
+import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -162,100 +163,6 @@ function PlusPopover({
             );
           })}
         </View>
-      </View>
-    </View>
-  );
-}
-
-// ─── Quick access panel (top-right button) ────────────────────────────────────
-function QuickAccessPanel({
-  visible, onClose, workspace, onOpenDatabase, onOpenInstructions, onOpenExternal,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  workspace: any;
-  onOpenDatabase: () => void;
-  onOpenInstructions: () => void;
-  onOpenExternal: (url: string) => void;
-}) {
-  const C = useThemeColors();
-  const [webMode, setWebMode] = useState<'menu' | 'web' | 'sandbox'>('menu');
-  const [url, setUrl] = useState('');
-  if (!visible) return null;
-
-  const dbFileCount = workspace.database.rootFiles.length
-    + workspace.database.folders.reduce((n: number, f: any) => n + f.files.length + (f.subFolders ?? []).reduce((m: number, s: any) => m + s.files.length, 0), 0);
-
-  return (
-    <View style={{ position: 'absolute', inset: 0, zIndex: 150 }} pointerEvents="box-none">
-      <Pressable style={{ flex: 1 }} onPress={onClose} />
-      <View style={{
-        position: 'absolute', top: 60, right: Spacing.sm,
-        width: 300, backgroundColor: C.bgCard, borderRadius: Radius.lg,
-        borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.xs,
-        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
-      }}>
-        {webMode === 'menu' ? (
-          [
-            { icon: 'folder', label: 'Base de données', desc: `${dbFileCount} fichier(s) · dossiers & fichiers`, color: '#FF6B35', onPress: onOpenDatabase },
-            { icon: 'psychology', label: 'Instructions du workspace', desc: 'Consulter le prompt système', color: '#9B59B6', onPress: onOpenInstructions },
-            { icon: 'language', label: 'Ouvrir une page web', desc: 'Naviguer vers une URL', color: '#3D7EFF', onPress: () => setWebMode('web') },
-            { icon: 'code', label: 'Ouvrir un sandbox', desc: 'Éditeur de code en ligne', color: '#00CC6A', onPress: () => setWebMode('sandbox') },
-          ].map(item => (
-            <Pressable key={item.label} onPress={item.onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.sm + 2, borderRadius: Radius.md, backgroundColor: C.bgCardAlt }, pressed && { opacity: 0.7 }]}>
-              <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: item.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-                <MaterialIcons name={item.icon as any} size={18} color={item.color} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>{item.label}</Text>
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1 }}>{item.desc}</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={18} color={C.textMuted} />
-            </Pressable>
-          ))
-        ) : (
-          <View style={{ gap: Spacing.sm }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-              <Pressable onPress={() => setWebMode('menu')} hitSlop={8} style={{ padding: 2 }}>
-                <MaterialIcons name="arrow-back" size={18} color={C.textSecondary} />
-              </Pressable>
-              <MaterialIcons name={webMode === 'web' ? 'language' : 'code'} size={16} color={webMode === 'web' ? '#3D7EFF' : '#00CC6A'} />
-              <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }}>
-                {webMode === 'web' ? 'Ouvrir une page web' : 'Ouvrir un sandbox'}
-              </Text>
-            </View>
-            {webMode === 'web' ? (
-              <TextInput
-                style={{ backgroundColor: C.bg, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, color: C.textPrimary, fontSize: FontSize.sm }}
-                value={url}
-                onChangeText={setUrl}
-                placeholder="https://exemple.com"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                onSubmitEditing={() => url.trim() && onOpenExternal(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`)}
-              />
-            ) : (
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
-                Ouvre un éditeur de code en ligne (CodeSandbox) lié à ce workspace — pratique quand l'IA génère du code.
-              </Text>
-            )}
-            <Pressable
-              onPress={() => {
-                if (webMode === 'web') {
-                  if (!url.trim()) return;
-                  onOpenExternal(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
-                } else {
-                  onOpenExternal('https://codesandbox.io/s/');
-                }
-              }}
-              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: webMode === 'web' ? '#3D7EFF' : '#00CC6A', opacity: webMode === 'web' && !url.trim() ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '700' }}>Ouvrir</Text>
-            </Pressable>
-          </View>
-        )}
       </View>
     </View>
   );
@@ -579,8 +486,7 @@ export default function ChatScreen() {
   const [showModesPanel, setShowModesPanel] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
-  const [showQuickAccess, setShowQuickAccess] = useState(false);
-  const [showInstructions, setShowInstructions] = useState(false);
+  const [showSidePanel, setShowSidePanel] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>('auto');
 
   // Attachment context: appended to the next message
@@ -782,16 +688,15 @@ export default function ChatScreen() {
     if (convId) setActiveConversation(wsId, convId);
   };
 
-  // ── Accès rapide : DB / instructions / web / sandbox ──────────────
+  // ── Panneau latéral droit : fichiers / instructions / sites ──────
   const openWorkspaceDatabase = () => {
-    setShowQuickAccess(false);
+    setShowSidePanel(false);
     router.push({ pathname: '/workspace-database', params: { wsId: activeWorkspace.id } });
   };
 
-  const openExternal = (url: string) => {
-    setShowQuickAccess(false);
-    if (Platform.OS === 'web') window.open(url, '_blank', 'noopener');
-    else Linking.openURL(url).catch(() => showToast('Impossible d\'ouvrir le lien', { tone: 'error' }));
+  const openWorkspaceSettings = () => {
+    setShowSidePanel(false);
+    router.push({ pathname: '/workspace-settings', params: { wsId: activeWorkspace.id } });
   };
 
   return (
@@ -853,15 +758,15 @@ export default function ChatScreen() {
               color={activeModes.length > 0 ? C.accent : C.textMuted}
             />
 
-            {/* Accès rapide workspace : base de données, instructions, page web / sandbox */}
+            {/* Panneau latéral droit : fichiers, instructions, sites web */}
             <IconButton
-              icon="apps"
-              label="Accès rapide workspace"
-              onPress={() => setShowQuickAccess(v => !v)}
+              icon="space-dashboard"
+              label="Panneau workspace (fichiers, instructions, sites)"
+              onPress={() => setShowSidePanel(v => !v)}
               boxSize={36}
-              backgroundColor={showQuickAccess ? C.accentGlow : C.bgCardAlt}
-              borderColor={showQuickAccess ? C.accent + '55' : C.border}
-              color={showQuickAccess ? C.accent : C.textMuted}
+              backgroundColor={showSidePanel ? C.accentGlow : C.bgCardAlt}
+              borderColor={showSidePanel ? C.accent + '55' : C.border}
+              color={showSidePanel ? C.accent : C.textMuted}
             />
 
             <IconButton
@@ -1076,44 +981,14 @@ export default function ChatScreen() {
         bottomInset={insets.bottom}
       />
 
-      {/* Panneau d'accès rapide (bouton en haut à droite) */}
-      <QuickAccessPanel
-        visible={showQuickAccess}
-        onClose={() => setShowQuickAccess(false)}
+      {/* Panneau latéral droit (façon Grok) : fichiers, instructions, sites web / sandbox */}
+      <WorkspaceSidePanel
+        visible={showSidePanel}
+        onClose={() => setShowSidePanel(false)}
         workspace={activeWorkspace}
         onOpenDatabase={openWorkspaceDatabase}
-        onOpenInstructions={() => { setShowQuickAccess(false); setShowInstructions(true); }}
-        onOpenExternal={openExternal}
+        onOpenSettings={openWorkspaceSettings}
       />
-
-      {/* Instructions du workspace (lecture) */}
-      <Modal visible={showInstructions} transparent animationType="fade">
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }} onPress={() => setShowInstructions(false)}>
-          <Pressable style={{ width: '100%', maxWidth: 560, maxHeight: '80%', backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }} onPress={() => {}}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-              <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: activeWorkspace.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-                <MaterialIcons name="psychology" size={18} color={activeWorkspace.color} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Instructions du workspace</Text>
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{activeWorkspace.name}</Text>
-              </View>
-              <IconButton icon="close" label="Fermer" bare size={20} color={C.textSecondary} onPress={() => setShowInstructions(false)} />
-            </View>
-            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: Spacing.xs }}>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 20, fontFamily: 'monospace' }}>
-                {activeWorkspace.systemPrompt || 'Aucune instruction définie pour ce workspace. Vous pouvez en ajouter dans les paramètres du workspace.'}
-              </Text>
-            </ScrollView>
-            <Pressable
-              onPress={() => { setShowInstructions(false); router.push({ pathname: '/workspace-settings', params: { wsId: activeWorkspace.id } }); }}
-              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: activeWorkspace.color + '22', borderWidth: 1, borderColor: activeWorkspace.color + '55' }, pressed && { opacity: 0.75 }]}
-            >
-              <Text style={{ fontSize: FontSize.sm, color: activeWorkspace.color, fontWeight: '700' }}>Modifier les instructions</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {/* Modes Panel */}
       <Modal visible={showModesPanel} transparent animationType="slide">
