@@ -436,7 +436,9 @@ export async function searchGitHubRepos(
   }
 }
 
-/** Shallow import of README + a few root text files from a public/private repo via Contents API. */
+/** Import d'un dépôt GitHub : ARBRE COMPLET des dossiers/fichiers texte via
+ *  l'API git trees + raw.githubusercontent (les chemins relatifs materialisent
+ *  l'arborescence côté base). Nécessite un jeton avec accès au dépôt. */
 export async function importGitHubRepoAsVault(
   token: string,
   repo: GitHubRepoHit,
@@ -447,47 +449,71 @@ export async function importGitHubRepoAsVault(
   error?: string;
 }> {
   const [owner, name] = repo.full_name.split('/');
+  const branch = repo.default_branch || 'main';
+  const fail = (message: string): { meta: VaultMeta; files: VaultFileInput[]; dirs: string[]; error?: string } => ({
+    meta: {
+      sourceKind: 'github',
+      repoFullName: repo.full_name,
+      repoId: repo.id,
+      syncStatus: 'error',
+      syncMessage: message,
+    },
+    files: [],
+    dirs: [],
+    error: message,
+  });
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${name}/contents/`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token.trim()}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    });
-    if (!res.ok) {
-      return {
-        meta: {
-          sourceKind: 'github',
-          repoFullName: repo.full_name,
-          repoId: repo.id,
-          syncStatus: 'error',
-          syncMessage: `Impossible de lister ${repo.full_name}`,
-        },
-        files: [],
-        dirs: [],
-        error: `GitHub API ${res.status}`,
-      };
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token.trim()}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+
+    // 1) Arbre complet du dépôt (une seule requête, récursif)
+    const treeRes = await fetch(
+      `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`,
+      { headers },
+    );
+    if (treeRes.status === 404) {
+      return fail('Dépôt introuvable ou privé — vérifie le jeton GitHub (Builder ▸ Connecteurs ▸ GitHub, Personal Access Token avec accès au dépôt).');
     }
-    const entries = await res.json();
-    const files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[] = [];
-    for (const entry of entries) {
-      if (entry.type !== 'file') continue;
-      const ext = (entry.name as string).split('.').pop()?.toLowerCase() ?? '';
-      if (!TEXT_EXT.has(ext)) continue;
-      if (entry.size > 512_000) continue;
-      const fileRes = await fetch(entry.download_url, {
-        headers: token ? { Authorization: `Bearer ${token.trim()}` } : {},
-      });
-      if (!fileRes.ok) continue;
-      const content = await fileRes.text();
-      files.push({
-        name: entry.name,
-        type: inferType(entry.name),
-        content,
-        tags: ['vault', 'github', repo.full_name],
-      });
+    if (!treeRes.ok) {
+      return fail(`GitHub API ${treeRes.status} — impossible de lister ${repo.full_name}`);
     }
+    const treeData: any = await treeRes.json();
+
+    // 2) Fichiers texte exploitables (plafond de taille + quantité)
+    const blobs = (treeData.tree ?? [])
+      .filter((e: any) =>
+        e.type === 'blob' &&
+        TEXT_EXT.has(String(e.path).split('.').pop()?.toLowerCase() ?? '') &&
+        (e.size ?? 0) > 0 &&
+        (e.size ?? 0) <= 512_000,
+      )
+      .slice(0, 150);
+
+    // 3) Contenus via raw.githubusercontent
+    const files: VaultFileInput[] = [];
+    for (const blob of blobs) {
+      try {
+        const rawRes = await fetch(
+          `https://raw.githubusercontent.com/${owner}/${name}/${branch}/${blob.path}`,
+          { headers: { Authorization: `Bearer ${token.trim()}` } },
+        );
+        if (!rawRes.ok) continue;
+        const content = await rawRes.text();
+        files.push({
+          name: blob.path,
+          type: inferType(blob.path),
+          content,
+          tags: ['dépôt', 'github', repo.full_name],
+        });
+      } catch {
+        // fichier suivant
+      }
+    }
+
+    const partial = treeData.truncated ? ' (arbre partiel — dépôt très volumineux)' : '';
     return {
       meta: {
         sourceKind: 'github',
@@ -497,7 +523,7 @@ export async function importGitHubRepoAsVault(
         syncStatus: 'ok',
         lastSyncedAt: new Date().toISOString(),
         liveSync: false,
-        syncMessage: `${files.length} fichier(s) importé(s) depuis GitHub (racine du dépôt)`,
+        syncMessage: `${files.length} fichier(s) importé(s) (arbre complet${partial})`,
       },
       files,
       dirs: [],

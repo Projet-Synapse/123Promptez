@@ -332,14 +332,20 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     setReadme(null);
     try {
       const token = resolveGitHubToken(bot.connectedApps);
+      if (!token) {
+        setReadme('(Aucun jeton GitHub configuré — Builder ▸ Connecteurs ▸ GitHub : colle un Personal Access Token ayant accès à ce dépôt, puis « Resynchroniser ».)');
+        return;
+      }
       const res = await fetch(`https://api.github.com/repos/${meta.repoFullName}/readme`, {
         headers: {
           Accept: 'application/vnd.github.raw',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
       });
       if (res.ok) {
         setReadme(await res.text());
+      } else if (res.status === 404) {
+        setReadme('(README indisponible — dépôt privé ou jeton sans accès : vérifie le Personal Access Token dans Builder ▸ Connecteurs ▸ GitHub.)');
       } else {
         setReadme(`(README indisponible — GitHub API ${res.status})`);
       }
