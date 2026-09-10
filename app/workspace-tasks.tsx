@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import type { WorkspaceTask, TaskFrequency } from '@/contexts/WorkspaceContext';
+import WorkspaceAutomationsScreen from '@/app/workspace-automations';
 
 const TASK_COLORS = ['#3D7EFF', '#00CC6A', '#FF6B35', '#9B59B6', '#FFB800', '#FF4455'];
 const TASK_ICONS = ['task-alt', 'today', 'event-repeat', 'schedule', 'alarm', 'notifications', 'flag', 'star', 'bolt', 'psychology'];
@@ -55,6 +56,8 @@ export default function WorkspaceTasksScreen() {
 
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<WorkspaceTask | null>(null);
+  // Onglets : Tâches (check-list) / Automatisations
+  const [tab, setTab] = useState<'tasks' | 'auto'>('tasks');
 
   // Form
   const [taskTitle, setTaskTitle] = useState('');
@@ -166,7 +169,7 @@ export default function WorkspaceTasksScreen() {
           <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.topBarTitle}>Tâches planifiées</Text>
+          <Text style={styles.topBarTitle}>Tâches</Text>
           <Text style={styles.topBarSub}>{ws.name} · {ws.tasks.length} tâche{ws.tasks.length !== 1 ? 's' : ''}</Text>
         </View>
         <Pressable
@@ -178,6 +181,35 @@ export default function WorkspaceTasksScreen() {
         </Pressable>
       </View>
 
+      {/* Onglets : Tâches / Automatisations */}
+      <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.xs, backgroundColor: C.bg }}>
+        {([
+          { id: 'tasks', label: 'Tâches', icon: 'checklist' },
+          { id: 'auto', label: 'Automatisations', icon: 'bolt' },
+        ] as const).map(t => {
+          const active = tab === t.id;
+          return (
+            <Pressable
+              key={t.id}
+              onPress={() => setTab(t.id)}
+              style={({ pressed }) => [{
+                flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+                paddingVertical: 8, borderRadius: Radius.md,
+                backgroundColor: active ? C.warning + '18' : C.bgCardAlt,
+                borderWidth: 1, borderColor: active ? C.warning + '66' : C.border,
+                opacity: pressed ? 0.75 : 1,
+              }]}
+            >
+              <MaterialIcons name={t.icon as any} size={14} color={active ? C.warning : C.textMuted} />
+              <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: active ? C.warning : C.textMuted }}>{t.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {tab === 'auto' ? (
+        <WorkspaceAutomationsScreen embedded />
+      ) : (
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
@@ -186,9 +218,9 @@ export default function WorkspaceTasksScreen() {
         <View style={styles.explainCard}>
           <MaterialIcons name="schedule" size={20} color={C.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.explainTitle}>Tâches automatiques</Text>
+            <Text style={styles.explainTitle}>Tâches</Text>
             <Text style={styles.explainText}>
-              Les tâches planifiées injectent des instructions dans le chat à leur échéance. L’IA les exécute automatiquement selon la fréquence définie.
+              Votre check-list : cochez une tâche accomplie. L’agent peut aussi les cocher lui-même au fil de la conversation. Les tâches récurrentes se replanifient à leur fréquence.
             </Text>
           </View>
         </View>
@@ -236,7 +268,7 @@ export default function WorkspaceTasksScreen() {
         {ws.tasks.length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialIcons name="event-repeat" size={48} color={C.textMuted} />
-            <Text style={styles.emptyTitle}>Aucune tâche planifiée</Text>
+            <Text style={styles.emptyTitle}>Aucune tâche</Text>
             <Text style={styles.emptySub}>
               Créez des tâches récurrentes que l’IA accomplira automatiquement selon votre planning.
             </Text>
@@ -277,6 +309,19 @@ export default function WorkspaceTasksScreen() {
                 >
                   {/* Top row */}
                   <View style={styles.taskTopRow}>
+                    {/* Case à cocher : marque la tâche comme accomplie */}
+                    <Pressable
+                      onPress={() => completeTask(ws.id, task.id)}
+                      hitSlop={6}
+                      accessibilityLabel={isDue ? `Marquer ${task.title} comme faite` : `${task.title} — à venir`}
+                      style={{ padding: 2 }}
+                    >
+                      <MaterialIcons
+                        name={isDue ? 'check-box' : 'check-box-outline-blank'}
+                        size={24}
+                        color={isDue ? '#00CC6A' : C.textMuted}
+                      />
+                    </Pressable>
                     <View style={[styles.taskIconWrap, { backgroundColor: task.color + '22' }]}>
                       <MaterialIcons name={task.icon as any} size={20} color={task.color} />
                     </View>
@@ -372,6 +417,7 @@ export default function WorkspaceTasksScreen() {
           </View>
         </View>
       </ScrollView>
+      )}
 
       {/* ─── Add/Edit Modal ──────────────────────────────────────────── */}
       <Modal visible={showModal} transparent animationType="slide">

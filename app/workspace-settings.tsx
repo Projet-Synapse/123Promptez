@@ -37,6 +37,8 @@ export default function WorkspaceSettingsScreen() {
 
   const [showAddMode, setShowAddMode] = useState(false);
   const [editingMode, setEditingMode] = useState<WorkspaceMode | null>(null);
+  // Hub : 'hub' = page de boutons, 'skills' = instructions et compétences
+  const [section, setSection] = useState<'hub' | 'skills'>('hub');
 
   // Form fields
   const [modeLabel, setModeLabel] = useState('');
@@ -162,24 +164,75 @@ export default function WorkspaceSettingsScreen() {
   };
 
   const activeModes = ws.modes.filter(m => m.enabled);
-  const totalFiles = ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length, 0);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backIconBtn}>
-          <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
+        <Pressable
+          onPress={() => (section === 'hub' ? router.back() : setSection('hub'))}
+          hitSlop={8}
+          style={styles.backIconBtn}
+        >
+          <MaterialIcons name={section === 'hub' ? 'arrow-back' : 'arrow-back'} size={22} color={C.textPrimary} />
         </Pressable>
         <View style={[styles.wsIconSmall, { backgroundColor: ws.color + '22' }]}>
           <MaterialIcons name={ws.icon as any} size={18} color={ws.color} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.topBarTitle}>{ws.name}</Text>
-          <Text style={styles.topBarSub}>Paramètres du workspace</Text>
+          <Text style={styles.topBarSub}>{section === 'hub' ? 'Paramètres du workspace' : 'Instructions et compétences'}</Text>
         </View>
       </View>
 
+      {section === 'hub' ? (
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable
+            onPress={() => setSection('skills')}
+            style={({ pressed }) => [styles.hubBtn, { borderColor: C.primary + '55', backgroundColor: C.primary + '12' }, pressed && { opacity: 0.8 }]}
+          >
+            <View style={[styles.hubBtnIcon, { backgroundColor: C.primary + '22' }]}>
+              <MaterialIcons name="psychology" size={26} color={C.primary} />
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={[styles.hubBtnTitle, { color: C.textPrimary }]}>Instructions et compétences</Text>
+              <Text style={[styles.hubBtnSub, { color: C.textSecondary }]}>Identité, prompt système, agents du Builder et compétences personnalisées</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={C.primary} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push({ pathname: '/workspace-database', params: { wsId: ws.id } })}
+            style={({ pressed }) => [styles.hubBtn, { borderColor: C.accent + '55', backgroundColor: C.accent + '12' }, pressed && { opacity: 0.8 }]}
+          >
+            <View style={[styles.hubBtnIcon, { backgroundColor: C.accent + '22' }]}>
+              <MaterialIcons name="storage" size={26} color={C.accent} />
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={[styles.hubBtnTitle, { color: C.textPrimary }]}>Base de données</Text>
+              <Text style={[styles.hubBtnSub, { color: C.textSecondary }]}>Dossiers, fichiers, vault et dépôts connectés</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={C.accent} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push({ pathname: '/workspace-tasks', params: { wsId: ws.id } })}
+            style={({ pressed }) => [styles.hubBtn, { borderColor: C.warning + '55', backgroundColor: C.warning + '12' }, pressed && { opacity: 0.8 }]}
+          >
+            <View style={[styles.hubBtnIcon, { backgroundColor: C.warning + '22' }]}>
+              <MaterialIcons name="task-alt" size={26} color={C.warning} />
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={[styles.hubBtnTitle, { color: C.textPrimary }]}>Tâches et automatisations</Text>
+              <Text style={[styles.hubBtnSub, { color: C.textSecondary }]}>Check-list de l’agent et scénarios automatiques</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={C.warning} />
+          </Pressable>
+        </ScrollView>
+      ) : (
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
@@ -223,96 +276,6 @@ export default function WorkspaceSettingsScreen() {
           <Text style={styles.promptHint}>
             {ws.systemPrompt.length} caractères · Ce prompt remplace le prompt global quand ce workspace est actif
           </Text>
-        </View>
-
-        {/* Database */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionLabel}>
-              <MaterialIcons name="storage" size={13} color={C.primary} /> Base de données
-            </Text>
-          </View>
-          <View style={styles.dbSummary}>
-            <View style={styles.dbStat}>
-              <MaterialIcons name="folder" size={20} color={C.primary} />
-              <Text style={styles.dbStatValue}>{ws.database.folders.length}</Text>
-              <Text style={styles.dbStatLabel}>Dossier{ws.database.folders.length !== 1 ? 's' : ''}</Text>
-            </View>
-            <View style={styles.dbDivider} />
-            <View style={styles.dbStat}>
-              <MaterialIcons name="insert-drive-file" size={20} color={C.textSecondary} />
-              <Text style={styles.dbStatValue}>{totalFiles}</Text>
-              <Text style={styles.dbStatLabel}>Fichier{totalFiles !== 1 ? 's' : ''}</Text>
-            </View>
-          </View>
-          <Pressable
-            onPress={() => router.push({ pathname: '/workspace-database', params: { wsId: ws.id } })}
-            style={({ pressed }) => [styles.dbOpenBtn, pressed && { opacity: 0.8 }]}
-          >
-            <MaterialIcons name="storage" size={18} color="#fff" />
-            <Text style={styles.dbOpenBtnText}>Ouvrir la base de données</Text>
-            <MaterialIcons name="arrow-forward" size={16} color="#fff" />
-          </Pressable>
-        </View>
-
-        {/* Tasks */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionLabel}>
-              <MaterialIcons name="event-repeat" size={13} color={C.warning} /> Tâches planifiées
-            </Text>
-          </View>
-          <View style={styles.dbSummary}>
-            <View style={styles.dbStat}>
-              <MaterialIcons name="task-alt" size={20} color={C.accent} />
-              <Text style={styles.dbStatValue}>{ws.tasks.filter(t => t.enabled).length}</Text>
-              <Text style={styles.dbStatLabel}>Actives</Text>
-            </View>
-            <View style={styles.dbDivider} />
-            <View style={styles.dbStat}>
-              <MaterialIcons name="event-repeat" size={20} color={C.warning} />
-              <Text style={styles.dbStatValue}>{ws.tasks.length}</Text>
-              <Text style={styles.dbStatLabel}>Total</Text>
-            </View>
-          </View>
-          <Pressable
-            onPress={() => router.push({ pathname: '/workspace-tasks', params: { wsId: ws.id } })}
-            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: C.warning }, pressed && { opacity: 0.8 }]}
-          >
-            <MaterialIcons name="event-repeat" size={18} color="#fff" />
-            <Text style={styles.dbOpenBtnText}>Gérer les tâches planifiées</Text>
-            <MaterialIcons name="arrow-forward" size={16} color="#fff" />
-          </Pressable>
-        </View>
-
-        {/* Automations */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionLabel}>
-              <MaterialIcons name="bolt" size={13} color="#9B59B6" /> Automatisations
-            </Text>
-          </View>
-          <View style={styles.dbSummary}>
-            <View style={styles.dbStat}>
-              <MaterialIcons name="settings-suggest" size={20} color="#9B59B6" />
-              <Text style={styles.dbStatValue}>{(ws.automations ?? []).filter(a => a.enabled).length}</Text>
-              <Text style={styles.dbStatLabel}>Actives</Text>
-            </View>
-            <View style={styles.dbDivider} />
-            <View style={styles.dbStat}>
-              <MaterialIcons name="bolt" size={20} color={C.textSecondary} />
-              <Text style={styles.dbStatValue}>{(ws.automations ?? []).length}</Text>
-              <Text style={styles.dbStatLabel}>Total</Text>
-            </View>
-          </View>
-          <Pressable
-            onPress={() => router.push({ pathname: '/workspace-automations', params: { wsId: ws.id } })}
-            style={({ pressed }) => [styles.dbOpenBtn, { backgroundColor: '#9B59B6' }, pressed && { opacity: 0.8 }]}
-          >
-            <MaterialIcons name="bolt" size={18} color="#fff" />
-            <Text style={styles.dbOpenBtnText}>Gérer les automatisations</Text>
-            <MaterialIcons name="arrow-forward" size={16} color="#fff" />
-          </Pressable>
         </View>
 
         {/* Modes */}
@@ -474,6 +437,7 @@ export default function WorkspaceSettingsScreen() {
           ))}
         </View>
       </ScrollView>
+      )}
 
       {/* Add/Edit Mode Modal */}
       <Modal visible={showAddMode} transparent animationType="slide">
@@ -588,6 +552,24 @@ const createStyles = (C: ReturnType<typeof useThemeColors>) => StyleSheet.create
   topBarTitle: { fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' },
   topBarSub: { fontSize: FontSize.xs, color: C.textMuted },
   content: { padding: Spacing.md, gap: Spacing.lg },
+  hubBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  hubBtnIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hubBtnTitle: { fontSize: FontSize.md, fontWeight: '700' },
+  hubBtnSub: { fontSize: FontSize.sm, lineHeight: 18 },
   section: {
     backgroundColor: C.bgCard, borderRadius: Radius.lg,
     borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md,

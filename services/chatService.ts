@@ -39,7 +39,7 @@ export function buildSystemPrompt(
 
   // Inject due tasks
   if (dueTasks.length > 0) {
-    prompt += '## TÂCHES PLANIFIÉES DUE\n\n';
+    prompt += '## TÂCHES À FAIRE\n\n';
     prompt += 'Les tâches suivantes sont dues et doivent être exécutées dans cette session:\n\n';
     dueTasks.forEach(task => {
       prompt += `### ${task.title} (${task.frequency})\n${task.promptInjection}\n\n`;

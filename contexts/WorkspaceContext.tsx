@@ -186,9 +186,13 @@ interface WorkspaceContextType {
   /** Promote un sous-dossier en dossier racine */
   promoteSubFolder: (workspaceId: string, folderId: string, subId: string) => void;
   // Database — sub-folders (imbriqués à toute profondeur)
-  addSubFolder: (workspaceId: string, folderId: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>, parentSubId?: string) => void;
+  addSubFolder: (workspaceId: string, folderId: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>, parentSubId?: string) => string;
   updateSubFolder: (workspaceId: string, folderId: string, subId: string, updates: Partial<DBSubFolder>) => void;
   removeSubFolder: (workspaceId: string, folderId: string, subId: string) => void;
+  /** Déplace un fichier dans/entre les listes en l'insérant avant beforeId (ordre manuel) */
+  moveFileToIndex: (workspaceId: string, fileId: string, fromLoc: FileLocation, toLoc: FileLocation, beforeId: string | null) => void;
+  /** Déplace un sous-dossier avant beforeSubId dans son parent (ordre manuel) */
+  moveSubToIndex: (workspaceId: string, folderId: string, parentSubId: string | null, subId: string, beforeSubId: string | null) => void;
   // Database — files
   addFile: (workspaceId: string, location: FileLocation, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => void;
   updateFile: (workspaceId: string, location: FileLocation, fileId: string, updates: Partial<DBFile>) => void;
@@ -654,20 +658,53 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     }));
 
   // ─── Sub-Folders (imbriqués à toute profondeur) ────────────────────
-  const addSubFolder = (wid: string, fid: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>, parentSubId?: string) =>
+  const addSubFolder = (wid: string, fid: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>, parentSubId?: string): string => {
+    const newSub: DBSubFolder = { ...sub, id: `sub-${Date.now()}`, files: [], subFolders: [], createdAt: new Date() };
     setWorkspaces(prev => prev.map(w => {
       if (w.id !== wid) return w;
-      const newSub: DBSubFolder = { ...sub, id: `sub-${Date.now()}`, files: [], subFolders: [], createdAt: new Date() };
       return { ...w, database: { ...w.database, folders: w.database.folders.map(f => {
         if (f.id !== fid) return f;
         if (!parentSubId) return { ...f, subFolders: [...(f.subFolders ?? []), newSub] };
         return { ...f, subFolders: mapSubIn(f.subFolders ?? [], parentSubId, s => ({ ...s, subFolders: [...(s.subFolders ?? []), newSub] })) };
       }) } };
     }));
+    return newSub.id;
+  };
   const updateSubFolder = (wid: string, fid: string, sid: string, updates: Partial<DBSubFolder>) =>
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : { ...f, subFolders: mapSubIn(f.subFolders ?? [], sid, s => ({ ...s, ...updates })) }) } }));
   const removeSubFolder = (wid: string, fid: string, sid: string) =>
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : { ...f, subFolders: removeSubIn(f.subFolders ?? [], sid) }) } }));
+
+  // Ordre manuel : déplace un fichier dans/entre les listes, inséré avant beforeId
+  const moveFileToIndex = (wid: string, fileId: string, fromLoc: FileLocation, toLoc: FileLocation, beforeId: string | null) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      let db = w.database;
+      const file = getFilesAt(db, fromLoc).find(f => f.id === fileId);
+      if (!file) return w;
+      db = setFilesAt(db, fromLoc, getFilesAt(db, fromLoc).filter(f => f.id !== fileId));
+      const list = [...getFilesAt(db, toLoc)];
+      const idx = beforeId ? list.findIndex(f => f.id === beforeId) : -1;
+      if (idx >= 0) list.splice(idx, 0, file); else list.push(file);
+      db = setFilesAt(db, toLoc, list);
+      return { ...w, database: db };
+    }));
+  // Ordre manuel : déplace un sous-dossier avant beforeSubId dans son parent
+  const moveSubToIndex = (wid: string, folderId: string, parentSubId: string | null, subId: string, beforeSubId: string | null) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      const folder = w.database.folders.find(f => f.id === folderId);
+      if (!folder) return w;
+      const listAt = (subs: DBSubFolder[]) => parentSubId ? (findSubIn(subs, parentSubId)?.subFolders ?? []) : subs;
+      const writeAt = (subs: DBSubFolder[], next: DBSubFolder[]) => parentSubId ? mapSubIn(subs, parentSubId, s => ({ ...s, subFolders: next })) : next;
+      const list = [...listAt(folder.subFolders ?? [])];
+      const sub = list.find(s => s.id === subId);
+      if (!sub) return w;
+      const without = list.filter(s => s.id !== subId);
+      const idx = beforeSubId ? without.findIndex(s => s.id === beforeSubId) : -1;
+      if (idx >= 0) without.splice(idx, 0, sub); else without.push(sub);
+      return { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== folderId ? f : { ...f, subFolders: writeAt(f.subFolders ?? [], without) }) } };
+    }));
 
   // ─── Files ───────────────────────────────────────────────────────
   const addFile = (wid: string, location: FileLocation, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => {
@@ -710,6 +747,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addFolder, addVaultFolder, updateFolder, removeFolder,
       syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
       addSubFolder, updateSubFolder, removeSubFolder,
+      moveFileToIndex, moveSubToIndex,
       addFile, updateFile, removeFile, moveFile,
     }}>
       {children}
