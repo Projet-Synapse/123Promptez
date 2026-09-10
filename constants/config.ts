@@ -88,8 +88,8 @@ export const CONNECTOR_PRESETS = [
     label: 'Supabase',
     icon: 'storage',
     color: '#3ECF8E',
-    description: 'Base de données, auth et edge functions',
-    comingSoon: true,
+    description: 'Base de données cloud du workspace — sauvegarde et lecture par l’IA',
+    comingSoon: false,
   },
   {
     id: 'google',

@@ -497,6 +497,15 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
             </View>
           ) : (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.sm, gap: Spacing.sm }} showsVerticalScrollIndicator={false}>
+              {/* État du jeton GitHub — visible en permanence */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.bgCard, borderRadius: Radius.sm, borderWidth: 1, borderColor: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' + '55' : C.error + '55', paddingHorizontal: 8, paddingVertical: 6 }}>
+                <MaterialIcons name={resolveGitHubToken(bot.connectedApps) ? 'verified' : 'key-off'} size={13} color={resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error} />
+                <Text style={{ flex: 1, fontSize: 10, lineHeight: 14, color: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error, fontWeight: '600' }}>
+                  {resolveGitHubToken(bot.connectedApps)
+                    ? 'Jeton GitHub détecté — les dépôts privés auxquels il a accès sont lisibles.'
+                    : 'Aucun jeton GitHub — Builder ▸ Connecteurs ▸ GitHub : colle un Personal Access Token (classic, scope « repo »).'}
+                </Text>
+              </View>
               {/* Fichiers du dépôt */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="code" size={12} color={C.textMuted} />
