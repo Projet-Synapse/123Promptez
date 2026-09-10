@@ -34,6 +34,8 @@ export interface DBFolder {
   createdAt: Date;
   /** Optional vault source (local FS / GitHub) — metadata only in cloud sync */
   vault?: VaultMeta;
+  /** Dépôt de code connecté (dossier local ou GitHub), distinct du vault */
+  repo?: VaultMeta;
 }
 
 export interface WorkspaceMode {
@@ -174,6 +176,12 @@ interface WorkspaceContextType {
   addVaultFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>, files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[]) => string;
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
+  /** Fusionne le contenu disque d'un vault/dépôt dans le dossier (IDs préservés, sous-dossiers matérialisés) */
+  syncFolderFromDisk: (workspaceId: string, folderId: string, files: DiskFileInput[], dirs?: string[]) => void;
+  /** Déplace un dossier racine dans un autre dossier (devient sous-dossier) */
+  moveFolderIntoFolder: (workspaceId: string, folderId: string, targetFolderId: string) => void;
+  /** Promote un sous-dossier en dossier racine */
+  promoteSubFolder: (workspaceId: string, folderId: string, subId: string) => void;
   // Database — sub-folders
   addSubFolder: (workspaceId: string, folderId: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>) => void;
   updateSubFolder: (workspaceId: string, folderId: string, subId: string, updates: Partial<DBSubFolder>) => void;
@@ -186,6 +194,9 @@ interface WorkspaceContextType {
 }
 
 export type FileLocation = null | string | { folderId: string; subId: string };
+
+/** Fichier brut issu du disque (vault / dépôt) avant attribution d'ID */
+export type DiskFileInput = { name: string; type: DBFile['type']; content: string; tags: string[] };
 
 const EMPTY_DATABASE: WorkspaceDatabase = { rootFiles: [], folders: [] };
 
@@ -486,6 +497,100 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   const removeFolder = (wid: string, fid: string) =>
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, database: { ...w.database, folders: w.database.folders.filter(f => f.id !== fid) } }));
 
+  // Fusion disque → app pour un dossier vault/dépôt. Les fichiers connus
+  // conservent leur ID/création (reconnaissables par leur chemin relatif),
+  // les dossiers du disque deviennent de vrais sous-dossiers navigables.
+  const syncFolderFromDisk = (wid: string, fid: string, diskFiles: DiskFileInput[], diskDirs: string[] = []) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      const folder = w.database.folders.find(f => f.id === fid);
+      if (!folder) return w;
+      const now = new Date();
+      const existingByName = new Map<string, DBFile>();
+      for (const f of folder.files) existingByName.set(f.name, f);
+      for (const sub of folder.subFolders ?? []) for (const f of sub.files) existingByName.set(f.name, f);
+      const subsByName = new Map<string, DBSubFolder>();
+      for (const s of folder.subFolders ?? []) subsByName.set(s.name, s);
+
+      const rootFiles: DBFile[] = [];
+      const newSubs = new Map<string, DBSubFolder>();
+      const mkSub = (name: string): DBSubFolder => subsByName.get(name) ?? {
+        id: `sub-${now.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+        name, icon: 'folder', color: folder.color,
+        description: folder.vault ? 'Dossier du vault' : 'Dossier du dépôt',
+        files: [], createdAt: now,
+      };
+      for (const df of diskFiles) {
+        const prevFile = existingByName.get(df.name);
+        const changed = !prevFile || prevFile.content !== df.content;
+        const file: DBFile = prevFile
+          ? { ...prevFile, type: df.type, content: df.content, size: df.content.length, updatedAt: changed ? now : prevFile.updatedAt }
+          : { ...df, id: `file-vault-${now.getTime()}-${existingByName.size}-${Math.random().toString(36).slice(2, 5)}`, size: df.content.length, createdAt: now, updatedAt: now };
+        const slash = df.name.indexOf('/');
+        if (slash > 0) {
+          const subName = df.name.slice(0, slash);
+          const sub = newSubs.get(subName) ?? mkSub(subName);
+          newSubs.set(subName, { ...sub, files: [...sub.files.filter(f => f.name !== df.name), file] });
+        } else {
+          rootFiles.push(file);
+        }
+      }
+      // Dossiers vides du disque : on les matérialise aussi (top-level)
+      for (const dir of diskDirs) {
+        const top = dir.split('/')[0];
+        if (!top || top === dir) continue;
+        if (!newSubs.has(top)) newSubs.set(top, mkSub(top));
+      }
+      rootFiles.sort((a, b) => a.name.localeCompare(b.name));
+      const subFolders = [...newSubs.values()].sort((a, b) => a.name.localeCompare(b.name));
+      return { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : { ...f, files: rootFiles, subFolders }) } };
+    }));
+
+  const moveFolderIntoFolder = (wid: string, folderId: string, targetFolderId: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid || folderId === targetFolderId) return w;
+      const folder = w.database.folders.find(f => f.id === folderId);
+      const target = w.database.folders.find(f => f.id === targetFolderId);
+      if (!folder || !target) return w;
+      return {
+        ...w,
+        database: {
+          ...w.database,
+          folders: w.database.folders
+            .filter(f => f.id !== folderId)
+            .map(f => f.id !== targetFolderId ? f : {
+              ...f,
+              subFolders: [...(f.subFolders ?? []), {
+                id: `sub-${Date.now()}`, name: folder.name, icon: folder.icon, color: folder.color,
+                description: folder.description, files: folder.files, createdAt: folder.createdAt,
+              }],
+            }),
+        },
+      };
+    }));
+
+  const promoteSubFolder = (wid: string, folderId: string, subId: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      const folder = w.database.folders.find(f => f.id === folderId);
+      const sub = folder?.subFolders?.find(s => s.id === subId);
+      if (!folder || !sub) return w;
+      const promoted: DBFolder = {
+        id: `folder-${Date.now()}`,
+        name: sub.name, icon: sub.icon, color: sub.color, description: sub.description,
+        files: sub.files, subFolders: [], createdAt: sub.createdAt,
+      };
+      return {
+        ...w,
+        database: {
+          ...w.database,
+          folders: w.database.folders
+            .map(f => f.id !== folderId ? f : { ...f, subFolders: (f.subFolders ?? []).filter(s => s.id !== subId) })
+            .concat(promoted),
+        },
+      };
+    }));
+
   // ─── Sub-Folders ──────────────────────────────────────────────────
   const addSubFolder = (wid: string, fid: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>) =>
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : { ...f, subFolders: [...(f.subFolders ?? []), { ...sub, id: `sub-${Date.now()}`, files: [], createdAt: new Date() }] }) } }));
@@ -533,6 +638,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addConversation, removeConversation, renameConversation, setActiveConversation,
       addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
+      syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
       addSubFolder, updateSubFolder, removeSubFolder,
       addFile, updateFile, removeFile, moveFile,
     }}>
