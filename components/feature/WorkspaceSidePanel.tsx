@@ -16,7 +16,7 @@ import {
   canMirrorToDisk, vaultWriteFile, vaultDeletePath, vaultMovePath, vaultOpenPath,
   type VaultMeta,
 } from '@/services/vaultService';
-import type { Workspace, DBFile, DBFolder, FileLocation } from '@/contexts/WorkspaceContext';
+import type { Workspace, DBFile, DBFolder, DBSubFolder, FileLocation } from '@/contexts/WorkspaceContext';
 
 type PanelTab = 'files' | 'instructions' | 'web';
 
@@ -50,27 +50,27 @@ function FileChip({ file, depth, active, fromLoc, onPress }: {
 }) {
   const C = useThemeColors();
   const info = fileTypeInfo(file.type);
-  const dragHandlers = useDragHandlers(() => ({
-    kind: 'file' as const,
-    id: file.id,
-    label: file.name.split('/').pop() ?? file.name,
-    icon: info.icon,
-    color: info.color,
-    data: { file, fromLoc },
-  }));
+  const dragHandlers = useDragHandlers(
+    () => ({
+      kind: 'file' as const,
+      id: file.id,
+      label: file.name,
+      icon: info.icon,
+      color: info.color,
+      data: { file, fromLoc },
+    }),
+    onPress,
+  );
   return (
     <View {...dragHandlers}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [{
-          flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-          paddingVertical: 6, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md,
-          borderRadius: Radius.sm, backgroundColor: active ? C.accent + '18' : 'transparent',
-        }, pressed && { opacity: 0.7 }]}
-      >
+      <View style={[{
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+        paddingVertical: 6, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md,
+        borderRadius: Radius.sm, backgroundColor: active ? C.accent + '18' : 'transparent',
+      }]}>
         <MaterialIcons name={info.icon as any} size={14} color={info.color} />
         <Text style={{ flex: 1, fontSize: FontSize.sm, color: active ? C.accent : C.textSecondary }} numberOfLines={1}>{file.name}</Text>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -141,19 +141,19 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
     moveFile(workspace.id, file.id, fromLoc, toLoc);
   };
 
-  // Lignes dépliables : dossiers racine + sous-dossiers (vault et dépôts inclus)
-  const rows: { key: string; folder: DBFolder; depth: number; parentId?: string }[] = [];
+  // Lignes dépliables : dossiers racine + sous-dossiers IMBRIQUÉS à toute
+  // profondeur (vault et dépôts inclus). `loc` = localisation exacte de la ligne.
+  const rows: { key: string; folder: DBFolder; depth: number; loc: FileLocation }[] = [];
+  const walkRows = (subs: DBSubFolder[], folderId: string, depth: number) => {
+    subs.forEach(s => {
+      rows.push({ key: s.id, folder: s as unknown as DBFolder, depth, loc: { folderId, subId: s.id } });
+      if (openFolderIds.has(s.id)) walkRows(s.subFolders ?? [], folderId, depth + 1);
+    });
+  };
   for (const folder of workspace.database.folders) {
-    rows.push({ key: folder.id, folder, depth: 0 });
-    if (openFolderIds.has(folder.id)) {
-      for (const sub of folder.subFolders ?? []) {
-        rows.push({ key: `${folder.id}/${sub.id}`, folder: sub as unknown as DBFolder, depth: 1, parentId: folder.id });
-      }
-    }
+    rows.push({ key: folder.id, folder, depth: 0, loc: folder.id });
+    if (openFolderIds.has(folder.id)) walkRows(folder.subFolders ?? [], folder.id, 1);
   }
-
-  const locOfFolderRow = (row: { folder: DBFolder; parentId?: string }): FileLocation =>
-    row.parentId ? { folderId: row.parentId, subId: row.folder.id } : row.folder.id;
 
   const folderMeta = (folder: DBFolder): VaultMeta | null => folder.vault ?? folder.repo ?? null;
 
@@ -191,9 +191,9 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
           />
         ))}
 
-        {/* Dossiers dépliables (vault et dépôts inclus) — zones de dépôt */}
+        {/* Dossiers dépliables (vault et dépôts inclus, sous-dossiers imbriqués) — zones de dépôt */}
         {rows.map(row => {
-          const { folder, depth } = row;
+          const { folder, depth, loc } = row;
           const open = openFolderIds.has(folder.id);
           const meta = folderMeta(folder);
           return (
@@ -204,7 +204,7 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
               onDrop={(item) => {
                 if (item.kind !== 'file') return;
                 const { file, fromLoc } = item.data ?? {};
-                if (file) void performMove(file, fromLoc ?? null, locOfFolderRow(row));
+                if (file) void performMove(file, fromLoc ?? null, loc);
               }}
               style={{ borderRadius: Radius.sm, borderWidth: 2, borderColor: 'transparent' }}
               activeStyle={{ borderColor: C.accent, opacity: 0.85 }}
@@ -239,7 +239,7 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
                   file={f}
                   depth={depth + 1}
                   active={selectedFile?.id === f.id}
-                  fromLoc={locOfFolderRow(row)}
+                  fromLoc={loc}
                   onPress={() => setSelectedFile(f)}
                 />
               )) : null}
