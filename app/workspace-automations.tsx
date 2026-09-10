@@ -131,7 +131,9 @@ function AutoCard({
   );
 }
 
-export default function WorkspaceAutomationsScreen() {
+// `embedded` : rendu à l'intérieur de l'onglet Automatisations de la page
+// Tâches — on masque alors l'en-tête (retour, titre) qui fait double emploi.
+export default function WorkspaceAutomationsScreen({ embedded }: { embedded?: boolean } = {}) {
   const insets = useSafeAreaInsets();
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
   const { workspaces, addAutomation, updateAutomation, removeAutomation, toggleAutomation } = useWorkspace();
@@ -223,7 +225,8 @@ export default function WorkspaceAutomationsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
-      {/* Header */}
+      {/* Header — masqué en mode intégré (onglet de la page Tâches) */}
+      {!embedded ? (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
         <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: Spacing.xs }}>
           <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
@@ -243,6 +246,7 @@ export default function WorkspaceAutomationsScreen() {
           <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '600' }}>Nouvelle</Text>
         </Pressable>
       </View>
+      ) : null}
 
       <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
 

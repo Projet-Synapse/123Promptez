@@ -598,6 +598,13 @@ export default function ChatScreen() {
       ? `\n[MODE: ${modeInfo.label.toUpperCase()}] ${modeInfo.desc}.`
       : '';
 
+    // Check-list partagée : l'agent peut cocher les tâches du workspace en
+    // écrivant leur marqueur [x:<id>] en fin de réponse (dépouillé à l'affichage).
+    const pendingTasks = activeWorkspace.tasks.filter((t: any) => t.enabled);
+    const tasksInjection = pendingTasks.length > 0
+      ? `\n\n## TÂCHES DU WORKSPACE (check-list partagée avec l'utilisateur)\n${pendingTasks.map((t: any) => `- ${t.title} → marqueur : [x:${t.id}]`).join('\n')}\nSi tu viens réellement d'accomplir l'une de ces tâches durant cet échange, ajoute EXACTEMENT son marqueur (ex. [x:${pendingTasks[0].id}]) sur une ligne séparée à la toute fin de ta réponse. Ne l'ajoute jamais si la tâche n'est pas faite, et n'invente pas d'autre format.`
+      : '';
+
     // Séquence d'activités défilantes avant/durant la réponse
     const wsDbFiles = [
       ...activeWorkspace.database.rootFiles,
@@ -632,12 +639,20 @@ export default function ChatScreen() {
         },
         profile,
         getDueTasks(activeWorkspace.id),
-        (systemInjection ?? '') + modeInjection,
+        (systemInjection ?? '') + modeInjection + tasksInjection,
         controller.signal,
       );
       setStreamingText('');
       setActivities([]);
-      addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: full });
+      // Dépouille les marqueurs de tâches cochées par l'agent : [x:task-…]
+      const doneIds = [...full.matchAll(/\[x:(task-[a-zA-Z0-9-]+)\]/g)].map(m => m[1]);
+      let finalContent = full;
+      if (doneIds.length > 0) {
+        finalContent = full.replace(/\s*\[x:task-[a-zA-Z0-9-]+\]/g, '').trim();
+        doneIds.forEach(id => completeTask(activeWorkspace.id, id));
+        showToast(`${doneIds.length} tâche(s) cochée(s)`, { tone: 'success' });
+      }
+      addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent });
       getDueTasks(activeWorkspace.id).forEach((task: any) => completeTask(activeWorkspace.id, task.id));
     } catch (err: any) {
       setStreamingText('');

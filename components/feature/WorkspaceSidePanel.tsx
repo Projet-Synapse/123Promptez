@@ -11,7 +11,7 @@ import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { IconButton } from '@/components/ui/IconButton';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useToast } from '@/contexts/ToastContext';
-import { DropZone, useDnDState, useDragHandlers } from '@/components/feature/dnd';
+import { Draggable, DropZone, useDnDState } from '@/components/feature/dnd';
 import {
   canMirrorToDisk, vaultWriteFile, vaultDeletePath, vaultMovePath, vaultOpenPath,
   type VaultMeta,
@@ -50,28 +50,24 @@ function FileChip({ file, depth, active, fromLoc, onPress }: {
 }) {
   const C = useThemeColors();
   const info = fileTypeInfo(file.type);
-  const dragHandlers = useDragHandlers(
-    () => ({
-      kind: 'file' as const,
-      id: file.id,
-      label: file.name,
-      icon: info.icon,
-      color: info.color,
-      data: { file, fromLoc },
-    }),
-    onPress,
-  );
   return (
-    <View {...dragHandlers}>
-      <View style={[{
-        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-        paddingVertical: 6, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md,
-        borderRadius: Radius.sm, backgroundColor: active ? C.accent + '18' : 'transparent',
-      }]}>
+    <Draggable
+      getItem={() => ({
+        kind: 'file' as const,
+        id: file.id,
+        label: file.name,
+        icon: info.icon,
+        color: info.color,
+        data: { file, fromLoc },
+      })}
+      onTap={onPress}
+      style={{ marginLeft: depth * Spacing.md, borderRadius: Radius.sm, backgroundColor: active ? C.accent + '18' : 'transparent' }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.sm }}>
         <MaterialIcons name={info.icon as any} size={14} color={info.color} />
         <Text style={{ flex: 1, fontSize: FontSize.sm, color: active ? C.accent : C.textSecondary }} numberOfLines={1}>{file.name}</Text>
       </View>
-    </View>
+    </Draggable>
   );
 }
 
