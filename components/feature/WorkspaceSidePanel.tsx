@@ -1,5 +1,6 @@
 // WorkspaceSidePanel — panneau latéral droit façon Grok :
-// accès direct aux fichiers du workspace, aux instructions et à des sites web / sandbox.
+// accès direct aux fichiers du workspace (avec glisser-déposer), aux
+// instructions, aux dépôts de code connectés et à des sites web / sandbox.
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Platform,
@@ -8,7 +9,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { IconButton } from '@/components/ui/IconButton';
-import type { Workspace, DBFile, DBFolder } from '@/contexts/WorkspaceContext';
+import { useWorkspace } from '@/hooks/useWorkspace';
+import { useToast } from '@/contexts/ToastContext';
+import { DropZone, useDnDState, useDragHandlers } from '@/components/feature/dnd';
+import {
+  canMirrorToDisk, vaultWriteFile, vaultDeletePath, vaultMovePath, vaultOpenPath,
+  type VaultMeta,
+} from '@/services/vaultService';
+import type { Workspace, DBFile, DBFolder, FileLocation } from '@/contexts/WorkspaceContext';
 
 type PanelTab = 'files' | 'instructions' | 'web';
 
@@ -37,34 +45,23 @@ function fileTypeInfo(type: string) {
 }
 
 // ─── Onglet Fichiers ──────────────────────────────────────────────────────────
-function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull: () => void }) {
+function FileChip({ file, depth, active, fromLoc, onPress }: {
+  file: DBFile; depth: number; active: boolean; fromLoc: FileLocation; onPress: () => void;
+}) {
   const C = useThemeColors();
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set());
-  const [selectedFile, setSelectedFile] = useState<DBFile | null>(null);
-
-  const toggleFolder = (id: string) => setOpenFolderIds(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-
-  const rows: { key: string; folder: DBFolder; depth: number }[] = [];
-  for (const folder of workspace.database.folders) {
-    rows.push({ key: folder.id, folder, depth: 0 });
-    if (openFolderIds.has(folder.id)) {
-      for (const sub of folder.subFolders ?? []) {
-        rows.push({ key: `${folder.id}/${sub.id}`, folder: sub as unknown as DBFolder, depth: 1 });
-      }
-    }
-  }
-
-  const fileChip = (file: DBFile, depth: number) => {
-    const info = fileTypeInfo(file.type);
-    const active = selectedFile?.id === file.id;
-    return (
+  const info = fileTypeInfo(file.type);
+  const dragHandlers = useDragHandlers(() => ({
+    kind: 'file' as const,
+    id: file.id,
+    label: file.name.split('/').pop() ?? file.name,
+    icon: info.icon,
+    color: info.color,
+    data: { file, fromLoc },
+  }));
+  return (
+    <View {...dragHandlers}>
       <Pressable
-        key={file.id}
-        onPress={() => setSelectedFile(file)}
+        onPress={onPress}
         style={({ pressed }) => [{
           flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
           paddingVertical: 6, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md,
@@ -74,35 +71,179 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
         <MaterialIcons name={info.icon as any} size={14} color={info.color} />
         <Text style={{ flex: 1, fontSize: FontSize.sm, color: active ? C.accent : C.textSecondary }} numberOfLines={1}>{file.name}</Text>
       </Pressable>
-    );
+    </View>
+  );
+}
+
+function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull: () => void }) {
+  const C = useThemeColors();
+  const { moveFile, updateFile } = useWorkspace();
+  const { showToast } = useToast();
+  const dragState = useDnDState();
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<DBFile | null>(null);
+
+  const toggleFolder = (id: string) => setOpenFolderIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  // ── Miroir disque (vault / dépôts locaux) ────────────────────────
+  const metaAt = (loc: FileLocation): VaultMeta | null => {
+    const folderOf = (fid: string) => workspace.database.folders.find(f => f.id === fid);
+    if (typeof loc === 'string') {
+      const f = folderOf(loc);
+      return f?.vault ?? f?.repo ?? null;
+    }
+    if (loc && typeof loc === 'object') {
+      const f = folderOf(loc.folderId);
+      return f?.vault ?? f?.repo ?? null;
+    }
+    return null;
   };
+  const prefixOf = (loc: FileLocation): string => {
+    if (!loc || typeof loc !== 'object') return '';
+    const f = workspace.database.folders.find(x => x.id === loc.folderId);
+    const subName = f?.subFolders?.find(s => s.id === loc.subId)?.name ?? '';
+    return subName ? `${subName}/` : '';
+  };
+  const performMove = async (file: DBFile, fromLoc: FileLocation, toLoc: FileLocation) => {
+    const fromMeta = metaAt(fromLoc);
+    const toMeta = metaAt(toLoc);
+    const fromMirror = canMirrorToDisk(fromMeta);
+    const toMirror = canMirrorToDisk(toMeta);
+    const base = file.name.split('/').pop() ?? file.name;
+    if (file.type !== 'url' && fromMirror && toMirror && fromMeta!.path === toMeta!.path) {
+      const toRel = `${prefixOf(toLoc)}${base}`;
+      const r = await vaultMovePath(fromMeta, file.name, toRel);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'déplacement impossible'}`, { tone: 'error' }); return; }
+      moveFile(workspace.id, file.id, fromLoc, toLoc);
+      updateFile(workspace.id, toLoc, file.id, { name: toRel });
+      return;
+    }
+    if (file.type !== 'url' && fromMirror && !toMirror) {
+      const r = await vaultDeletePath(fromMeta, file.name, false);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
+      moveFile(workspace.id, file.id, fromLoc, toLoc);
+      updateFile(workspace.id, toLoc, file.id, { name: base });
+      showToast('Fichier retiré du disque (conservé dans la base)', { tone: 'success' });
+      return;
+    }
+    if (file.type !== 'url' && !fromMirror && toMirror) {
+      const toRel = `${prefixOf(toLoc)}${base}`;
+      const r = await vaultWriteFile(toMeta, toRel, file.content);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' }); return; }
+      moveFile(workspace.id, file.id, fromLoc, toLoc);
+      updateFile(workspace.id, toLoc, file.id, { name: toRel });
+      return;
+    }
+    moveFile(workspace.id, file.id, fromLoc, toLoc);
+  };
+
+  // Lignes dépliables : dossiers racine + sous-dossiers (vault et dépôts inclus)
+  const rows: { key: string; folder: DBFolder; depth: number; parentId?: string }[] = [];
+  for (const folder of workspace.database.folders) {
+    rows.push({ key: folder.id, folder, depth: 0 });
+    if (openFolderIds.has(folder.id)) {
+      for (const sub of folder.subFolders ?? []) {
+        rows.push({ key: `${folder.id}/${sub.id}`, folder: sub as unknown as DBFolder, depth: 1, parentId: folder.id });
+      }
+    }
+  }
+
+  const locOfFolderRow = (row: { folder: DBFolder; parentId?: string }): FileLocation =>
+    row.parentId ? { folderId: row.parentId, subId: row.folder.id } : row.folder.id;
+
+  const folderMeta = (folder: DBFolder): VaultMeta | null => folder.vault ?? folder.repo ?? null;
 
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.sm, gap: 2 }} showsVerticalScrollIndicator={false}>
-        {/* Fichiers racine */}
-        {workspace.database.rootFiles.map(f => fileChip(f, 0))}
+        {/* Bande de dépôt vers la racine, visible pendant un glisser-déposer */}
+        {dragState ? (
+          <DropZone
+            zoneId="panel-root-strip"
+            accepts={() => true}
+            onDrop={(item) => {
+              if (item.kind !== 'file') return;
+              const { file, fromLoc } = item.data ?? {};
+              if (!file) return;
+              void performMove(file, fromLoc ?? null, null);
+              showToast(`« ${file.name.split('/').pop()} » déplacé à la racine`, { tone: 'success' });
+            }}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 2, borderColor: C.accent + '66', borderStyle: 'dashed', borderRadius: Radius.md, paddingVertical: Spacing.sm, backgroundColor: C.accent + '10' }}
+          >
+            <MaterialIcons name="home" size={14} color={C.accent} />
+            <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Déposer ici → Racine du workspace</Text>
+          </DropZone>
+        ) : null}
 
-        {/* Dossiers dépliables (vault inclus) */}
-        {rows.map(({ key, folder, depth }) => {
+        {/* Fichiers racine */}
+        {workspace.database.rootFiles.map(f => (
+          <FileChip
+            key={f.id}
+            file={f}
+            depth={0}
+            active={selectedFile?.id === f.id}
+            fromLoc={null}
+            onPress={() => setSelectedFile(f)}
+          />
+        ))}
+
+        {/* Dossiers dépliables (vault et dépôts inclus) — zones de dépôt */}
+        {rows.map(row => {
+          const { folder, depth } = row;
           const open = openFolderIds.has(folder.id);
+          const meta = folderMeta(folder);
           return (
-            <View key={key}>
+            <DropZone
+              key={row.key}
+              zoneId={`panel-folder-${folder.id}`}
+              accepts={(item) => item.kind === 'file'}
+              onDrop={(item) => {
+                if (item.kind !== 'file') return;
+                const { file, fromLoc } = item.data ?? {};
+                if (file) void performMove(file, fromLoc ?? null, locOfFolderRow(row));
+              }}
+              style={{ borderRadius: Radius.sm, borderWidth: 2, borderColor: 'transparent' }}
+              activeStyle={{ borderColor: C.accent, opacity: 0.85 }}
+            >
               <Pressable
                 onPress={() => toggleFolder(folder.id)}
-                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 7, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 7, paddingHorizontal: Spacing.sm, marginLeft: depth * Spacing.md }, pressed && { opacity: 0.7 }]}
               >
                 <MaterialIcons name={open ? 'folder-open' : (folder.icon as any) || 'folder'} size={16} color={folder.color} />
-                <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }} numberOfLines={1}>{folder.name}</Text>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }} numberOfLines={1}>{folder.name}</Text>
+                  {meta?.path ? (
+                    <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>
+                      {meta.sourceKind === 'github' ? 'GitHub' : 'Local'} · {meta.path}
+                    </Text>
+                  ) : null}
+                </View>
                 {folder.vault ? (
                   <View style={{ backgroundColor: (folder.color || '#9B59B6') + '22', borderRadius: Radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
                     <Text style={{ fontSize: 9, color: folder.color || '#9B59B6', fontWeight: '700' }}>vault</Text>
                   </View>
+                ) : folder.repo ? (
+                  <View style={{ backgroundColor: (folder.color || '#00BFFF') + '22', borderRadius: Radius.pill, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ fontSize: 9, color: folder.color || '#00BFFF', fontWeight: '700' }}>dépôt</Text>
+                  </View>
                 ) : null}
                 <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={14} color={C.textMuted} />
               </Pressable>
-              {open ? folder.files.map(f => fileChip(f, depth + 1)) : null}
-            </View>
+              {open ? (folder.files ?? []).map(f => (
+                <FileChip
+                  key={f.id}
+                  file={f}
+                  depth={depth + 1}
+                  active={selectedFile?.id === f.id}
+                  fromLoc={locOfFolderRow(row)}
+                  onPress={() => setSelectedFile(f)}
+                />
+              )) : null}
+            </DropZone>
           );
         })}
 
@@ -152,12 +293,22 @@ function InstructionsTab({ workspace, onEdit }: { workspace: Workspace; onEdit: 
   );
 }
 
-// ─── Onglet Web ───────────────────────────────────────────────────────────────
-function WebTab({ workspaceName }: { workspaceName: string }) {
+// ─── Onglet Sites (web + dépôts connectés) ────────────────────────────────────
+function SitesTab({ workspace }: { workspace: Workspace }) {
   const C = useThemeColors();
+  const { showToast } = useToast();
   const [url, setUrl] = useState('');
   const [loadedUrl, setLoadedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  // Dépôts connectés au workspace (séparés du vault)
+  const repos = useMemo(() => workspace.database.folders.filter(f => f.repo), [workspace]);
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
+  const [repoFile, setRepoFile] = useState<DBFile | null>(null);
+  const activeRepo = repos.find(r => r.id === activeRepoId) ?? null;
+  const activeRepoMeta = activeRepo?.repo ?? null;
+  const repoFiles: DBFile[] = activeRepo
+    ? [...activeRepo.files, ...(activeRepo.subFolders ?? []).flatMap(s => s.files)]
+    : [];
 
   const normalize = (u: string) => (/^https?:\/\//i.test(u) ? u : `https://${u}`);
 
@@ -167,6 +318,31 @@ function WebTab({ workspaceName }: { workspaceName: string }) {
     const full = normalize(t);
     setLoading(true);
     setLoadedUrl(full);
+  };
+
+  const openRepo = (folder: DBFolder) => {
+    setActiveRepoId(folder.id);
+    setRepoFile(null);
+    const meta = folder.repo!;
+    if (meta.sourceKind === 'github') {
+      const target = meta.path || `https://github.com/${meta.repoFullName}`;
+      setUrl(target);
+      setLoading(true);
+      setLoadedUrl(target);
+    }
+  };
+
+  const openRepoExternal = async () => {
+    if (!activeRepoMeta) return;
+    if (activeRepoMeta.sourceKind === 'github') {
+      const target = activeRepoMeta.path || `https://github.com/${activeRepoMeta.repoFullName}`;
+      setUrl(target);
+      setLoading(true);
+      setLoadedUrl(target);
+    } else if (activeRepoMeta.path) {
+      const r = await vaultOpenPath(activeRepoMeta.path);
+      if (!r.ok) showToast(r.error ?? 'Ouverture impossible', { tone: 'error' });
+    }
   };
 
   return (
@@ -201,6 +377,88 @@ function WebTab({ workspaceName }: { workspaceName: string }) {
         ))}
       </View>
 
+      {/* Dépôts connectés — ouvrables ici */}
+      {repos.length > 0 ? (
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center', paddingHorizontal: Spacing.sm, paddingBottom: Spacing.xs }}>
+          <MaterialIcons name="source" size={12} color={C.textMuted} />
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Dépôts</Text>
+          {repos.map(folder => {
+            const active = folder.id === activeRepoId;
+            return (
+              <Pressable
+                key={folder.id}
+                onPress={() => openRepo(folder)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1, borderColor: active ? (folder.color || '#00BFFF') : C.border, backgroundColor: active ? (folder.color || '#00BFFF') + '22' : C.bgCardAlt }}
+              >
+                <MaterialIcons name="code" size={12} color={folder.color || '#00BFFF'} />
+                <Text style={{ fontSize: FontSize.xs, color: active ? (folder.color || '#00BFFF') : C.textSecondary, fontWeight: '700' }} numberOfLines={1}>{folder.name}</Text>
+                {active ? (
+                  <Pressable onPress={() => { setActiveRepoId(null); setRepoFile(null); }} hitSlop={6}>
+                    <MaterialIcons name="close" size={12} color={folder.color || '#00BFFF'} />
+                  </Pressable>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {/* Navigateur de dépôt : fichiers de code du dépôt actif */}
+      {activeRepo ? (
+        <View style={{ borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.bgCardAlt, maxHeight: '45%' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.sm, paddingVertical: 6 }}>
+            <MaterialIcons name="folder-open" size={14} color={activeRepo.color || '#00BFFF'} />
+            <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>
+              {activeRepoMeta?.sourceKind === 'github' ? activeRepoMeta.repoFullName : activeRepoMeta?.path}
+            </Text>
+            <Pressable onPress={() => void openRepoExternal()} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }}>
+              <MaterialIcons name={activeRepoMeta?.sourceKind === 'github' ? 'open-in-new' : 'folder-open'} size={11} color={C.accent} />
+              <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>{activeRepoMeta?.sourceKind === 'github' ? 'Ouvrir le site' : 'Ouvrir le dossier'}</Text>
+            </Pressable>
+            {repoFile ? (
+              <Pressable onPress={() => setRepoFile(null)} hitSlop={6}>
+                <MaterialIcons name="list" size={16} color={C.textSecondary} />
+              </Pressable>
+            ) : null}
+          </View>
+          {repoFile ? (
+            <View style={{ paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm, gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name={fileTypeInfo(repoFile.type).icon as any} size={13} color={fileTypeInfo(repoFile.type).color} />
+                <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textPrimary, fontWeight: '700', fontFamily: 'monospace' }} numberOfLines={1}>{repoFile.name}</Text>
+                <Pressable onPress={() => setRepoFile(null)} hitSlop={6}>
+                  <MaterialIcons name="close" size={14} color={C.textSecondary} />
+                </Pressable>
+              </View>
+              <ScrollView style={{ maxHeight: 180 }}>
+                <Text style={{ fontSize: 10, color: C.textSecondary, lineHeight: 15, fontFamily: 'monospace' }}>
+                  {repoFile.content || '(Contenu vide)'}
+                </Text>
+              </ScrollView>
+            </View>
+          ) : (
+            <ScrollView style={{ maxHeight: 190 }} contentContainerStyle={{ paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm, gap: 1 }} showsVerticalScrollIndicator={false}>
+              {repoFiles.length === 0 ? (
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingVertical: Spacing.sm }}>
+                  Aucun fichier importé — resynchronisez le dépôt dans la base de données.
+                </Text>
+              ) : (
+                repoFiles.map(f => (
+                  <Pressable
+                    key={f.id}
+                    onPress={() => setRepoFile(f)}
+                    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 4, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
+                  >
+                    <MaterialIcons name={fileTypeInfo(f.type).icon as any} size={12} color={fileTypeInfo(f.type).color} />
+                    <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textSecondary, fontFamily: 'monospace' }} numberOfLines={1}>{f.name}</Text>
+                  </Pressable>
+                ))
+              )}
+            </ScrollView>
+          )}
+        </View>
+      ) : null}
+
       {/* Zone d'affichage */}
       <View style={{ flex: 1, backgroundColor: C.bgCardAlt }}>
         {loadedUrl ? (
@@ -212,17 +470,17 @@ function WebTab({ workspaceName }: { workspaceName: string }) {
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, padding: Spacing.lg }}>
               <MaterialIcons name="public" size={32} color={C.textMuted} />
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center' }}>L'affichage intégré n'est disponible que sur la version web.</Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center' }}>L’affichage intégré n’est disponible que sur la version web.</Text>
             </View>
           )
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, padding: Spacing.lg }}>
             <MaterialIcons name="language" size={36} color={C.textMuted} />
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center' }}>
-              Saisissez une URL pour consulter un site directement ici, sans quitter la conversation de {workspaceName}.
+              Saisissez une URL pour consulter un site directement ici, sans quitter la conversation de {workspace.name}.
             </Text>
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', marginTop: Spacing.xs }}>
-              Certains sites refusent l'intégration (X-Frame-Options). Dans ce cas :
+              Certains sites refusent l’intégration (X-Frame-Options). Dans ce cas :
             </Text>
             <Pressable
               onPress={() => { if (typeof window !== 'undefined') window.open(loadedUrl, '_blank', 'noopener'); }}
@@ -305,7 +563,7 @@ export function WorkspaceSidePanel({
           <InstructionsTab workspace={workspace} onEdit={onOpenSettings} />
         </View>
         <View style={{ flex: 1, display: tab === 'web' ? 'flex' : 'none' }}>
-          <WebTab workspaceName={workspace.name} />
+          <SitesTab workspace={workspace} />
         </View>
       </View>
     </View>

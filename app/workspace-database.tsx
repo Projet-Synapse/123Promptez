@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator,
+  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator, Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -11,7 +11,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
 import { VaultFolderPanel } from '@/components/feature/VaultFolderPanel';
-import { resyncLocalVault } from '@/services/vaultService';
+import { RepoPanel } from '@/components/feature/RepoPanel';
+import { DragLayer, DropZone, useDnDState, useDragHandlers, type DragItem } from '@/components/feature/dnd';
+import {
+  resyncLocalVault, canMirrorToDisk, ensureVaultExt, getElectronVault,
+  vaultWriteFile, vaultMakeDir, vaultDeletePath, vaultMovePath, vaultOpenPath,
+  pickLocalVaultFolder, type VaultMeta,
+} from '@/services/vaultService';
 import { IconButton } from '@/components/ui/IconButton';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
@@ -82,88 +88,147 @@ function locEquals(a: FileLocation, b: FileLocation): boolean {
   return false;
 }
 
-function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onToggleSelect }: {
+function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onToggleSelect, dragItem }: {
   file: DBFile; onPress: () => void; onMove: () => void; onDelete: () => void;
   selectMode?: boolean; selected?: boolean; onToggleSelect?: () => void;
+  dragItem?: DragItem | null;
 }) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
+  const dragHandlers = useDragHandlers(() => (selectMode ? null : dragItem ?? null));
   return (
-    <Pressable
-      onPress={() => (selectMode ? onToggleSelect?.() : onPress())}
-      onLongPress={() => onToggleSelect?.()}
-      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: selected ? C.primary + '18' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? C.primary + '55' : C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}
-    >
-      {selectMode ? (
-        <MaterialIcons name={selected ? 'check-box' : 'check-box-outline-blank'} size={20} color={selected ? C.primary : C.textMuted} style={{ marginTop: 8 }} />
-      ) : null}
-      <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
-        <MaterialIcons name={info.icon as any} size={18} color={info.color} />
-      </View>
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }} numberOfLines={1}>{file.name}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-          <View style={{ backgroundColor: info.color + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill }}>
-            <Text style={{ fontSize: 10, color: info.color, fontWeight: '700' }}>{info.label}</Text>
-          </View>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatSize(file.size)}</Text>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatDate(file.updatedAt)}</Text>
-        </View>
-        {file.tags.length > 0 ? (
-          <View style={{ flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' }}>
-            {file.tags.slice(0, 3).map(tag => (
-              <View key={tag} style={{ backgroundColor: C.bgCard, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border }}>
-                <Text style={{ fontSize: 10, color: C.textMuted }}>#{tag}</Text>
-              </View>
-            ))}
-          </View>
+    <View {...dragHandlers}>
+      <Pressable
+        onPress={() => (selectMode ? onToggleSelect?.() : onPress())}
+        onLongPress={() => onToggleSelect?.()}
+        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: selected ? C.primary + '18' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? C.primary + '55' : C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}
+      >
+        {selectMode ? (
+          <MaterialIcons name={selected ? 'check-box' : 'check-box-outline-blank'} size={20} color={selected ? C.primary : C.textMuted} style={{ marginTop: 8 }} />
         ) : null}
-      </View>
-      {!selectMode ? (
-        <>
-          <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
-            <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
-            <MaterialIcons name="delete-outline" size={18} color={C.textMuted} />
-          </Pressable>
-        </>
-      ) : null}
-    </Pressable>
-  );
-}
-
-function FolderCard({ folder, onPress, onDelete }: { folder: DBFolder | DBSubFolder; onPress: () => void; onDelete: () => void }) {
-  const C = useThemeColors();
-  const subCount = (folder as DBFolder).subFolders?.length ?? 0;
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}>
-      <View style={{ width: 46, height: 46, borderRadius: Radius.sm, backgroundColor: folder.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-        <MaterialIcons name={folder.icon as any} size={26} color={folder.color} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{folder.name}</Text>
-        <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }} numberOfLines={1}>{folder.description || 'Aucune description'}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <MaterialIcons name="insert-drive-file" size={12} color={C.textMuted} />
-            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{folder.files.length} fichier{folder.files.length !== 1 ? 's' : ''}</Text>
+        <View style={{ width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
+          <MaterialIcons name={info.icon as any} size={18} color={info.color} />
+        </View>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }} numberOfLines={1}>{file.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+            <View style={{ backgroundColor: info.color + '18', paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill }}>
+              <Text style={{ fontSize: 10, color: info.color, fontWeight: '700' }}>{info.label}</Text>
+            </View>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatSize(file.size)}</Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{formatDate(file.updatedAt)}</Text>
           </View>
-          {subCount > 0 ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <MaterialIcons name="folder" size={12} color={C.textMuted} />
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{subCount} sous-dossier{subCount !== 1 ? 's' : ''}</Text>
+          {file.tags.length > 0 ? (
+            <View style={{ flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' }}>
+              {file.tags.slice(0, 3).map(tag => (
+                <View key={tag} style={{ backgroundColor: C.bgCard, paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ fontSize: 10, color: C.textMuted }}>#{tag}</Text>
+                </View>
+              ))}
             </View>
           ) : null}
         </View>
-      </View>
-      <View style={{ alignItems: 'center', gap: Spacing.xs }}>
-        <MaterialIcons name="chevron-right" size={22} color={folder.color} />
-        <Pressable onPress={onDelete} hitSlop={10} style={{ padding: Spacing.xs }}>
-          <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
-        </Pressable>
-      </View>
-    </Pressable>
+        {!selectMode ? (
+          <>
+            <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
+              <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
+            </Pressable>
+            <Pressable onPress={onDelete} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
+              <MaterialIcons name="delete-outline" size={18} color={C.textMuted} />
+            </Pressable>
+          </>
+        ) : null}
+      </Pressable>
+    </View>
+  );
+}
+
+function FolderCard({ folder, onPress, onDelete, dragItem, dropProps }: {
+  folder: DBFolder | DBSubFolder; onPress: () => void; onDelete: () => void;
+  dragItem?: DragItem | null;
+  /** Si fourni, la carte devient une zone de dépôt (glisser-déposer) */
+  dropProps?: { zoneId: string; accepts: (item: DragItem) => boolean; onDrop: (item: DragItem) => void };
+}) {
+  const C = useThemeColors();
+  const subCount = (folder as DBFolder).subFolders?.length ?? 0;
+  const dragHandlers = useDragHandlers(() => dragItem ?? null);
+  const card = (
+    <View {...dragHandlers}>
+      <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}>
+        <View style={{ width: 46, height: 46, borderRadius: Radius.sm, backgroundColor: folder.color + '22', alignItems: 'center', justifyContent: 'center' }}>
+          <MaterialIcons name={folder.icon as any} size={26} color={folder.color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{folder.name}</Text>
+          <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginTop: 2 }} numberOfLines={1}>{folder.description || 'Aucune description'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <MaterialIcons name="insert-drive-file" size={12} color={C.textMuted} />
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{folder.files.length} fichier{folder.files.length !== 1 ? 's' : ''}</Text>
+            </View>
+            {subCount > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <MaterialIcons name="folder" size={12} color={C.textMuted} />
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{subCount} sous-dossier{subCount !== 1 ? 's' : ''}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <View style={{ alignItems: 'center', gap: Spacing.xs }}>
+          <MaterialIcons name="chevron-right" size={22} color={folder.color} />
+          <Pressable onPress={onDelete} hitSlop={10} style={{ padding: Spacing.xs }}>
+            <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
+          </Pressable>
+        </View>
+      </Pressable>
+    </View>
+  );
+  if (!dropProps) return card;
+  return (
+    <DropZone
+      zoneId={dropProps.zoneId}
+      accepts={dropProps.accepts}
+      onDrop={dropProps.onDrop}
+      style={{ borderRadius: Radius.md, borderWidth: 2, borderColor: 'transparent' }}
+      activeStyle={{ borderColor: C.accent, opacity: 0.85 }}
+    >
+      {card}
+    </DropZone>
+  );
+}
+
+// ─── Repo Card (dépôt connecté, séparé du vault) ─────────────────────────────
+function RepoCard({ folder, onPress, onSync, onOpenExternal, onDelete, busy }: {
+  folder: DBFolder; onPress: () => void; onSync: () => void; onOpenExternal: () => void; onDelete: () => void; busy?: boolean;
+}) {
+  const C = useThemeColors();
+  const meta = folder.repo!;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: (folder.color || '#00BFFF') + '44', padding: Spacing.sm + 2 }}>
+      <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 }}>
+        <View style={{ width: 40, height: 40, borderRadius: Radius.sm, backgroundColor: (folder.color || '#00BFFF') + '22', alignItems: 'center', justifyContent: 'center' }}>
+          <MaterialIcons name={(folder.icon as any) || 'code'} size={22} color={folder.color || '#00BFFF'} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{folder.name}</Text>
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }} numberOfLines={1}>
+            {meta.sourceKind === 'github' ? `GitHub · ${meta.repoFullName}` : `Local · ${meta.path}`}
+            {meta.lastSyncedAt ? ` · sync ${formatDate(new Date(meta.lastSyncedAt))}` : ''}
+          </Text>
+        </View>
+      </Pressable>
+      {busy ? <ActivityIndicator size="small" color={C.accent} /> : null}
+      <IconButton icon="sync" label="Resynchroniser le dépôt" onPress={onSync} size={18} bare color={C.accent} />
+      <IconButton
+        icon={meta.sourceKind === 'github' ? 'open-in-new' : 'folder-open'}
+        label={meta.sourceKind === 'github' ? 'Ouvrir sur GitHub' : 'Ouvrir le dossier'}
+        onPress={onOpenExternal}
+        size={18}
+        bare
+        color={C.textSecondary}
+      />
+      <IconButton icon="delete-outline" label="Déconnecter le dépôt" onPress={onDelete} size={18} bare color={C.textMuted} />
+    </View>
   );
 }
 
@@ -204,6 +269,7 @@ export default function WorkspaceDatabaseScreen() {
     workspaces, addFolder, addVaultFolder, updateFolder, removeFolder,
     addSubFolder, removeSubFolder,
     addFile, updateFile, removeFile, moveFile,
+    syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
   } = useWorkspace();
   const { showAlert } = useAlert();
   const { showToast } = useToast();
@@ -235,7 +301,7 @@ export default function WorkspaceDatabaseScreen() {
         const result = await resyncLocalVault(folder.vault);
         if (result) {
           updateFolder(wid, folder.id, { vault: result.meta });
-          if (result.files.length) replaceFolderFiles(wid, folder.id, result.files);
+          syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
           showToast(result.meta.syncMessage || 'Vault resynchronisé', { tone: 'success' });
         }
       } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName) {
@@ -251,7 +317,7 @@ export default function WorkspaceDatabaseScreen() {
           default_branch: 'main',
         });
         updateFolder(wid, folder.id, { vault: result.meta });
-        if (result.files.length) replaceFolderFiles(wid, folder.id, result.files);
+        syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
         showToast('Vault GitHub resynchronisé', { tone: 'success' });
       }
     } catch (e: any) {
@@ -261,6 +327,83 @@ export default function WorkspaceDatabaseScreen() {
     }
   };
   const [busyVault, setBusyVault] = useState(false);
+
+  // Choix du dossier réel du vault (desktop) : enregistre le chemin ABSOLU
+  // puis resynchronise immédiatement le contenu.
+  const handlePickVaultPath = async () => {
+    if (!rootVault) return;
+    const picked = await pickLocalVaultFolder();
+    if (!picked) return;
+    updateFolder(wsId, rootVault.id, { vault: picked.meta });
+    syncFolderFromDisk(wsId, rootVault.id, picked.files, picked.dirs);
+    showToast('Chemin du vault enregistré', { tone: 'success' });
+  };
+
+  // ── Miroir disque (vault / dépôts locaux) ──────────────────────────
+  const wsFolders = useMemo(() => ws?.database.folders ?? [], [ws]);
+  // Méta du vault/dépôt qui gère une localisation donnée.
+  const metaAt = (loc: FileLocation): VaultMeta | null => {
+    const folderOf = (fid: string) => wsFolders.find(f => f.id === fid);
+    if (typeof loc === 'string') {
+      const f = folderOf(loc);
+      return f?.vault ?? f?.repo ?? null;
+    }
+    if (loc && typeof loc === 'object') {
+      const f = folderOf(loc.folderId);
+      return f?.vault ?? f?.repo ?? null;
+    }
+    return null;
+  };
+  // Préfixe disque d'une localisation (sous-dossier du vault/dépôt).
+  const prefixOf = (loc: FileLocation): string => {
+    if (!loc || typeof loc !== 'object') return '';
+    const f = wsFolders.find(x => x.id === loc.folderId);
+    const subName = f?.subFolders?.find(s => s.id === loc.subId)?.name ?? '';
+    return subName ? `${subName}/` : '';
+  };
+  // Déplace un fichier (DB + miroir disque si la source/cible est un vault ou dépôt local).
+  const performMove = async (file: DBFile, fromLoc: FileLocation, toLoc: FileLocation) => {
+    if (locEquals(fromLoc, toLoc)) return;
+    const fromMeta = metaAt(fromLoc);
+    const toMeta = metaAt(toLoc);
+    const fromMirror = canMirrorToDisk(fromMeta);
+    const toMirror = canMirrorToDisk(toMeta);
+    const base = file.name.split('/').pop() ?? file.name;
+    if (file.type !== 'url' && fromMirror && toMirror && fromMeta!.path === toMeta!.path) {
+      const toRel = `${prefixOf(toLoc)}${base}`;
+      const r = await vaultMovePath(fromMeta, file.name, toRel);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'déplacement impossible'}`, { tone: 'error' }); return; }
+      moveFile(wsId, file.id, fromLoc, toLoc);
+      updateFile(wsId, toLoc, file.id, { name: toRel });
+      return;
+    }
+    if (file.type !== 'url' && fromMirror && !toMirror) {
+      const r = await vaultDeletePath(fromMeta, file.name, false);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
+      moveFile(wsId, file.id, fromLoc, toLoc);
+      updateFile(wsId, toLoc, file.id, { name: base });
+      showToast('Fichier retiré du disque (conservé dans la base)', { tone: 'success' });
+      return;
+    }
+    if (file.type !== 'url' && !fromMirror && toMirror) {
+      const toRel = `${prefixOf(toLoc)}${base}`;
+      const r = await vaultWriteFile(toMeta, toRel, file.content);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' }); return; }
+      moveFile(wsId, file.id, fromLoc, toLoc);
+      updateFile(wsId, toLoc, file.id, { name: toRel });
+      return;
+    }
+    moveFile(wsId, file.id, fromLoc, toLoc);
+  };
+  const deleteFileWithMirror = async (file: DBFile) => {
+    const loc = fileLocationOf(file);
+    const meta = metaAt(loc);
+    if (meta && canMirrorToDisk(meta) && file.type !== 'url') {
+      const r = await vaultDeletePath(meta, file.name, false);
+      if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
+    }
+    removeFile(wsId, loc, file.id);
+  };
 
   // ── Navigation stack ─────────────────────────────────────────────
   const [navStack, setNavStack] = useState<NavItem[]>([{ kind: 'root' }]);
@@ -346,29 +489,127 @@ export default function WorkspaceDatabaseScreen() {
   const totalFiles = ws ? ws.database.rootFiles.length + ws.database.folders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0) : 0;
 
 
-  const replaceFolderFiles = (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[]) => {
-    const targetWs = workspaces.find(w => w.id === workspaceId);
-    if (!targetWs) return;
-    let fid = folderId;
-    if (folderId === '__latest_vault__') {
-      const vaults = targetWs.database.folders.filter(f => f.vault);
-      const latest = vaults[vaults.length - 1];
-      if (!latest) return;
-      fid = latest.id;
+  // ── Dépôts connectés (séparés du vault) ────────────────────────────
+  const repoFolders = useMemo(() => wsFolders.filter(f => f.repo), [wsFolders]);
+  const [showAddRepo, setShowAddRepo] = useState(false);
+  const [busyRepoId, setBusyRepoId] = useState<string | null>(null);
+
+  const handleRepoSync = async (folder: DBFolder) => {
+    const meta = folder.repo;
+    if (!meta) return;
+    setBusyRepoId(folder.id);
+    try {
+      if (meta.sourceKind === 'local') {
+        const result = await resyncLocalVault(meta);
+        if (result) {
+          updateFolder(wsId, folder.id, { repo: result.meta });
+          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
+          showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
+        }
+      } else if (meta.sourceKind === 'github' && meta.repoFullName) {
+        const { resolveGitHubToken, importGitHubRepoAsVault } = await import('@/services/vaultService');
+        const token = resolveGitHubToken(bot.connectedApps);
+        if (!token) { showAlert('Jeton GitHub manquant', 'Configurez un Personal Access Token dans Builder ▸ Connecteurs.'); return; }
+        const result = await importGitHubRepoAsVault(token, {
+          id: meta.repoId || 0,
+          full_name: meta.repoFullName,
+          description: null,
+          private: false,
+          html_url: meta.path || '',
+          default_branch: 'main',
+        });
+        updateFolder(wsId, folder.id, { repo: result.meta });
+        syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
+        showToast('Dépôt GitHub resynchronisé', { tone: 'success' });
+      }
+    } catch (e: any) {
+      showAlert('Erreur sync', e?.message ?? 'Échec');
+    } finally {
+      setBusyRepoId(null);
     }
-    // Clear then re-add — removeFile/addFile via updateFolder files array
-    updateFolder(workspaceId, fid, {
-      files: files.map((f, i) => ({
-        id: `file-vault-${Date.now()}-${i}`,
-        name: f.name,
-        type: f.type,
-        content: f.content,
-        tags: f.tags,
-        size: f.content.length,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })),
-    } as any);
+  };
+
+  const handleRepoOpenExternal = async (folder: DBFolder) => {
+    const meta = folder.repo;
+    if (!meta) return;
+    if (meta.sourceKind === 'github') {
+      void Linking.openURL(meta.path || `https://github.com/${meta.repoFullName}`);
+    } else if (meta.path) {
+      const r = await vaultOpenPath(meta.path);
+      if (!r.ok) showToast(r.error ?? 'Ouverture impossible', { tone: 'error' });
+    }
+  };
+
+  // ── Glisser-déposer ─────────────────────────────────────────────────
+  const dragState = useDnDState();
+  const handleFolderDrop = (target: DBFolder, item: DragItem) => {
+    if (item.kind === 'file') {
+      const { file, fromLoc } = item.data ?? {};
+      if (file) void performMove(file, fromLoc ?? fileLocationOf(file), target.id);
+      return;
+    }
+    if (item.kind === 'folder') {
+      const src = item.data?.folder as DBFolder | undefined;
+      if (!src || src.id === target.id) return;
+      if (src.vault || src.repo) {
+        showToast('Un vault ou un dépôt ne peut pas être déplacé', { tone: 'warning' });
+        return;
+      }
+      moveFolderIntoFolder(wsId, src.id, target.id);
+      // Miroir : un dossier applicatif déposé dans un vault/dépôt local y est écrit
+      const tMeta = target.vault ?? target.repo;
+      if (tMeta && canMirrorToDisk(tMeta)) {
+        for (const f of src.files) {
+          if (f.type === 'url') continue;
+          const base = f.name.split('/').pop() ?? f.name;
+          void vaultWriteFile(tMeta, `${src.name}/${base}`, f.content);
+        }
+      }
+      showToast(`« ${src.name} » déplacé dans « ${target.name} »`, { tone: 'success' });
+    }
+  };
+
+  const folderDropProps = (folder: DBFolder) => ({
+    zoneId: `folder-drop-${folder.id}`,
+    accepts: (item: DragItem) => {
+      if (item.kind === 'file') return true;
+      if (item.kind === 'folder') {
+        return item.id !== folder.id
+          && item.data?.parentFolderId !== folder.id
+          && !(item.data?.folder && (item.data.folder.vault || item.data.folder.repo));
+      }
+      return false;
+    },
+    onDrop: (item: DragItem) => handleFolderDrop(folder, item),
+  });
+
+  const vaultSubDropProps = (sub: DBSubFolder) => ({
+    zoneId: `vault-sub-drop-${sub.id}`,
+    accepts: (item: DragItem) => item.kind === 'file',
+    onDrop: (item: DragItem) => {
+      if (item.kind !== 'file' || !rootVault) return;
+      const { file, fromLoc } = item.data ?? {};
+      if (file) void performMove(file, fromLoc ?? fileLocationOf(file), { folderId: rootVault.id, subId: sub.id });
+    },
+  });
+
+  const handleRootDrop = (item: DragItem) => {
+    if (item.kind === 'file') {
+      const { file, fromLoc } = item.data ?? {};
+      if (!file) return;
+      void performMove(file, fromLoc ?? fileLocationOf(file), null);
+      showToast(`« ${file.name.split('/').pop()} » déplacé à la racine`, { tone: 'success' });
+    } else if (item.kind === 'folder') {
+      const data = item.data ?? {};
+      if (!data.parentFolderId || !data.sub) return;
+      const parent = wsFolders.find(f => f.id === data.parentFolderId);
+      if (parent && !parent.vault && !parent.repo) {
+        promoteSubFolder(wsId, parent.id, data.sub.id);
+        showToast(`« ${data.sub.name} » est maintenant un dossier racine`, { tone: 'success' });
+      } else {
+        showToast('Un sous-dossier de vault/dépôt reste dans sa source', { tone: 'warning' });
+      }
+    }
   };
 
   const moveDestinations = useMemo(() => {
@@ -410,6 +651,13 @@ export default function WorkspaceDatabaseScreen() {
     if (!folderName.trim()) return;
     if (currentNav.kind === 'folder' && liveFolder) {
       addSubFolder(ws.id, liveFolder.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
+      // Miroir : le sous-dossier existe réellement sur le disque (vault/dépôt local)
+      const meta = liveFolder.vault ?? liveFolder.repo;
+      if (meta && canMirrorToDisk(meta)) {
+        void vaultMakeDir(meta, folderName.trim()).then(r => {
+          if (!r.ok) showToast(`Disque : ${r.error ?? 'création impossible'}`, { tone: 'error' });
+        });
+      }
     } else {
       addFolder(ws.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
     }
@@ -421,7 +669,16 @@ export default function WorkspaceDatabaseScreen() {
 
   const handleAddTextFile = () => {
     if (!fileName.trim() || !fileContent.trim()) return;
-    addFile(ws.id, insertLocation, { name: fileName.trim(), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    const meta = metaAt(insertLocation);
+    const mirror = !!meta && canMirrorToDisk(meta) && fileType !== 'url';
+    const diskName = ensureVaultExt(fileName.trim(), fileType);
+    const rel = mirror ? `${prefixOf(insertLocation)}${diskName}` : diskName;
+    addFile(ws.id, insertLocation, { name: rel, type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    if (mirror && meta) {
+      void vaultWriteFile(meta, rel, fileContent.trim()).then(r => {
+        if (!r.ok) showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' });
+      });
+    }
     resetFileForm(); setShowAddFile(false);
   };
 
@@ -444,7 +701,15 @@ export default function WorkspaceDatabaseScreen() {
         content = await response.text();
         if (content.length > 50000) content = content.slice(0, 50000) + '\n\n[... Fichier tronqué]';
       } catch { content = `[Fichier importé: ${asset.name}]`; }
-      addFile(ws.id, insertLocation, { name: asset.name ?? 'fichier-importé', type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
+      const meta = metaAt(insertLocation);
+      const mirror = !!meta && canMirrorToDisk(meta);
+      const rel = mirror ? `${prefixOf(insertLocation)}${asset.name ?? 'fichier-importé'}` : (asset.name ?? 'fichier-importé');
+      addFile(ws.id, insertLocation, { name: rel, type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
+      if (mirror && meta) {
+        void vaultWriteFile(meta, rel, content).then(r => {
+          if (!r.ok) showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' });
+        });
+      }
       showToast(`Fichier « ${asset.name} » importé`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
@@ -471,13 +736,33 @@ export default function WorkspaceDatabaseScreen() {
   };
   const handleSaveFile = () => {
     if (!editingFile || !editorName.trim()) return;
-    updateFile(ws.id, fileLocationOf(editingFile), editingFile.id, { name: editorName.trim(), content: editorContent, tags: editorTags.split(',').map(t => t.trim()).filter(Boolean) });
+    const loc = fileLocationOf(editingFile);
+    const meta = metaAt(loc);
+    const tags = editorTags.split(',').map(t => t.trim()).filter(Boolean);
+    if (meta && canMirrorToDisk(meta) && editingFile.type !== 'url') {
+      // Miroir : renommage + réécriture sur le disque, puis mise à jour de la base
+      const dir = editingFile.name.includes('/') ? editingFile.name.slice(0, editingFile.name.lastIndexOf('/') + 1) : '';
+      const newRel = `${dir}${ensureVaultExt(editorName.trim(), editingFile.type)}`;
+      void (async () => {
+        if (newRel !== editingFile.name) {
+          const mv = await vaultMovePath(meta, editingFile.name, newRel);
+          if (!mv.ok) { showToast(`Disque : ${mv.error ?? 'renommage impossible'}`, { tone: 'error' }); return; }
+        }
+        if (editorContent !== editingFile.content) {
+          const wr = await vaultWriteFile(meta, newRel, editorContent);
+          if (!wr.ok) { showToast(`Disque : ${wr.error ?? 'écriture impossible'}`, { tone: 'error' }); return; }
+        }
+        updateFile(ws.id, loc, editingFile.id, { name: newRel, content: editorContent, tags });
+      })();
+    } else {
+      updateFile(ws.id, loc, editingFile.id, { name: editorName.trim(), content: editorContent, tags });
+    }
     setEditingFile(null);
   };
   const handleDeleteFile = (file: DBFile) => {
-    showAlert(`Supprimer "${file.name}" ?`, 'Ce fichier sera définitivement supprimé.', [
+    showAlert(`Supprimer "${file.name}" ?`, 'Ce fichier sera définitivement supprimé (base + disque si vault local).', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeFile(ws.id, fileLocationOf(file), file.id) },
+      { text: 'Supprimer', style: 'destructive', onPress: () => { void deleteFileWithMirror(file); } },
     ]);
   };
   const bulkDeleteSelectedFiles = () => {
@@ -486,45 +771,53 @@ export default function WorkspaceDatabaseScreen() {
     showAlert(`Supprimer ${n} fichier(s) ?`, 'Cette action est définitive.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => {
-        selectedFileIds.forEach(id => { const f = displayedFiles.find(x => x.id === id); if (f) removeFile(ws.id, fileLocationOf(f), id); });
+        selectedFileIds.forEach(id => {
+          const f = displayedFiles.find(x => x.id === id);
+          if (f) void deleteFileWithMirror(f);
+        });
         exitSelectMode();
         showToast(`${n} fichier(s) supprimé(s)`, { tone: 'success' });
       }},
     ]);
   };
-  const bulkMoveSelectedFiles = (to: FileLocation) => {
-    selectedFileIds.forEach(id => { const f = displayedFiles.find(x => x.id === id); if (f) moveFile(ws.id, id, fileLocationOf(f), to); });
-    const n = selectedFileIds.size;
-    exitSelectMode();
-    setMovingFile(null);
-    showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
-  };
   const handleConfirmMove = (to: FileLocation) => {
     if (!movingFile) return;
     if (movingFile.id === '__bulk__' || (selectMode && selectedFileIds.size > 0 && selectedFileIds.has(movingFile.id))) {
       const ids = movingFile.id === '__bulk__' ? selectedFileIds : new Set([movingFile.id, ...selectedFileIds]);
-      ids.forEach(id => { if (id !== '__bulk__') { const f = displayedFiles.find(x => x.id === id); if (f) moveFile(ws.id, id, fileLocationOf(f), to); } });
+      [...ids].filter(id => id !== '__bulk__').forEach(id => {
+        const f = displayedFiles.find(x => x.id === id);
+        if (f) void performMove(f, fileLocationOf(f), to);
+      });
       const n = [...ids].filter(id => id !== '__bulk__').length;
       setMovingFile(null);
       exitSelectMode();
       showToast(`${n} fichier(s) déplacé(s)`, { tone: 'success' });
       return;
     }
-    moveFile(ws.id, movingFile.id, fileLocationOf(movingFile), to);
+    void performMove(movingFile, fileLocationOf(movingFile), to);
     const name = movingFile.name;
     setMovingFile(null);
     showToast(`« ${name} » déplacé`, { tone: 'success' });
+  };
+  const handleDeleteSubFolder = (folder: DBFolder, sub: DBSubFolder) => {
+    showAlert(`Supprimer "${sub.name}" ?`, `${sub.files.length} fichier(s) seront supprimés (base + disque si vault local).`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => {
+        // Miroir : suppression réelle du dossier sur le disque (vault/dépôt local)
+        const meta = folder.vault ?? folder.repo;
+        if (meta && canMirrorToDisk(meta)) {
+          void vaultDeletePath(meta, sub.name, true).then(r => {
+            if (!r.ok) showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' });
+          });
+        }
+        removeSubFolder(ws.id, folder.id, sub.id);
+      }},
+    ]);
   };
   const handleDeleteFolder = (folder: DBFolder) => {
     showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) et ${folder.subFolders?.length ?? 0} sous-dossier(s) seront supprimés.`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
-    ]);
-  };
-  const handleDeleteSubFolder = (folder: DBFolder, sub: DBSubFolder) => {
-    showAlert(`Supprimer "${sub.name}" ?`, `${sub.files.length} fichier(s) seront supprimés.`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => removeSubFolder(ws.id, folder.id, sub.id) },
     ]);
   };
 
@@ -563,36 +856,16 @@ export default function WorkspaceDatabaseScreen() {
             }
           </Text>
         </View>
-        {/* Insert collapsible (texte / fichier / image / lien) */}
+        {/* Insert toggle — le popover s'affiche en overlay plein écran plus bas */}
         {currentNav.kind !== 'subfolder' ? (
-          <View>
-            <IconButton
-              icon={showInsert ? 'close' : 'add-circle'}
-              label="Insérer"
-              onPress={() => setShowInsert(v => !v)}
-              color={showInsert ? C.accent : C.primary}
-              backgroundColor={showInsert ? C.accent + '18' : undefined}
-              borderColor={showInsert ? C.accent + '55' : undefined}
-            />
-            {showInsert ? (
-              <>
-                <Pressable style={{ position: 'absolute', top: 48, right: 0, left: -300, bottom: -600 }} onPress={() => setShowInsert(false)} />
-                <View style={{ position: 'absolute', top: 48, right: 0, flexDirection: 'row', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6, zIndex: 50 }}>
-                  {[
-                    { icon: 'edit-note', label: 'Texte', color: '#FFB800', onPress: () => { setShowInsert(false); resetFileForm(); setShowAddFile(true); } },
-                    { icon: 'upload-file', label: 'Fichier', color: '#3D7EFF', onPress: () => { setShowInsert(false); handlePickFile(); } },
-                    { icon: 'image', label: 'Image', color: '#00CC6A', onPress: () => { setShowInsert(false); handlePickImage(); } },
-                    { icon: 'link', label: 'Lien', color: '#9B59B6', onPress: () => { setShowInsert(false); setLinkUrl(''); setLinkName(''); setShowAddLink(true); } },
-                  ].map(b => (
-                    <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs, borderRadius: Radius.sm, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.7 }]}>
-                      <MaterialIcons name={b.icon as any} size={20} color={b.color} />
-                      <Text style={{ fontSize: FontSize.xs, color: b.color, fontWeight: '700' }}>{b.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
-            ) : null}
-          </View>
+          <IconButton
+            icon={showInsert ? 'close' : 'add-circle'}
+            label="Insérer"
+            onPress={() => setShowInsert(v => !v)}
+            color={showInsert ? C.accent : C.primary}
+            backgroundColor={showInsert ? C.accent + '18' : undefined}
+            borderColor={showInsert ? C.accent + '55' : undefined}
+          />
         ) : null}
 
         {/* Add folder button */}
@@ -627,7 +900,7 @@ export default function WorkspaceDatabaseScreen() {
                 style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, color: C.textSecondary, fontSize: FontSize.xs, paddingHorizontal: Spacing.sm, paddingVertical: 4, fontFamily: 'monospace' }}
                 value={vaultPath}
                 onChangeText={setVaultPath}
-                placeholder="Chemin du dossier vault (ex: C:\projets\mon-vault)"
+                placeholder="Chemin complet du vault (ex: C:\Users\moi\Documents\mon-vault)"
                 placeholderTextColor={C.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -638,8 +911,17 @@ export default function WorkspaceDatabaseScreen() {
                   }
                 }}
               />
+              {rootVault.vault?.syncMessage ? (
+                <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>
+                  {rootVault.vault.syncMessage}
+                  {rootVault.vault.lastSyncedAt ? ` · ${new Date(rootVault.vault.lastSyncedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                </Text>
+              ) : null}
             </View>
             {busyVault ? <ActivityIndicator size="small" color={C.accent} /> : null}
+            {getElectronVault() ? (
+              <IconButton icon="folder-open" label="Choisir le dossier du vault sur le disque (chemin absolu)" bare size={18} color={C.textSecondary} onPress={() => void handlePickVaultPath()} />
+            ) : null}
             <IconButton icon="sync" label="Resynchroniser le vault" bare size={18} color={C.accent} onPress={() => handleRootVaultSync()} />
             <IconButton
               icon="link-off"
@@ -664,21 +946,74 @@ export default function WorkspaceDatabaseScreen() {
             addVaultFolder={addVaultFolder}
             updateFolder={updateFolder}
             removeFolder={removeFolder}
-            replaceFolderFiles={replaceFolderFiles}
+            syncFolderFromDisk={syncFolderFromDisk}
           />
+        ) : null}
+
+        {/* Dépôts connectés (dossiers de code / GitHub) — bien séparés du vault */}
+        {currentNav.kind === 'root' ? (
+          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <MaterialIcons name="source" size={14} color={C.textSecondary} />
+              <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Dépôts{repoFolders.length > 0 ? ` (${repoFolders.length})` : ''}
+              </Text>
+              <Pressable
+                onPress={() => setShowAddRepo(v => !v)}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.75 }]}
+              >
+                <MaterialIcons name={showAddRepo ? 'close' : 'add-link'} size={13} color={C.accent} />
+                <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>{showAddRepo ? 'Fermer' : 'Connecter'}</Text>
+              </Pressable>
+            </View>
+            {showAddRepo ? <RepoPanel workspaceId={ws.id} onClose={() => setShowAddRepo(false)} /> : null}
+            {repoFolders.map(folder => (
+              <RepoCard
+                key={folder.id}
+                folder={folder}
+                busy={busyRepoId === folder.id}
+                onPress={() => pushFolder(folder)}
+                onSync={() => void handleRepoSync(folder)}
+                onOpenExternal={() => void handleRepoOpenExternal(folder)}
+                onDelete={() => showAlert(`Déconnecter « ${folder.name} » ?`, 'Les fichiers du dépôt seront retirés de la base (le disque et GitHub ne sont pas touchés).', [
+                  { text: 'Annuler', style: 'cancel' },
+                  { text: 'Déconnecter', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
+                ])}
+              />
+            ))}
+            {repoFolders.length === 0 && !showAddRepo ? (
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 18 }}>
+                Aucun dépôt connecté. Connectez un dossier de code local ou un dépôt GitHub : ses fichiers apparaîtront ici et dans l’onglet Sites du chat, séparés du vault.
+              </Text>
+            ) : null}
+          </View>
         ) : null}
 
         {/* Dossiers (racine) — non-vault + sous-dossiers du vault racine */}
         {currentNav.kind === 'root' && (
-          ws.database.folders.filter(f => !f.vault).length > 0 || (rootVault?.subFolders?.length ?? 0) > 0
+          ws.database.folders.filter(f => !f.vault && !f.repo).length > 0 || (rootVault?.subFolders?.length ?? 0) > 0
         ) ? (
           <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
-            {ws.database.folders.filter(f => !f.vault).map(folder => (
-              <FolderCard key={folder.id} folder={folder} onPress={() => pushFolder(folder)} onDelete={() => handleDeleteFolder(folder)} />
+            {ws.database.folders.filter(f => !f.vault && !f.repo).map(folder => (
+              <FolderCard
+                key={folder.id}
+                folder={folder}
+                onPress={() => pushFolder(folder)}
+                onDelete={() => handleDeleteFolder(folder)}
+                dragItem={{ kind: 'folder', id: folder.id, label: folder.name, icon: folder.icon, color: folder.color, data: { folder } }}
+                dropProps={folderDropProps(folder)}
+              />
             ))}
             {rootVault ? (rootVault.subFolders ?? []).map(sub => (
-              <FolderCard key={sub.id} folder={sub} onPress={() => pushSubFolder(rootVault, sub)} onDelete={() => handleDeleteSubFolder(rootVault, sub)} />
+              <FolderCard
+                key={sub.id}
+                folder={sub}
+                onPress={() => pushSubFolder(rootVault, sub)}
+                onDelete={() => handleDeleteSubFolder(rootVault, sub)}
+                dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: rootVault.id, sub } }}
+                dropProps={vaultSubDropProps(sub)}
+              />
             )) : null}
           </View>
         ) : null}
@@ -691,13 +1026,40 @@ export default function WorkspaceDatabaseScreen() {
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Sous-dossiers</Text>
             </View>
             {(liveFolder.subFolders ?? []).map(sub => (
-              <FolderCard key={sub.id} folder={sub} onPress={() => pushSubFolder(liveFolder, sub)} onDelete={() => handleDeleteSubFolder(liveFolder, sub)} />
+              <FolderCard
+                key={sub.id}
+                folder={sub}
+                onPress={() => pushSubFolder(liveFolder, sub)}
+                onDelete={() => handleDeleteSubFolder(liveFolder, sub)}
+                dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: liveFolder.id, sub } }}
+                dropProps={{
+                  zoneId: `sub-drop-${sub.id}`,
+                  accepts: (item: DragItem) => item.kind === 'file',
+                  onDrop: (item: DragItem) => {
+                    if (item.kind !== 'file') return;
+                    const { file, fromLoc } = item.data ?? {};
+                    if (file) void performMove(file, fromLoc ?? fileLocationOf(file), { folderId: liveFolder.id, subId: sub.id });
+                  },
+                }}
+              />
             ))}
           </View>
         ) : null}
 
         {/* Files with sort bar */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+          {/* Bande de dépôt vers la racine, visible pendant un glisser-déposer */}
+          {dragState ? (
+            <DropZone
+              zoneId="strip-root"
+              accepts={() => true}
+              onDrop={handleRootDrop}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 2, borderColor: C.accent + '66', borderStyle: 'dashed', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, backgroundColor: C.accent + '10' }}
+            >
+              <MaterialIcons name="home" size={16} color={C.accent} />
+              <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Déposer ici → Racine du workspace</Text>
+            </DropZone>
+          ) : null}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: Spacing.xs }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
               Fichiers
@@ -758,6 +1120,14 @@ export default function WorkspaceDatabaseScreen() {
                 onDelete={() => handleDeleteFile(file)}
                 selectMode={selectMode}
                 selected={selectedFileIds.has(file.id)}
+                dragItem={{
+                  kind: 'file',
+                  id: file.id,
+                  label: file.name.split('/').pop() ?? file.name,
+                  icon: getFileTypeInfo(file.type).icon,
+                  color: getFileTypeInfo(file.type).color,
+                  data: { file, fromLoc: fileLocationOf(file) },
+                }}
                 onToggleSelect={() => {
                   if (!selectMode) setSelectMode(true);
                   toggleSelectFile(file.id);
@@ -767,6 +1137,29 @@ export default function WorkspaceDatabaseScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* ─── Popover « Insérer » : overlay plein écran (au-dessus du contenu scrollé) */}
+      {showInsert ? (
+        <View style={{ position: 'absolute', inset: 0, zIndex: 300 }} pointerEvents="box-none">
+          <Pressable style={{ flex: 1 }} onPress={() => setShowInsert(false)} />
+          <View style={{ position: 'absolute', top: 84, right: Spacing.md, flexDirection: 'row', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 }}>
+            {[
+              { icon: 'edit-note', label: 'Texte', color: '#FFB800', onPress: () => { setShowInsert(false); resetFileForm(); setShowAddFile(true); } },
+              { icon: 'upload-file', label: 'Fichier', color: '#3D7EFF', onPress: () => { setShowInsert(false); handlePickFile(); } },
+              { icon: 'image', label: 'Image', color: '#00CC6A', onPress: () => { setShowInsert(false); handlePickImage(); } },
+              { icon: 'link', label: 'Lien', color: '#9B59B6', onPress: () => { setShowInsert(false); setLinkUrl(''); setLinkName(''); setShowAddLink(true); } },
+            ].map(b => (
+              <Pressable key={b.label} onPress={b.onPress} style={({ pressed }) => [{ alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs, borderRadius: Radius.sm, borderWidth: 1, borderColor: b.color + '44', backgroundColor: b.color + '12' }, pressed && { opacity: 0.7 }]}>
+                <MaterialIcons name={b.icon as any} size={20} color={b.color} />
+                <Text style={{ fontSize: FontSize.xs, color: b.color, fontWeight: '700' }}>{b.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Fantôme du glisser-déposer */}
+      <DragLayer />
 
       {/* ─── Move file modal ─────────────────────────────────────── */}
       <Modal visible={!!movingFile} transparent animationType="slide" onRequestClose={() => setMovingFile(null)}>

@@ -255,6 +255,14 @@ const TEXT_EXT = new Set([
   'env', 'sh', 'sql', 'xml', 'csv',
 ]);
 
+// Dossiers bruités ignorés lors de l'exploration (vaults et dépôts de code).
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', '.expo', '.next', 'dist', 'build', 'out',
+  'coverage', '.cache', '.turbo', '.venv', '__pycache__',
+]);
+
+const LIST_LIMITS = { maxDepth: 8, maxFiles: 500 };
+
 ipcMain.handle('vault:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
@@ -265,7 +273,7 @@ ipcMain.handle('vault:pick-folder', async () => {
 });
 
 async function listTextFilesRecursive(dirPath, prefix = '', acc = [], depth = 0) {
-  if (depth > 6 || acc.length > 200) return acc;
+  if (depth > LIST_LIMITS.maxDepth || acc.filter((e) => e.kind === 'file').length >= LIST_LIMITS.maxFiles) return acc;
   let entries;
   try {
     entries = await fsp.readdir(dirPath, { withFileTypes: true });
@@ -273,10 +281,11 @@ async function listTextFilesRecursive(dirPath, prefix = '', acc = [], depth = 0)
     return acc;
   }
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    if (SKIP_DIRS.has(entry.name)) continue;
     const full = path.join(dirPath, entry.name);
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
+      acc.push({ kind: 'dir', name: entry.name, relativePath: relative });
       await listTextFilesRecursive(full, relative, acc, depth + 1);
     } else if (entry.isFile()) {
       const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
@@ -285,7 +294,7 @@ async function listTextFilesRecursive(dirPath, prefix = '', acc = [], depth = 0)
         const stat = await fsp.stat(full);
         if (stat.size > 512000) continue;
         const content = await fsp.readFile(full, 'utf8');
-        acc.push({ name: entry.name, content, relativePath: relative });
+        acc.push({ kind: 'file', name: entry.name, content, relativePath: relative });
       } catch {
         // skip unreadable
       }
@@ -304,6 +313,120 @@ ipcMain.handle('vault:list-text-files', async (_evt, dirPath) => {
     return [];
   }
   return listTextFilesRecursive(dirPath);
+});
+
+// ── Vault bidirectionnel : écritures disque + surveillance ───────────────────
+// Tous les chemins relatifs sont normalisés et confinés à la racine du vault.
+function safeSegments(rel) {
+  return String(rel || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((s) => s && s !== '.' && s !== '..');
+}
+
+function resolveInside(rootPath, rel) {
+  const segs = safeSegments(rel);
+  if (segs.length === 0) return null;
+  const abs = path.join(rootPath, ...segs);
+  const relCheck = path.relative(rootPath, abs);
+  if (relCheck.startsWith('..') || path.isAbsolute(relCheck)) return null;
+  return abs;
+}
+
+ipcMain.handle('vault:write-file', async (_evt, rootPath, relPath, content) => {
+  const abs = resolveInside(rootPath, relPath);
+  if (!abs) return { ok: false, error: 'Chemin invalide' };
+  try {
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, String(content ?? ''), 'utf8');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+ipcMain.handle('vault:make-dir', async (_evt, rootPath, relPath) => {
+  const abs = resolveInside(rootPath, relPath);
+  if (!abs) return { ok: false, error: 'Chemin invalide' };
+  try {
+    await fsp.mkdir(abs, { recursive: true });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+ipcMain.handle('vault:delete-path', async (_evt, rootPath, relPath, isDir) => {
+  const abs = resolveInside(rootPath, relPath);
+  if (!abs) return { ok: false, error: 'Chemin invalide' };
+  try {
+    await fsp.rm(abs, { recursive: true, force: true });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+ipcMain.handle('vault:move-path', async (_evt, rootPath, fromRel, toRel) => {
+  const from = resolveInside(rootPath, fromRel);
+  const to = resolveInside(rootPath, toRel);
+  if (!from || !to) return { ok: false, error: 'Chemin invalide' };
+  try {
+    await fsp.mkdir(path.dirname(to), { recursive: true });
+    await fsp.rename(from, to);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+ipcMain.handle('vault:open-path', async (_evt, targetPath) => {
+  if (!targetPath || typeof targetPath !== 'string') return { ok: false, error: 'Chemin invalide' };
+  try {
+    const err = await shell.openPath(targetPath);
+    return err ? { ok: false, error: err } : { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+// Surveillance (vault → app) : un fs.watch récursif par racine, évènements
+// débouncés puis poussés au renderer via « vault:changed ».
+const vaultWatchers = new Map();
+
+ipcMain.handle('vault:watch', async (_evt, rootPath) => {
+  if (!rootPath || typeof rootPath !== 'string') return { ok: false, error: 'Chemin invalide' };
+  if (vaultWatchers.has(rootPath)) return { ok: true };
+  try {
+    const st = await fsp.stat(rootPath);
+    if (!st.isDirectory()) return { ok: false, error: "Ce chemin n'est pas un dossier" };
+    let timer = null;
+    const watcher = fs.watch(rootPath, { recursive: true }, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('vault:changed', { rootPath });
+        }
+      }, 500);
+    });
+    watcher.on('error', () => {
+      try { watcher.close(); } catch { /* déjà fermé */ }
+      vaultWatchers.delete(rootPath);
+    });
+    vaultWatchers.set(rootPath, watcher);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+});
+
+ipcMain.handle('vault:unwatch', (_evt, rootPath) => {
+  const watcher = vaultWatchers.get(rootPath);
+  if (watcher) {
+    try { watcher.close(); } catch { /* déjà fermé */ }
+    vaultWatchers.delete(rootPath);
+  }
+  return { ok: true };
 });
 
 // ── Updates IPC ──────────────────────────────────────────────────────────────
@@ -378,5 +501,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  for (const watcher of vaultWatchers.values()) {
+    try { watcher.close(); } catch { /* déjà fermé */ }
+  }
+  vaultWatchers.clear();
   if (staticServer) staticServer.close();
 });

@@ -31,13 +31,50 @@ export interface VaultCapability {
   hintFr: string;
 }
 
+export interface VaultDirEntry {
+  kind: 'file' | 'dir';
+  name: string;
+  relativePath: string;
+  content?: string;
+}
+
 declare global {
   interface Window {
     electronVault?: {
       pickFolder: () => Promise<{ path: string; name: string } | null>;
-      listTextFiles: (dirPath: string) => Promise<{ name: string; content: string; relativePath: string }[]>;
+      listTextFiles: (dirPath: string) => Promise<VaultDirEntry[]>;
+      writeFile: (rootPath: string, relPath: string, content: string) => Promise<{ ok: boolean; error?: string }>;
+      makeDir: (rootPath: string, relPath: string) => Promise<{ ok: boolean; error?: string }>;
+      deletePath: (rootPath: string, relPath: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>;
+      movePath: (rootPath: string, fromRel: string, toRel: string) => Promise<{ ok: boolean; error?: string }>;
+      openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
+      watch: (rootPath: string) => Promise<{ ok: boolean; error?: string }>;
+      unwatch: (rootPath: string) => Promise<{ ok: boolean; error?: string }>;
+      onChanged: (callback: (payload: { rootPath: string }) => void) => () => void;
     };
   }
+}
+
+export function getElectronVault(): Window['electronVault'] | null {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.electronVault?.pickFolder) {
+    return window.electronVault;
+  }
+  return null;
+}
+
+/** Dernière écriture locale (app → disque), pour ignorer les échos du watcher. */
+let lastLocalWriteAt = 0;
+export function getLastLocalWriteAt(): number {
+  return lastLocalWriteAt;
+}
+function markLocalWrite() {
+  lastLocalWriteAt = Date.now();
+}
+
+/** Un dossier local (vault ou dépôt) peut-il être répercuté sur le disque ? */
+export function canMirrorToDisk(meta?: VaultMeta | null): boolean {
+  const bridge = getElectronVault();
+  return !!bridge?.writeFile && !!meta && meta.sourceKind === 'local' && !!meta.path && meta.liveSync !== false;
 }
 
 function hasFsAccess(): boolean {
@@ -103,14 +140,21 @@ function inferType(name: string): DBFile['type'] {
   return 'text';
 }
 
-export async function pickLocalVaultFolder(): Promise<{
+export type VaultFileInput = { name: string; type: DBFile['type']; content: string; tags: string[] };
+
+export interface VaultPickResult {
   meta: VaultMeta;
-  files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[];
-} | null> {
+  files: VaultFileInput[];
+  /** Chemins relatifs des dossiers présents sur le disque (dossiers vides inclus). */
+  dirs: string[];
+}
+
+export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
   if (hasElectronVault()) {
     const picked = await window.electronVault!.pickFolder();
     if (!picked) return null;
     const listed = await window.electronVault!.listTextFiles(picked.path);
+    const files = listed.filter(e => e.kind === 'file');
     return {
       meta: {
         sourceKind: 'local',
@@ -118,21 +162,23 @@ export async function pickLocalVaultFolder(): Promise<{
         syncStatus: 'ok',
         lastSyncedAt: new Date().toISOString(),
         liveSync: true,
-        syncMessage: `${listed.length} fichier(s) synchronisé(s)`,
+        syncMessage: `${files.length} fichier(s) synchronisé(s)`,
       },
-      files: listed.map(f => ({
+      files: files.map(f => ({
         name: f.relativePath || f.name,
         type: inferType(f.name),
-        content: f.content,
+        content: f.content ?? '',
         tags: ['vault', 'local'],
       })),
+      dirs: listed.filter(e => e.kind === 'dir').map(d => d.relativePath),
     };
   }
 
   if (hasFsAccess()) {
     // @ts-expect-error File System Access API
     const handle = await window.showDirectoryPicker({ mode: 'read' });
-    const files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[] = [];
+    const files: VaultFileInput[] = [];
+    const dirs: string[] = [];
     // Store handle on window for session re-sync (not serializable to cloud)
     (window as any).__promptezVaultHandles = (window as any).__promptezVaultHandles || {};
     const key = handle.name;
@@ -142,6 +188,7 @@ export async function pickLocalVaultFolder(): Promise<{
       for await (const [name, entry] of dir.entries()) {
         if (entry.kind === 'directory') {
           if (name === 'node_modules' || name === '.git') continue;
+          dirs.push(prefix ? `${prefix}/${name}` : name);
           await walk(entry, prefix ? `${prefix}/${name}` : name);
         } else if (entry.kind === 'file') {
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -169,34 +216,34 @@ export async function pickLocalVaultFolder(): Promise<{
         syncMessage: `${files.length} fichier(s) synchronisé(s)`,
       },
       files,
+      dirs,
     };
   }
 
   return null;
 }
 
-export async function resyncLocalVault(meta: VaultMeta): Promise<{
-  meta: VaultMeta;
-  files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[];
-} | null> {
+export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult | null> {
   if (meta.sourceKind !== 'local') return null;
   if (hasElectronVault() && meta.path) {
     try {
       const listed = await window.electronVault!.listTextFiles(meta.path);
+      const files = listed.filter(e => e.kind === 'file');
       return {
         meta: {
           ...meta,
           syncStatus: 'ok',
           lastSyncedAt: new Date().toISOString(),
-          syncMessage: `${listed.length} fichier(s) synchronisé(s)`,
+          syncMessage: `${files.length} fichier(s) synchronisé(s)`,
           liveSync: true,
         },
-        files: listed.map(f => ({
+        files: files.map(f => ({
           name: f.relativePath || f.name,
           type: inferType(f.name),
-          content: f.content,
+          content: f.content ?? '',
           tags: ['vault', 'local'],
         })),
+        dirs: listed.filter(e => e.kind === 'dir').map(d => d.relativePath),
       };
     } catch (e: any) {
       return {
@@ -207,6 +254,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<{
           liveSync: false,
         },
         files: [],
+        dirs: [],
       };
     }
   }
@@ -221,16 +269,16 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<{
           liveSync: false,
         },
         files: [],
+        dirs: [],
       };
     }
-    // Re-pick via walk by temporarily assigning
-    const picked = await pickLocalVaultFolder();
-    // Prefer re-walking the stored handle
-    const files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[] = [];
+    const files: VaultFileInput[] = [];
+    const dirs: string[] = [];
     async function walk(dir: any, prefix: string) {
       for await (const [name, entry] of dir.entries()) {
         if (entry.kind === 'directory') {
           if (name === 'node_modules' || name === '.git') continue;
+          dirs.push(prefix ? `${prefix}/${name}` : name);
           await walk(entry, prefix ? `${prefix}/${name}` : name);
         } else if (entry.kind === 'file') {
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -248,7 +296,6 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<{
       }
     }
     await walk(handle, '');
-    void picked;
     return {
       meta: {
         ...meta,
@@ -258,6 +305,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<{
         liveSync: true,
       },
       files,
+      dirs,
     };
   }
   return {
@@ -268,6 +316,71 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<{
       liveSync: false,
     },
     files: [],
+    dirs: [],
+  };
+}
+
+// ── Écritures (app → disque) — actives sur la build Electron ─────────────────
+
+/** Complète l'extension disque d'un fichier créé depuis l'appli (nom sans point). */
+export function ensureVaultExt(name: string, type: DBFile['type']): string {
+  if (name.includes('.')) return name;
+  const ext = type === 'markdown' || type === 'note' ? 'md' : type === 'json' ? 'json' : 'txt';
+  return `${name}.${ext}`;
+}
+
+export async function vaultWriteFile(meta: VaultMeta | null, relPath: string, content: string): Promise<{ ok: boolean; error?: string }> {
+  const bridge = getElectronVault();
+  if (!bridge?.writeFile || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+  markLocalWrite();
+  return bridge.writeFile(meta!.path, relPath, content);
+}
+
+export async function vaultMakeDir(meta: VaultMeta | null, relPath: string): Promise<{ ok: boolean; error?: string }> {
+  const bridge = getElectronVault();
+  if (!bridge?.makeDir || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+  markLocalWrite();
+  return bridge.makeDir(meta!.path, relPath);
+}
+
+export async function vaultDeletePath(meta: VaultMeta | null, relPath: string, isDir: boolean): Promise<{ ok: boolean; error?: string }> {
+  const bridge = getElectronVault();
+  if (!bridge?.deletePath || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+  markLocalWrite();
+  return bridge.deletePath(meta!.path, relPath, isDir);
+}
+
+export async function vaultMovePath(meta: VaultMeta | null, fromRel: string, toRel: string): Promise<{ ok: boolean; error?: string }> {
+  const bridge = getElectronVault();
+  if (!bridge?.movePath || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+  markLocalWrite();
+  return bridge.movePath(meta!.path, fromRel, toRel);
+}
+
+export async function vaultOpenPath(targetPath: string): Promise<{ ok: boolean; error?: string }> {
+  const bridge = getElectronVault();
+  if (!bridge?.openPath) return { ok: false, error: 'Disponible uniquement dans l’application bureau' };
+  return bridge.openPath(targetPath);
+}
+
+/**
+ * Surveille un dossier local ; `onChange` est appelé (déboursé côté main) quand
+ * le disque change, sauf dans la seconde qui suit une écriture initiée par l'app.
+ */
+export function watchVaultPath(meta: VaultMeta, onChange: () => void): () => void {
+  const bridge = getElectronVault();
+  if (!bridge?.watch || !bridge.onChanged || meta.sourceKind !== 'local' || !meta.path) return () => {};
+  let disposed = false;
+  void bridge.watch(meta.path);
+  const off = bridge.onChanged(payload => {
+    if (disposed || payload?.rootPath !== meta.path) return;
+    if (Date.now() - lastLocalWriteAt < 1500) return; // écho d'une écriture locale
+    onChange();
+  });
+  return () => {
+    disposed = true;
+    off();
+    void bridge.unwatch?.(meta.path!);
   };
 }
 
@@ -329,7 +442,8 @@ export async function importGitHubRepoAsVault(
   repo: GitHubRepoHit,
 ): Promise<{
   meta: VaultMeta;
-  files: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>[];
+  files: VaultFileInput[];
+  dirs: string[];
   error?: string;
 }> {
   const [owner, name] = repo.full_name.split('/');
@@ -351,6 +465,7 @@ export async function importGitHubRepoAsVault(
           syncMessage: `Impossible de lister ${repo.full_name}`,
         },
         files: [],
+        dirs: [],
         error: `GitHub API ${res.status}`,
       };
     }
@@ -385,6 +500,7 @@ export async function importGitHubRepoAsVault(
         syncMessage: `${files.length} fichier(s) importé(s) depuis GitHub (racine du dépôt)`,
       },
       files,
+      dirs: [],
     };
   } catch (e: any) {
     return {
@@ -396,6 +512,7 @@ export async function importGitHubRepoAsVault(
         syncMessage: e?.message ?? 'Erreur import GitHub',
       },
       files: [],
+      dirs: [],
       error: e?.message,
     };
   }
