@@ -674,7 +674,10 @@ export default function ChatScreen() {
   };
 
   const handleSend = async (override?: string) => {
-    let msg = (override ?? input).trim();
+    // NB : onPress={handleSend} passe l'événement de clic en 1er argument —
+    // on n'accepte qu'une vraie chaîne comme override.
+    const source = typeof override === 'string' ? override : input;
+    let msg = source.trim();
     if ((!msg && !pendingAttachment) || isLoading || !activeConversation) return;
 
     if (pendingAttachment) {
@@ -969,7 +972,7 @@ export default function ChatScreen() {
               <IconButton
                 icon="send"
                 label="Envoyer"
-                onPress={handleSend}
+                onPress={() => handleSend()}
                 disabled={!input.trim() && !pendingAttachment}
                 boxSize={44}
                 backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
