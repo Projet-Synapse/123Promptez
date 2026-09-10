@@ -6,9 +6,10 @@ import {
   Modal, KeyboardAvoidingView, Platform, TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useBot } from '@/hooks/useBot';
+import { resolveGitHubToken } from '@/services/vaultService';
 import { KBSourceCard, AgentToolRow, ThemedInput, IconButton , Toggle } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
@@ -406,6 +407,7 @@ export default function BuilderScreen() {
             {CONNECTOR_PRESETS.map(preset => {
               const existing = bot.connectedApps.find(a => a.id === preset.id || a.presetId === preset.id);
               const enabled = existing?.enabled ?? false;
+              const githubToken = preset.id === 'github' ? resolveGitHubToken(bot.connectedApps) : null;
               return (
               <React.Fragment key={preset.id}>
                 <View
@@ -425,14 +427,22 @@ export default function BuilderScreen() {
                     backgroundColor: (preset.color || C.primary) + '22',
                     alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <MaterialIcons name={preset.icon as any} size={22} color={preset.color || C.primary} />
+                    <FontAwesome name={preset.icon as any} size={24} color={preset.color || C.primary} />
                   </View>
                   <View style={{ flex: 1, gap: 3 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
                       <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }}>{preset.label}</Text>
-                      {preset.comingSoon ? (
+                      {preset.id === 'supabase' ? (
+                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: '#00CC6A' + '22', borderWidth: 1, borderColor: '#00CC6A' + '55' }}>
+                          <Text style={{ fontSize: 10, color: '#00CC6A', fontWeight: '700' }}>Connecté</Text>
+                        </View>
+                      ) : githubToken ? (
+                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: '#00CC6A' + '22', borderWidth: 1, borderColor: '#00CC6A' + '55' }}>
+                          <Text style={{ fontSize: 10, color: '#00CC6A', fontWeight: '700' }}>Connecté</Text>
+                        </View>
+                      ) : enabled ? (
                         <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55' }}>
-                          <Text style={{ fontSize: 10, color: C.warning, fontWeight: '700' }}>bientôt</Text>
+                          <Text style={{ fontSize: 10, color: C.warning, fontWeight: '700' }}>À connecter</Text>
                         </View>
                       ) : null}
                     </View>
@@ -448,24 +458,40 @@ export default function BuilderScreen() {
                       icon: preset.icon,
                       color: preset.color,
                       presetId: preset.id,
-                      comingSoon: preset.comingSoon,
                     }, !enabled)}
                   />
                 </View>
                 {preset.id === 'github' && enabled && existing ? (
                   <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm, marginTop: -Spacing.sm }}>
                     <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                      Personal Access Token GitHub
+                      Connexion GitHub
                     </Text>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
-                      1) github.com → Settings → Developer settings → Personal access tokens
-2) Créez un token (classic) avec le scope « repo » (ou « public_repo » pour les dépôts publics)
-3) Collez-le ici — il est stocké dans la config bot synchronisée (cloud). Utilisé pour la recherche/import vault.
+                      1) Clique « Connecter GitHub » : la page GitHub s’ouvre avec le scope « repo » déjà présélectionné (dépôts privés inclus)
+2) « Generate token », puis copie le jeton
+3) Colle-le ci-dessous — il est stocké dans la config bot synchronisée (cloud).
                     </Text>
+                    {!githubToken ? (
+                      <Pressable
+                        onPress={() => window.open((preset as any).connectUrl, '_blank', 'noopener')}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#24292F', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
+                      >
+                        <FontAwesome name="github" size={16} color="#fff" />
+                        <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '700' }}>Connecter GitHub</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: '#00CC6A' + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: '#00CC6A' + '55', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2 }}>
+                        <FontAwesome name="check-circle" size={15} color="#00CC6A" />
+                        <Text style={{ flex: 1, fontSize: FontSize.xs, color: '#00CC6A', fontWeight: '700' }}>Connecté — dépôts privés lisibles</Text>
+                        <Pressable onPress={() => updateConnectedApp(existing.id, { webhookUrl: '' })} hitSlop={6} style={({ pressed }) => [{ paddingHorizontal: Spacing.xs, paddingVertical: 3, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.7 }]}>
+                          <Text style={{ fontSize: 10, color: C.textSecondary, fontWeight: '700' }}>Déconnecter</Text>
+                        </Pressable>
+                      </View>
+                    )}
                     <ThemedInput
                       value={existing.webhookUrl?.startsWith('http') ? '' : (existing.webhookUrl || '')}
                       onChangeText={v => updateConnectedApp(existing.id, { webhookUrl: v.trim() })}
-                      placeholder="ghp_…"
+                      placeholder="ghp_… (colle ici le jeton généré)"
                       secureTextEntry
                       mono
                     />

@@ -11,6 +11,7 @@
 //   et honnêtes (plus de promesses non tenues).
 import type { BotConfig } from '@/contexts/BotContext';
 import type { Workspace, DBFile } from '@/contexts/WorkspaceContext';
+import { resolveGitHubToken } from '@/services/vaultService';
 
 export interface AgentCapability {
   id: string;
@@ -84,18 +85,44 @@ export const AGENT_CAPABILITIES: AgentCapability[] = [
   },
 ];
 
-// ─── Connecteurs : décrits honnêtement (aucune exécution externe) ────────────
+// ─── Connecteurs : décrits honnêtement, avec leurs prérequis ─────────────────
 function connectorCapabilities(bot: BotConfig): AgentCapability[] {
-  return bot.connectedApps
-    .filter(a => a.enabled && !(a.id === 'supabase' || a.presetId === 'supabase'))
-    .map(a => ({
-      id: `connector_${a.id}`,
-      label: a.name,
-      description: a.description,
-      icon: 'cable',
-      truth: `Parler de la connexion « ${a.name} » (${a.description}) si l'utilisateur en parle — c'est une référence d'information : aucune action externe n'est déclenchée automatiquement, ne promets pas de lire ou modifier des données chez ces services.`,
+  const caps: AgentCapability[] = [];
+
+  // GitHub : capacité RÉELLE quand le connecteur est activé ET connecté (jeton)
+  const github = bot.connectedApps.find(
+    a => a.enabled && (a.id === 'github' || a.presetId === 'github'),
+  );
+  if (github) {
+    const connected = !!resolveGitHubToken(bot.connectedApps);
+    caps.push({
+      id: 'github_repos',
+      label: 'Dépôts GitHub',
+      description: connected
+        ? 'Connecté — dépôts privés et publics importables dans la base'
+        : 'Connecteur actif mais jeton manquant — clique « Connecter GitHub »',
+      icon: 'github',
+      truth: connected
+        ? 'Les dépôts GitHub importés apparaissent dans « BASE DU WORKSPACE » avec leur arborescence complète (lecture seule). L\'utilisateur peut importer d\'autres dépôts via l\'application.'
+        : 'Le connecteur GitHub est activé mais non connecté : ne prétends pas accéder à des dépôts. L\'utilisateur doit cliquer « Connecter GitHub » et coller son jeton.',
       enabled: () => true,
-    }));
+    });
+  }
+
+  // Autres connecteurs (aucun pour l'instant) : références descriptives only.
+  for (const app of bot.connectedApps.filter(
+    a => a.enabled && !(a.id === 'github' || a.presetId === 'github' || a.id === 'supabase' || a.presetId === 'supabase'),
+  )) {
+    caps.push({
+      id: `connector_${app.id}`,
+      label: app.name,
+      description: app.description,
+      icon: 'cable',
+      truth: `Parler de la connexion « ${app.name} » (${app.description}) si l'utilisateur en parle — c'est une référence d'information : aucune action externe n'est déclenchée automatiquement, ne promets pas de lire ou modifier des données chez ces services.`,
+      enabled: () => true,
+    });
+  }
+  return caps;
 }
 
 /** Liste honnête des capacités actives, pour l'UI comme pour le prompt. */

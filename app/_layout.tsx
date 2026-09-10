@@ -2,7 +2,7 @@
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import * as SplashScreen from 'expo-splash-screen';
 import { AlertProvider, AuthProvider } from '@/template';
 import { BotProvider, type BotConfig } from '@/contexts/BotContext';
@@ -97,7 +97,7 @@ function CloudHydrator() {
 }
 
 export default function RootLayout() {
-  const [iconFontLoaded] = useFonts({ ...MaterialIcons.font });
+  const [iconFontLoaded] = useFonts({ ...MaterialIcons.font, ...FontAwesome.font });
 
   useEffect(() => {
     if (iconFontLoaded) SplashScreen.hideAsync().catch(() => {});

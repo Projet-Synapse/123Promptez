@@ -307,6 +307,9 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
   const [readme, setReadme] = useState<string | null>(null);
   const [readmeLoading, setReadmeLoading] = useState(false);
   const [busyRepoSync, setBusyRepoSync] = useState(false);
+  // Site du dépôt (GitHub Pages) affiché dans l'iframe + tiroir fichiers/README
+  const [repoSiteUrl, setRepoSiteUrl] = useState<string | null>(null);
+  const [showRepoFiles, setShowRepoFiles] = useState(false);
   const activeRepo = repos.find(r => r.id === activeRepoId) ?? null;
   const activeRepoMeta = activeRepo?.repo ?? null;
   const repoFiles: DBFile[] = activeRepo
@@ -360,6 +363,20 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     setActiveRepoId(folder.id);
     setRepoFile(null);
     setReadme(null);
+    setShowRepoFiles(false);
+    const meta = folder.repo!;
+    if (meta.sourceKind === 'github' && meta.repoFullName) {
+      // Le SITE du dépôt : GitHub Pages (autorise l'iframe, contrairement à
+      // github.com). L'URL se met dans le champ et le site se charge dedans.
+      const [owner, name] = meta.repoFullName.split('/');
+      const pagesUrl = `https://${owner}.github.io/${name}/`;
+      setRepoSiteUrl(pagesUrl);
+      setUrl(pagesUrl);
+      setLoading(true);
+      setLoadedUrl(pagesUrl);
+    } else {
+      setRepoSiteUrl(null);
+    }
     void fetchRepoReadme(folder);
   };
 
@@ -457,7 +474,8 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
       ) : null}
 
       {activeRepo ? (
-        /* Panneau du dépôt : README via API GitHub (le site GitHub refuse l'iframe) + fichiers */
+        /* Panneau du dépôt : le SITE déployé (GitHub Pages) dans l'iframe,
+           avec tiroir fichiers/README en dessous */
         <View style={{ flex: 1, backgroundColor: C.bgCardAlt }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border }}>
             <MaterialIcons name="folder-open" size={14} color={activeRepo.color || '#00BFFF'} />
@@ -465,92 +483,108 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
               {activeRepoMeta?.sourceKind === 'github' ? activeRepoMeta.repoFullName : activeRepoMeta?.path}
             </Text>
             {busyRepoSync ? <ActivityIndicator size="small" color={C.accent} /> : null}
+            <Pressable onPress={() => setShowRepoFiles(v => !v)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: showRepoFiles ? C.accent : C.border, backgroundColor: showRepoFiles ? C.accent + '18' : C.bgCard }, pressed && { opacity: 0.7 }]}>
+              <MaterialIcons name="code" size={11} color={C.accent} />
+              <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>Fichiers</Text>
+            </Pressable>
             <Pressable onPress={() => void handleRepoSync()} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.7 }]}>
               <MaterialIcons name="sync" size={11} color={C.accent} />
               <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>Resynchroniser</Text>
             </Pressable>
-            <Pressable onPress={openRepoExternal} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.7 }]}>
-              <MaterialIcons name={activeRepoMeta?.sourceKind === 'github' ? 'open-in-new' : 'folder-open'} size={11} color={C.accent} />
-              <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>{activeRepoMeta?.sourceKind === 'github' ? 'Ouvrir sur GitHub' : 'Ouvrir le dossier'}</Text>
+            <Pressable onPress={openRepoExternal} hitSlop={4} accessibilityLabel="Ouvrir sur GitHub">
+              <MaterialIcons name="open-in-new" size={15} color={C.accent} />
             </Pressable>
-            {repoFile ? (
-              <Pressable onPress={() => setRepoFile(null)} hitSlop={6}>
-                <MaterialIcons name="list" size={16} color={C.textSecondary} />
-              </Pressable>
-            ) : null}
+            <Pressable onPress={() => { setActiveRepoId(null); setRepoSiteUrl(null); setRepoFile(null); setReadme(null); }} hitSlop={4} accessibilityLabel="Fermer le dépôt">
+              <MaterialIcons name="close" size={15} color={C.textSecondary} />
+            </Pressable>
           </View>
 
-          {repoFile ? (
-            <View style={{ paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm, gap: 4, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name={fileTypeInfo(repoFile.type).icon as any} size={13} color={fileTypeInfo(repoFile.type).color} />
-                <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textPrimary, fontWeight: '700', fontFamily: 'monospace' }} numberOfLines={1}>{repoFile.name}</Text>
-                <Pressable onPress={() => setRepoFile(null)} hitSlop={6}>
-                  <MaterialIcons name="close" size={14} color={C.textSecondary} />
-                </Pressable>
-              </View>
-              <ScrollView style={{ maxHeight: 180 }}>
-                <Text style={{ fontSize: 10, color: C.textSecondary, lineHeight: 15, fontFamily: 'monospace' }}>
-                  {repoFile.content || '(Contenu vide)'}
-                </Text>
-              </ScrollView>
-            </View>
-          ) : (
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.sm, gap: Spacing.sm }} showsVerticalScrollIndicator={false}>
-              {/* État du jeton GitHub — visible en permanence */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.bgCard, borderRadius: Radius.sm, borderWidth: 1, borderColor: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' + '55' : C.error + '55', paddingHorizontal: 8, paddingVertical: 6 }}>
-                <MaterialIcons name={resolveGitHubToken(bot.connectedApps) ? 'verified' : 'key-off'} size={13} color={resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error} />
-                <Text style={{ flex: 1, fontSize: 10, lineHeight: 14, color: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error, fontWeight: '600' }}>
-                  {resolveGitHubToken(bot.connectedApps)
-                    ? 'Jeton GitHub détecté — les dépôts privés auxquels il a accès sont lisibles.'
-                    : 'Aucun jeton GitHub — Builder ▸ Connecteurs ▸ GitHub : colle un Personal Access Token (classic, scope « repo »).'}
-                </Text>
-              </View>
-              {/* Fichiers du dépôt */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialIcons name="code" size={12} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  Fichiers ({repoFiles.length})
-                </Text>
-              </View>
-              {repoFiles.length === 0 ? (
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
-                  Aucun fichier importé — clique « Resynchroniser » ci-dessus pour importer le contenu du dépôt.
-                </Text>
-              ) : (
-                repoFiles.map(f => (
-                  <Pressable
-                    key={f.id}
-                    onPress={() => setRepoFile(f)}
-                    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 4, borderRadius: Radius.sm, backgroundColor: C.bgCard }, pressed && { opacity: 0.7 }]}
-                  >
-                    <MaterialIcons name={fileTypeInfo(f.type).icon as any} size={12} color={fileTypeInfo(f.type).color} />
-                    <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textSecondary, fontFamily: 'monospace' }} numberOfLines={1}>{f.name}</Text>
-                  </Pressable>
-                ))
-              )}
+          {/* Le site du dépôt */}
+          <View style={{ flex: 1 }}>
+            {loading ? <ActivityIndicator color={C.accent} style={{ position: 'absolute', top: 20, alignSelf: 'center', zIndex: 2 }} /> : null}
+            {repoSiteUrl ? (
+              <Iframe src={repoSiteUrl} onLoad={() => setLoading(false)} />
+            ) : (
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', marginTop: Spacing.lg }}>Aucun site pour ce dépôt.</Text>
+            )}
+          </View>
 
-              {/* README (github) — le site lui-même refuse l'iframe */}
-              {activeRepoMeta?.sourceKind === 'github' ? (
-                readmeLoading ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: Spacing.sm }}>
-                    <ActivityIndicator size="small" color={C.accent} />
-                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>Chargement du README…</Text>
-                  </View>
-                ) : readme !== null ? (
-                  <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <MaterialIcons name="article" size={12} color={C.textMuted} />
-                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>README</Text>
+          {/* Tiroir : jeton, fichiers, README */}
+          {showRepoFiles ? (
+            <View style={{ maxHeight: '55%', borderTopWidth: 1, borderTopColor: C.border }}>
+            {repoFile ? (
+              <View style={{ paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm, gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialIcons name={fileTypeInfo(repoFile.type).icon as any} size={13} color={fileTypeInfo(repoFile.type).color} />
+                  <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textPrimary, fontWeight: '700', fontFamily: 'monospace' }} numberOfLines={1}>{repoFile.name}</Text>
+                  <Pressable onPress={() => setRepoFile(null)} hitSlop={6}>
+                    <MaterialIcons name="close" size={14} color={C.textSecondary} />
+                  </Pressable>
+                </View>
+                <ScrollView style={{ maxHeight: 180 }}>
+                  <Text style={{ fontSize: 10, color: C.textSecondary, lineHeight: 15, fontFamily: 'monospace' }}>
+                    {repoFile.content || '(Contenu vide)'}
+                  </Text>
+                </ScrollView>
+              </View>
+            ) : (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.sm, gap: Spacing.sm }} showsVerticalScrollIndicator={false}>
+                {/* État du jeton GitHub — visible en permanence */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.bgCard, borderRadius: Radius.sm, borderWidth: 1, borderColor: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' + '55' : C.error + '55', paddingHorizontal: 8, paddingVertical: 6 }}>
+                  <MaterialIcons name={resolveGitHubToken(bot.connectedApps) ? 'verified' : 'key-off'} size={13} color={resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error} />
+                  <Text style={{ flex: 1, fontSize: 10, lineHeight: 14, color: resolveGitHubToken(bot.connectedApps) ? '#00CC6A' : C.error, fontWeight: '600' }}>
+                    {resolveGitHubToken(bot.connectedApps)
+                      ? 'Jeton GitHub détecté — les dépôts privés auxquels il a accès sont lisibles.'
+                      : 'Aucun jeton GitHub — Builder ▸ Connecteurs ▸ GitHub : colle un Personal Access Token (classic, scope « repo »).'}
+                  </Text>
+                </View>
+                {/* Fichiers du dépôt */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialIcons name="code" size={12} color={C.textMuted} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Fichiers ({repoFiles.length})
+                  </Text>
+                </View>
+                {repoFiles.length === 0 ? (
+                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                    Aucun fichier importé — clique « Resynchroniser » ci-dessus pour importer le contenu du dépôt.
+                  </Text>
+                ) : (
+                  repoFiles.map(f => (
+                    <Pressable
+                      key={f.id}
+                      onPress={() => setRepoFile(f)}
+                      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 4, borderRadius: Radius.sm, backgroundColor: C.bgCard }, pressed && { opacity: 0.7 }]}
+                    >
+                      <MaterialIcons name={fileTypeInfo(f.type).icon as any} size={12} color={fileTypeInfo(f.type).color} />
+                      <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.textSecondary, fontFamily: 'monospace' }} numberOfLines={1}>{f.name}</Text>
+                    </Pressable>
+                  ))
+                )}
+
+                {/* README (github) */}
+                {activeRepoMeta?.sourceKind === 'github' ? (
+                  readmeLoading ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: Spacing.sm }}>
+                      <ActivityIndicator size="small" color={C.accent} />
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>Chargement du README…</Text>
                     </View>
-                    <Text style={{ fontSize: 11, color: C.textSecondary, lineHeight: 17, fontFamily: 'monospace' }}>
-                      {readme}
-                    </Text>
-                  </View>
-                ) : null
-              ) : null}
-            </ScrollView>
-          )}
+                  ) : readme !== null ? (
+                    <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <MaterialIcons name="article" size={12} color={C.textMuted} />
+                        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>README</Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: C.textSecondary, lineHeight: 17, fontFamily: 'monospace' }}>
+                        {readme}
+                      </Text>
+                    </View>
+                  ) : null
+                ) : null}
+              </ScrollView>
+            )}
+            </View>
+          ) : null}
         </View>
       ) : (
         /* Zone d'affichage web classique */

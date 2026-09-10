@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -27,7 +27,8 @@ import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
-import { AGENT_TOOLS } from '@/constants/config';
+import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
+import { resolveGitHubToken } from '@/services/vaultService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -93,7 +94,7 @@ function PlusPopover({
   responseMode: ResponseMode;
   onChangeMode: (m: ResponseMode) => void;
   capabilities: AgentCapability[];
-  connectedApps: { id: string; name: string; description: string; enabled: boolean }[];
+  connectedApps: { id: string; presetId?: string; name: string; description: string; enabled: boolean; webhookUrl?: string }[];
   onToggleConnectedApp: (id: string, enabled: boolean) => void;
   agentTools: { id: string; enabled: boolean }[];
   onToggleAgentTool: (id: string) => void;
@@ -158,30 +159,46 @@ function PlusPopover({
             </Text>
           ) : null}
 
-          {/* Connecteurs — bascules synchronisées avec le Builder */}
+          {/* Connecteurs — mêmes presets que le Builder (source de vérité partagée) */}
           <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: Spacing.xs }}>Connecteurs</Text>
           <View style={{ gap: 2 }}>
-            {connectedApps.map(a => (
-              <Pressable
-                key={a.id}
-                onPress={() => onToggleConnectedApp(a.id, !a.enabled)}
-                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
-              >
-                <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: a.enabled ? '#00CC6A' + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="cable" size={14} color={a.enabled ? '#00CC6A' : C.textMuted} />
+            {CONNECTOR_PRESETS.map(p => {
+              const existing = connectedApps.find(a => a.id === p.id || a.presetId === p.id);
+              const enabled = existing?.enabled ?? false;
+              const ghToken = p.id === 'github' ? resolveGitHubToken(connectedApps) : null;
+              const connected = p.id === 'supabase' ? enabled : enabled && !!ghToken;
+              return (
+                <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.xs }}>
+                  <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: connected ? '#00CC6A' + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                    <FontAwesome name={p.icon as any} size={14} color={connected ? '#00CC6A' : C.textMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: FontSize.sm, color: enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>
+                      {p.label}
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: connected ? '#00CC6A' : C.warning }}> {connected ? '· Connecté' : enabled ? '· À connecter' : ''}</Text>
+                    </Text>
+                    <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>{p.description}</Text>
+                  </View>
+                  {p.id === 'github' && enabled && !ghToken ? (
+                    <Pressable
+                      onPress={() => window.open((p as any).connectUrl, '_blank', 'noopener')}
+                      style={({ pressed }) => [{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: '#24292F' }, pressed && { opacity: 0.8 }]}
+                    >
+                      <Text style={{ fontSize: 10, color: '#fff', fontWeight: '700' }}>Connecter</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={() => onToggleConnectedApp(p.id, !enabled)}
+                      hitSlop={6}
+                      style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: enabled ? '#00CC6A' : C.bgCardAlt, borderWidth: 1, borderColor: enabled ? '#00CC6A' : C.border, justifyContent: 'center', paddingHorizontal: 2 }}
+                      accessibilityLabel={enabled ? `Désactiver ${p.label}` : `Activer ${p.label}`}
+                    >
+                      <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: enabled ? '#fff' : C.textMuted, alignSelf: enabled ? 'flex-end' : 'flex-start' }} />
+                    </Pressable>
+                  )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: FontSize.sm, color: a.enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{a.name}</Text>
-                  <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>{a.description}</Text>
-                </View>
-                <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: a.enabled ? '#00CC6A' : C.bgCardAlt, borderWidth: 1, borderColor: a.enabled ? '#00CC6A' : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
-                  <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: a.enabled ? '#fff' : C.textMuted, alignSelf: a.enabled ? 'flex-end' : 'flex-start' }} />
-                </View>
-              </Pressable>
-            ))}
-            {connectedApps.length === 0 ? (
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingVertical: 4 }}>Aucun connecteur — ajoute-les dans le Builder.</Text>
-            ) : null}
+              );
+            })}
           </View>
 
           {/* Outils IA — bascules synchronisées avec le Builder */}
