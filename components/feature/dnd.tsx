@@ -80,24 +80,57 @@ export function cancelDrag() {
   emit();
 }
 
-/** PanHandlers à étaler sur la View englobante d'une ligne déplaçable. */
-export function useDragHandlers(getItem: () => DragItem | null) {
+/**
+ * PanHandlers à étaler sur la View englobante d'une ligne déplaçable.
+ *
+ * Le récepteur prend le geste DÈS LE POINTER-DOWN (fiable souris/tactile sur
+ * web comme en natif) puis départage lui-même :
+ *   - déplacement > 6 px  → le drag démarre (fantôme + zones actives) ;
+ *   - relâchement sans déplacement → `onTap` est appelé (remplace le onPress
+ *     du Pressable, que ce récepteur remplace sur la zone qu'il couvre).
+ * Les Pressable imbriqués (boutons renommer/supprimer/déplacer) restent
+ * prioritaires : la négociation répond au plus profond d'abord.
+ */
+export function useDragHandlers(getItem: () => DragItem | null, onTap?: () => void) {
   const getItemRef = useRef(getItem);
   getItemRef.current = getItem;
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const draggingRef = useRef(false);
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponderCapture: (_e, g) =>
-        !!getItemRef.current && (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6),
-      onPanResponderGrant: (e) => {
-        const item = getItemRef.current();
-        if (item) beginDrag(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: () => false,
+      onPanResponderGrant: () => {
+        draggingRef.current = false;
       },
-      onPanResponderMove: (e) => {
-        moveDrag(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      onPanResponderMove: (e, g) => {
+        if (!draggingRef.current) {
+          if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6) {
+            const item = getItemRef.current();
+            if (item) {
+              draggingRef.current = true;
+              beginDrag(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
+            }
+          }
+        } else {
+          moveDrag(e.nativeEvent.pageX, e.nativeEvent.pageY);
+        }
       },
-      onPanResponderRelease: () => endDrag(),
-      onPanResponderTerminate: () => cancelDrag(),
+      onPanResponderRelease: () => {
+        if (draggingRef.current) {
+          endDrag();
+        } else {
+          onTapRef.current?.();
+        }
+        draggingRef.current = false;
+      },
+      onPanResponderTerminate: () => {
+        if (draggingRef.current) cancelDrag();
+        draggingRef.current = false;
+      },
     }),
   ).current;
   return pan.panHandlers;
@@ -134,9 +167,17 @@ export function DropZone({ zoneId, accepts, onDrop, style, activeStyle, children
     if (!dragging) return;
     let alive = true;
     const measure = () => {
-      ref.current?.measureInWindow?.((x, y, width, height) => {
-        if (alive) rectRef.current = { x, y, width, height };
-      });
+      const node: any = ref.current;
+      if (!node) return;
+      if (typeof node.measureInWindow === 'function') {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          if (alive) rectRef.current = { x, y, width, height };
+        });
+      } else if (typeof node.measure === 'function') {
+        node.measure((x: number, y: number, width: number, height: number) => {
+          if (alive) rectRef.current = { x, y, width, height };
+        });
+      }
     };
     measure();
     const interval = setInterval(measure, 120);

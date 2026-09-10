@@ -16,7 +16,6 @@ import { useBot } from '@/hooks/useBot';
 import { ThemedInput, Toggle } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { AGENT_TOOLS } from '@/constants/config';
 import { useAlert } from '@/template';
 import type { WorkspaceMode } from '@/contexts/WorkspaceContext';
 
@@ -354,11 +353,11 @@ export default function WorkspaceSettingsScreen() {
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
               Depuis le Builder
             </Text>
-            {(bot.customAgents ?? []).length === 0 && bot.agentTools.filter(t => t.enabled).length === 0 ? (
+            {(bot.customAgents ?? []).length === 0 ? (
               <View style={[styles.modeExplain, { marginBottom: 0 }]}>
                 <MaterialIcons name="info-outline" size={14} color={C.textMuted} />
                 <Text style={styles.modeExplainText}>
-                  Créez des agents IA ou activez des outils dans l’onglet Builder pour les sélectionner ici comme compétences.
+                  Créez des agents IA dans l’onglet Builder pour les sélectionner ici comme compétences. Les outils, eux, s’activent directement depuis le chat (bouton « + »).
                 </Text>
               </View>
             ) : null}
@@ -398,50 +397,6 @@ export default function WorkspaceSettingsScreen() {
                         color: agent.color || C.accent,
                         promptInjection: agent.promptPrefix?.trim()
                           || `Tu agis en tant que « ${agent.name} » (${agent.role}). ${agent.description}`.trim(),
-                      },
-                      !enabled,
-                    )}
-                  />
-                </View>
-              );
-            })}
-
-            {bot.agentTools.filter(t => t.enabled).map(tool => {
-              const meta = AGENT_TOOLS.find(t => t.id === tool.id);
-              if (!meta) return null;
-              const linked = findSkillMode('tool', tool.id);
-              const enabled = linked?.enabled ?? false;
-              return (
-                <View
-                  key={`tool-${tool.id}`}
-                  style={[
-                    styles.modeCard,
-                    enabled ? { borderColor: C.primary + '66', backgroundColor: C.primary + '08' } : null,
-                  ]}
-                >
-                  <View style={[styles.modeIcon, { backgroundColor: C.primary + '22' }]}>
-                    <MaterialIcons name={meta.icon as any} size={20} color={C.primary} />
-                  </View>
-                  <View style={styles.modeInfo}>
-                    <View style={styles.modeTitleRow}>
-                      <Text style={styles.modeLabel}>{meta.label}</Text>
-                      <View style={styles.shortcutBadge}>
-                        <Text style={styles.shortcutText}>Outil</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.modeDesc} numberOfLines={2}>{meta.description}</Text>
-                  </View>
-                  <Toggle
-                    value={enabled}
-                    onToggle={() => setBuilderSkillEnabled(
-                      'tool',
-                      tool.id,
-                      {
-                        label: meta.label,
-                        description: meta.description,
-                        icon: meta.icon,
-                        color: C.primary,
-                        promptInjection: `Tu as accès à l’outil « ${meta.label} ». ${meta.description}. Utilise-le lorsque c’est pertinent.`,
                       },
                       !enabled,
                     )}

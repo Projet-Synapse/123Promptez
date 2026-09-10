@@ -26,16 +26,18 @@ import { useToast } from '@/contexts/ToastContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import type { DBFile, DBFolder, DBSubFolder, FileLocation } from '@/contexts/WorkspaceContext';
+import { findSubIn } from '@/contexts/WorkspaceContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SortKey = 'name' | 'date' | 'size' | 'type';
 type SortOrder = 'asc' | 'desc';
 
-// Navigation stack item
+// Navigation stack item — les sous-dossiers s'imbriquent à toute profondeur
+// (path = chaîne depuis le dossier racine jusqu'au sous-dossier courant)
 type NavItem =
   | { kind: 'root' }
   | { kind: 'folder'; folder: DBFolder }
-  | { kind: 'subfolder'; folder: DBFolder; sub: DBSubFolder };
+  | { kind: 'subfolder'; folder: DBFolder; path: DBSubFolder[] };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const FILE_TYPES: { id: DBFile['type']; label: string; icon: string; color: string }[] = [
@@ -88,20 +90,21 @@ function locEquals(a: FileLocation, b: FileLocation): boolean {
   return false;
 }
 
-function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onToggleSelect, dragItem }: {
-  file: DBFile; onPress: () => void; onMove: () => void; onDelete: () => void;
+function FileRow({ file, onPress, onRename, onMove, onDelete, selectMode, selected, onToggleSelect, dragItem }: {
+  file: DBFile; onPress: () => void; onRename: () => void; onMove: () => void; onDelete: () => void;
   selectMode?: boolean; selected?: boolean; onToggleSelect?: () => void;
   dragItem?: DragItem | null;
 }) {
   const C = useThemeColors();
   const info = getFileTypeInfo(file.type);
-  const dragHandlers = useDragHandlers(() => (selectMode ? null : dragItem ?? null));
+  const dragHandlers = useDragHandlers(
+    () => (selectMode ? null : dragItem ?? null),
+    () => (selectMode ? onToggleSelect?.() : onPress()),
+  );
   return (
     <View {...dragHandlers}>
-      <Pressable
-        onPress={() => (selectMode ? onToggleSelect?.() : onPress())}
-        onLongPress={() => onToggleSelect?.()}
-        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: selected ? C.primary + '18' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? C.primary + '55' : C.border, padding: Spacing.md }, pressed && { opacity: 0.75 }]}
+      <View
+        style={[{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: selected ? C.primary + '18' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? C.primary + '55' : C.border, padding: Spacing.md }]}
       >
         {selectMode ? (
           <MaterialIcons name={selected ? 'check-box' : 'check-box-outline-blank'} size={20} color={selected ? C.primary : C.textMuted} style={{ marginTop: 8 }} />
@@ -130,6 +133,9 @@ function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onTogg
         </View>
         {!selectMode ? (
           <>
+            <Pressable onPress={onRename} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }} accessibilityLabel={`Renommer ${file.name}`}>
+              <MaterialIcons name="edit" size={18} color={C.textMuted} />
+            </Pressable>
             <Pressable onPress={onMove} hitSlop={12} style={{ padding: Spacing.xs, marginTop: 2 }}>
               <MaterialIcons name="drive-file-move" size={18} color={C.textMuted} />
             </Pressable>
@@ -138,23 +144,23 @@ function FileRow({ file, onPress, onMove, onDelete, selectMode, selected, onTogg
             </Pressable>
           </>
         ) : null}
-      </Pressable>
+      </View>
     </View>
   );
 }
 
-function FolderCard({ folder, onPress, onDelete, dragItem, dropProps }: {
-  folder: DBFolder | DBSubFolder; onPress: () => void; onDelete: () => void;
+function FolderCard({ folder, onPress, onRename, onDelete, dragItem, dropProps }: {
+  folder: DBFolder | DBSubFolder; onPress: () => void; onRename?: () => void; onDelete: () => void;
   dragItem?: DragItem | null;
   /** Si fourni, la carte devient une zone de dépôt (glisser-déposer) */
   dropProps?: { zoneId: string; accepts: (item: DragItem) => boolean; onDrop: (item: DragItem) => void };
 }) {
   const C = useThemeColors();
-  const subCount = (folder as DBFolder).subFolders?.length ?? 0;
-  const dragHandlers = useDragHandlers(() => dragItem ?? null);
+  const subCount = (folder as DBFolder).subFolders?.length ?? (folder as DBSubFolder).subFolders?.length ?? 0;
+  const dragHandlers = useDragHandlers(() => dragItem ?? null, onPress);
   const card = (
     <View {...dragHandlers}>
-      <Pressable onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: folder.color + '44', padding: Spacing.md }}>
         <View style={{ width: 46, height: 46, borderRadius: Radius.sm, backgroundColor: folder.color + '22', alignItems: 'center', justifyContent: 'center' }}>
           <MaterialIcons name={folder.icon as any} size={26} color={folder.color} />
         </View>
@@ -176,11 +182,16 @@ function FolderCard({ folder, onPress, onDelete, dragItem, dropProps }: {
         </View>
         <View style={{ alignItems: 'center', gap: Spacing.xs }}>
           <MaterialIcons name="chevron-right" size={22} color={folder.color} />
+          {onRename ? (
+            <Pressable onPress={onRename} hitSlop={10} style={{ padding: Spacing.xs }} accessibilityLabel={`Renommer ${folder.name}`}>
+              <MaterialIcons name="edit" size={16} color={C.textMuted} />
+            </Pressable>
+          ) : null}
           <Pressable onPress={onDelete} hitSlop={10} style={{ padding: Spacing.xs }}>
             <MaterialIcons name="delete-outline" size={16} color={C.textMuted} />
           </Pressable>
         </View>
-      </Pressable>
+      </View>
     </View>
   );
   if (!dropProps) return card;
@@ -198,8 +209,8 @@ function FolderCard({ folder, onPress, onDelete, dragItem, dropProps }: {
 }
 
 // ─── Repo Card (dépôt connecté, séparé du vault) ─────────────────────────────
-function RepoCard({ folder, onPress, onSync, onOpenExternal, onDelete, busy }: {
-  folder: DBFolder; onPress: () => void; onSync: () => void; onOpenExternal: () => void; onDelete: () => void; busy?: boolean;
+function RepoCard({ folder, onPress, onRename, onSync, onOpenExternal, onDelete, busy }: {
+  folder: DBFolder; onPress: () => void; onRename?: () => void; onSync: () => void; onOpenExternal: () => void; onDelete: () => void; busy?: boolean;
 }) {
   const C = useThemeColors();
   const meta = folder.repo!;
@@ -227,6 +238,9 @@ function RepoCard({ folder, onPress, onSync, onOpenExternal, onDelete, busy }: {
         bare
         color={C.textSecondary}
       />
+      {onRename ? (
+        <IconButton icon="edit" label={`Renommer ${folder.name}`} onPress={onRename} size={18} bare color={C.textMuted} />
+      ) : null}
       <IconButton icon="delete-outline" label="Déconnecter le dépôt" onPress={onDelete} size={18} bare color={C.textMuted} />
     </View>
   );
@@ -267,7 +281,7 @@ export default function WorkspaceDatabaseScreen() {
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
   const {
     workspaces, addFolder, addVaultFolder, updateFolder, removeFolder,
-    addSubFolder, removeSubFolder,
+    addSubFolder, updateSubFolder, removeSubFolder,
     addFile, updateFile, removeFile, moveFile,
     syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
   } = useWorkspace();
@@ -354,12 +368,25 @@ export default function WorkspaceDatabaseScreen() {
     }
     return null;
   };
-  // Préfixe disque d'une localisation (sous-dossier du vault/dépôt).
+  // Chemin disque d'un fichier (relatif au vault/dépôt)
+  const relOf = (f: DBFile): string => f.path ?? f.name;
+  const baseOf = (name: string): string => name.split('/').pop() ?? name;
+  // Chaîne des noms de sous-dossiers jusqu'à subId (récursif)
+  const subChainNames = (subs: DBSubFolder[], subId: string, acc: string[] = []): string[] | null => {
+    for (const s of subs) {
+      const next = [...acc, s.name];
+      if (s.id === subId) return next;
+      const deep = subChainNames(s.subFolders ?? [], subId, next);
+      if (deep) return deep;
+    }
+    return null;
+  };
+  // Préfixe disque d'une localisation (chaîne des sous-dossiers du vault/dépôt)
   const prefixOf = (loc: FileLocation): string => {
     if (!loc || typeof loc !== 'object') return '';
     const f = wsFolders.find(x => x.id === loc.folderId);
-    const subName = f?.subFolders?.find(s => s.id === loc.subId)?.name ?? '';
-    return subName ? `${subName}/` : '';
+    const chain = f ? subChainNames(f.subFolders ?? [], loc.subId) : null;
+    return chain ? `${chain.join('/')}/` : '';
   };
   // Déplace un fichier (DB + miroir disque si la source/cible est un vault ou dépôt local).
   const performMove = async (file: DBFile, fromLoc: FileLocation, toLoc: FileLocation) => {
@@ -368,20 +395,20 @@ export default function WorkspaceDatabaseScreen() {
     const toMeta = metaAt(toLoc);
     const fromMirror = canMirrorToDisk(fromMeta);
     const toMirror = canMirrorToDisk(toMeta);
-    const base = file.name.split('/').pop() ?? file.name;
+    const base = baseOf(file.name);
     if (file.type !== 'url' && fromMirror && toMirror && fromMeta!.path === toMeta!.path) {
       const toRel = `${prefixOf(toLoc)}${base}`;
-      const r = await vaultMovePath(fromMeta, file.name, toRel);
+      const r = await vaultMovePath(fromMeta, relOf(file), toRel);
       if (!r.ok) { showToast(`Disque : ${r.error ?? 'déplacement impossible'}`, { tone: 'error' }); return; }
       moveFile(wsId, file.id, fromLoc, toLoc);
-      updateFile(wsId, toLoc, file.id, { name: toRel });
+      updateFile(wsId, toLoc, file.id, { name: base, path: toRel });
       return;
     }
     if (file.type !== 'url' && fromMirror && !toMirror) {
-      const r = await vaultDeletePath(fromMeta, file.name, false);
+      const r = await vaultDeletePath(fromMeta, relOf(file), false);
       if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
       moveFile(wsId, file.id, fromLoc, toLoc);
-      updateFile(wsId, toLoc, file.id, { name: base });
+      updateFile(wsId, toLoc, file.id, { name: base, path: undefined });
       showToast('Fichier retiré du disque (conservé dans la base)', { tone: 'success' });
       return;
     }
@@ -390,7 +417,7 @@ export default function WorkspaceDatabaseScreen() {
       const r = await vaultWriteFile(toMeta, toRel, file.content);
       if (!r.ok) { showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' }); return; }
       moveFile(wsId, file.id, fromLoc, toLoc);
-      updateFile(wsId, toLoc, file.id, { name: toRel });
+      updateFile(wsId, toLoc, file.id, { name: base, path: toRel });
       return;
     }
     moveFile(wsId, file.id, fromLoc, toLoc);
@@ -399,7 +426,7 @@ export default function WorkspaceDatabaseScreen() {
     const loc = fileLocationOf(file);
     const meta = metaAt(loc);
     if (meta && canMirrorToDisk(meta) && file.type !== 'url') {
-      const r = await vaultDeletePath(meta, file.name, false);
+      const r = await vaultDeletePath(meta, relOf(file), false);
       if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
     }
     removeFile(wsId, loc, file.id);
@@ -410,7 +437,7 @@ export default function WorkspaceDatabaseScreen() {
   const currentNav = navStack[navStack.length - 1];
 
   const pushFolder = (folder: DBFolder) => setNavStack(prev => [...prev, { kind: 'folder', folder }]);
-  const pushSubFolder = (folder: DBFolder, sub: DBSubFolder) => setNavStack(prev => [...prev, { kind: 'subfolder', folder, sub }]);
+  const pushSub = (folder: DBFolder, path: DBSubFolder[]) => setNavStack(prev => [...prev, { kind: 'subfolder', folder, path }]);
   const goBack = () => {
     if (navStack.length > 1) setNavStack(prev => prev.slice(0, -1));
     else router.back();
@@ -430,6 +457,14 @@ export default function WorkspaceDatabaseScreen() {
   const [editingFile, setEditingFile] = useState<DBFile | null>(null);
   const [viewingFile, setViewingFile] = useState<DBFile | null>(null);
   const [movingFile, setMovingFile] = useState<DBFile | null>(null);
+  // Renommage rapide (crayon) — fichier, dossier ou sous-dossier imbriqué
+  const [renaming, setRenaming] = useState<
+    | { kind: 'file'; file: DBFile }
+    | { kind: 'folder'; folder: DBFolder }
+    | { kind: 'sub'; folderId: string; sub: DBSubFolder; prefix: string }
+    | null
+  >(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Folder/sub-folder form
   const [folderName, setFolderName] = useState('');
@@ -458,7 +493,7 @@ export default function WorkspaceDatabaseScreen() {
   const currentLocation: FileLocation = useMemo(() => {
     if (currentNav.kind === 'root') return null;
     if (currentNav.kind === 'folder') return currentNav.folder.id;
-    return { folderId: currentNav.folder.id, subId: currentNav.sub.id };
+    return { folderId: currentNav.folder.id, subId: currentNav.path[currentNav.path.length - 1].id };
   }, [currentNav]);
 
   // Localisation réelle d'un fichier affiché à la racine (fusion vault + racine)
@@ -471,7 +506,13 @@ export default function WorkspaceDatabaseScreen() {
   // À la racine avec un vault configuré, les nouveaux fichiers vont dans le vault
   const insertLocation: FileLocation = currentNav.kind === 'root' && rootVault ? rootVault.id : currentLocation;
   const liveFolder = currentNav.kind !== 'root' ? ws?.database.folders.find(f => f.id === (currentNav as any).folder.id) ?? null : null;
-  const liveSub = currentNav.kind === 'subfolder' && liveFolder ? liveFolder.subFolders?.find(s => s.id === (currentNav as any).sub.id) ?? null : null;
+  const liveSub = currentNav.kind === 'subfolder' && liveFolder
+    ? findSubIn(liveFolder.subFolders ?? [], currentNav.path[currentNav.path.length - 1].id)
+    : null;
+  // Chemin disque (chaîne des sous-dossiers) de la position courante
+  const navPrefix = currentNav.kind === 'subfolder' ? `${currentNav.path.map(s => s.name).join('/')}/` : '';
+  const currentSubId = currentNav.kind === 'subfolder' ? currentNav.path[currentNav.path.length - 1].id : null;
+  const subNavPath = currentNav.kind === 'subfolder' ? currentNav.path : [];
 
   const rawFiles: DBFile[] = useMemo(() => {
     if (!ws) return [];
@@ -583,13 +624,13 @@ export default function WorkspaceDatabaseScreen() {
     onDrop: (item: DragItem) => handleFolderDrop(folder, item),
   });
 
-  const vaultSubDropProps = (sub: DBSubFolder) => ({
-    zoneId: `vault-sub-drop-${sub.id}`,
+  const subDropProps = (folderId: string, sub: DBSubFolder) => ({
+    zoneId: `sub-drop-${sub.id}`,
     accepts: (item: DragItem) => item.kind === 'file',
     onDrop: (item: DragItem) => {
-      if (item.kind !== 'file' || !rootVault) return;
+      if (item.kind !== 'file') return;
       const { file, fromLoc } = item.data ?? {};
-      if (file) void performMove(file, fromLoc ?? fileLocationOf(file), { folderId: rootVault.id, subId: sub.id });
+      if (file) void performMove(file, fromLoc ?? fileLocationOf(file), { folderId, subId: sub.id });
     },
   });
 
@@ -619,14 +660,17 @@ export default function WorkspaceDatabaseScreen() {
     ];
     for (const folder of ws.database.folders) {
       dests.push({ label: folder.name, location: folder.id, icon: folder.icon || 'folder', color: folder.color });
-      for (const sub of folder.subFolders ?? []) {
+      const walk = (subs: DBSubFolder[], parentLabel: string) => subs.forEach(s => {
+        const label = `${parentLabel} / ${s.name}`;
         dests.push({
-          label: `${folder.name} / ${sub.name}`,
-          location: { folderId: folder.id, subId: sub.id },
-          icon: sub.icon || 'folder',
-          color: sub.color || folder.color,
+          label,
+          location: { folderId: folder.id, subId: s.id },
+          icon: s.icon || 'folder',
+          color: s.color || folder.color,
         });
-      }
+        walk(s.subFolders ?? [], label);
+      });
+      walk(folder.subFolders ?? [], folder.name);
     }
     return dests.filter(d => !locEquals(d.location, currentLocation));
   }, [ws, currentLocation, C.accent]);
@@ -658,6 +702,15 @@ export default function WorkspaceDatabaseScreen() {
           if (!r.ok) showToast(`Disque : ${r.error ?? 'création impossible'}`, { tone: 'error' });
         });
       }
+    } else if (currentNav.kind === 'subfolder' && liveFolder && currentSubId) {
+      // Sous-dossier imbriqué (profondeur > 1)
+      addSubFolder(ws.id, liveFolder.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon }, currentSubId);
+      const meta = liveFolder.vault ?? liveFolder.repo;
+      if (meta && canMirrorToDisk(meta)) {
+        void vaultMakeDir(meta, `${navPrefix}${folderName.trim()}`).then(r => {
+          if (!r.ok) showToast(`Disque : ${r.error ?? 'création impossible'}`, { tone: 'error' });
+        });
+      }
     } else {
       addFolder(ws.id, { name: folderName.trim(), description: folderDesc.trim(), color: folderColor, icon: folderIcon });
     }
@@ -672,10 +725,10 @@ export default function WorkspaceDatabaseScreen() {
     const meta = metaAt(insertLocation);
     const mirror = !!meta && canMirrorToDisk(meta) && fileType !== 'url';
     const diskName = ensureVaultExt(fileName.trim(), fileType);
-    const rel = mirror ? `${prefixOf(insertLocation)}${diskName}` : diskName;
-    addFile(ws.id, insertLocation, { name: rel, type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
-    if (mirror && meta) {
-      void vaultWriteFile(meta, rel, fileContent.trim()).then(r => {
+    const diskPath = mirror ? `${prefixOf(insertLocation)}${diskName}` : undefined;
+    addFile(ws.id, insertLocation, { name: diskName, ...(diskPath ? { path: diskPath } : {}), type: fileType, content: fileContent.trim(), tags: fileTags.split(',').map(t => t.trim()).filter(Boolean) });
+    if (diskPath && meta) {
+      void vaultWriteFile(meta, diskPath, fileContent.trim()).then(r => {
         if (!r.ok) showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' });
       });
     }
@@ -703,14 +756,15 @@ export default function WorkspaceDatabaseScreen() {
       } catch { content = `[Fichier importé: ${asset.name}]`; }
       const meta = metaAt(insertLocation);
       const mirror = !!meta && canMirrorToDisk(meta);
-      const rel = mirror ? `${prefixOf(insertLocation)}${asset.name ?? 'fichier-importé'}` : (asset.name ?? 'fichier-importé');
-      addFile(ws.id, insertLocation, { name: rel, type: inferFileType(asset.mimeType, asset.name ?? ''), content, tags: ['importé'] });
-      if (mirror && meta) {
-        void vaultWriteFile(meta, rel, content).then(r => {
+      const rawName = asset.name ?? 'fichier-importé';
+      const diskPath = mirror ? `${prefixOf(insertLocation)}${rawName}` : undefined;
+      addFile(ws.id, insertLocation, { name: rawName, ...(diskPath ? { path: diskPath } : {}), type: inferFileType(asset.mimeType, rawName), content, tags: ['importé'] });
+      if (diskPath && meta) {
+        void vaultWriteFile(meta, diskPath, content).then(r => {
           if (!r.ok) showToast(`Disque : ${r.error ?? 'écriture impossible'}`, { tone: 'error' });
         });
       }
-      showToast(`Fichier « ${asset.name} » importé`, { tone: 'success' });
+      showToast(`Fichier « ${rawName} » importé`, { tone: 'success' });
     } catch (error: any) { showAlert('Erreur', `Impossible d'importer: ${error.message ?? 'Erreur inconnue'}`); }
   };
 
@@ -741,18 +795,20 @@ export default function WorkspaceDatabaseScreen() {
     const tags = editorTags.split(',').map(t => t.trim()).filter(Boolean);
     if (meta && canMirrorToDisk(meta) && editingFile.type !== 'url') {
       // Miroir : renommage + réécriture sur le disque, puis mise à jour de la base
-      const dir = editingFile.name.includes('/') ? editingFile.name.slice(0, editingFile.name.lastIndexOf('/') + 1) : '';
+      const oldRel = editingFile.path ?? editingFile.name;
+      const dir = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/') + 1) : '';
       const newRel = `${dir}${ensureVaultExt(editorName.trim(), editingFile.type)}`;
+      const newBase = newRel.split('/').pop() ?? newRel;
       void (async () => {
-        if (newRel !== editingFile.name) {
-          const mv = await vaultMovePath(meta, editingFile.name, newRel);
+        if (newRel !== oldRel) {
+          const mv = await vaultMovePath(meta, oldRel, newRel);
           if (!mv.ok) { showToast(`Disque : ${mv.error ?? 'renommage impossible'}`, { tone: 'error' }); return; }
         }
         if (editorContent !== editingFile.content) {
           const wr = await vaultWriteFile(meta, newRel, editorContent);
           if (!wr.ok) { showToast(`Disque : ${wr.error ?? 'écriture impossible'}`, { tone: 'error' }); return; }
         }
-        updateFile(ws.id, loc, editingFile.id, { name: newRel, content: editorContent, tags });
+        updateFile(ws.id, loc, editingFile.id, { name: newBase, path: newRel, content: editorContent, tags });
       })();
     } else {
       updateFile(ws.id, loc, editingFile.id, { name: editorName.trim(), content: editorContent, tags });
@@ -799,20 +855,62 @@ export default function WorkspaceDatabaseScreen() {
     setMovingFile(null);
     showToast(`« ${name} » déplacé`, { tone: 'success' });
   };
-  const handleDeleteSubFolder = (folder: DBFolder, sub: DBSubFolder) => {
+  const handleDeleteSubFolder = (folder: DBFolder, sub: DBSubFolder, prefix = '') => {
     showAlert(`Supprimer "${sub.name}" ?`, `${sub.files.length} fichier(s) seront supprimés (base + disque si vault local).`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => {
         // Miroir : suppression réelle du dossier sur le disque (vault/dépôt local)
         const meta = folder.vault ?? folder.repo;
         if (meta && canMirrorToDisk(meta)) {
-          void vaultDeletePath(meta, sub.name, true).then(r => {
+          void vaultDeletePath(meta, `${prefix}${sub.name}`, true).then(r => {
             if (!r.ok) showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' });
           });
         }
         removeSubFolder(ws.id, folder.id, sub.id);
       }},
     ]);
+  };
+
+  // ── Renommage rapide (crayon) ──────────────────────────────────────
+  const openRenameFile = (file: DBFile) => { setRenaming({ kind: 'file', file }); setRenameValue(baseOf(file.name)); };
+  const openRenameFolder = (folder: DBFolder) => { setRenaming({ kind: 'folder', folder }); setRenameValue(folder.name); };
+  const openRenameSub = (folderId: string, sub: DBSubFolder, prefix: string) => { setRenaming({ kind: 'sub', folderId, sub, prefix }); setRenameValue(sub.name); };
+  const confirmRename = () => {
+    if (!renaming || !renameValue.trim()) { setRenaming(null); return; }
+    const newName = renameValue.trim();
+    if (renaming.kind === 'file') {
+      const file = renaming.file;
+      const loc = fileLocationOf(file);
+      const meta = metaAt(loc);
+      if (meta && canMirrorToDisk(meta) && file.type !== 'url') {
+        const oldRel = file.path ?? file.name;
+        const dir = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/') + 1) : '';
+        const newRel = `${dir}${ensureVaultExt(newName, file.type)}`;
+        const newBase = newRel.split('/').pop() ?? newRel;
+        if (newRel !== oldRel) {
+          void vaultMovePath(meta, oldRel, newRel).then(r => {
+            if (!r.ok) { showToast(`Disque : ${r.error ?? 'renommage impossible'}`, { tone: 'error' }); return; }
+            updateFile(ws.id, loc, file.id, { name: newBase, path: newRel });
+          });
+        } else {
+          updateFile(ws.id, loc, file.id, { name: newBase });
+        }
+      } else {
+        updateFile(ws.id, loc, file.id, { name: newName });
+      }
+    } else if (renaming.kind === 'folder') {
+      updateFolder(ws.id, renaming.folder.id, { name: newName });
+    } else {
+      const folder = wsFolders.find(f => f.id === renaming.folderId);
+      const meta = folder?.vault ?? folder?.repo;
+      if (meta && canMirrorToDisk(meta)) {
+        void vaultMovePath(meta, `${renaming.prefix}${renaming.sub.name}`, `${renaming.prefix}${newName}`).then(r => {
+          if (!r.ok) showToast(`Disque : ${r.error ?? 'renommage impossible'}`, { tone: 'error' });
+        });
+      }
+      updateSubFolder(ws.id, renaming.folderId, renaming.sub.id, { name: newName });
+    }
+    setRenaming(null);
   };
   const handleDeleteFolder = (folder: DBFolder) => {
     showAlert(`Supprimer "${folder.name}" ?`, `${folder.files.length} fichier(s) et ${folder.subFolders?.length ?? 0} sous-dossier(s) seront supprimés.`, [
@@ -821,12 +919,26 @@ export default function WorkspaceDatabaseScreen() {
     ]);
   };
 
-  // ── Breadcrumb label ─────────────────────────────────────────────
-  const breadcrumb = navStack.map((item, i) => {
-    if (item.kind === 'root') return ws.name;
-    if (item.kind === 'folder') return item.folder.name;
-    return item.sub.name;
+  // ── Breadcrumb (fil d'Ariane, navigation profonde) ───────────────
+  const breadcrumb: { label: string; go: () => void }[] = [];
+  navStack.forEach((item, i) => {
+    const truncate = () => setNavStack(navStack.slice(0, i + 1));
+    if (item.kind === 'root') breadcrumb.push({ label: ws.name, go: truncate });
+    else if (item.kind === 'folder') breadcrumb.push({ label: item.folder.name, go: truncate });
+    else item.path.forEach((s, j) => breadcrumb.push({
+      label: s.name,
+      go: () => setNavStack([...navStack.slice(0, i), { kind: 'subfolder', folder: item.folder, path: item.path.slice(0, j + 1) }]),
+    }));
   });
+
+  // Liste unifiée : dossiers de la vue courante (dossiers racine, sous-dossiers
+  // de dossier ou de sous-dossier) puis fichiers, dans le même défilement.
+  const rootPlainFolders = currentNav.kind === 'root' ? ws.database.folders.filter(f => !f.vault && !f.repo) : [];
+  const currentSubs: DBSubFolder[] =
+    currentNav.kind === 'folder' ? (liveFolder?.subFolders ?? [])
+    : currentNav.kind === 'subfolder' ? (liveSub?.subFolders ?? [])
+    : (rootVault?.subFolders ?? []);
+  const foldersInView = currentNav.kind === 'root' ? rootPlainFolders.length + currentSubs.length : currentSubs.length;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
@@ -840,8 +952,8 @@ export default function WorkspaceDatabaseScreen() {
               {breadcrumb.map((crumb, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}>
                   {i > 0 ? <MaterialIcons name="chevron-right" size={14} color={C.textMuted} /> : null}
-                  <Pressable onPress={() => setNavStack(navStack.slice(0, i + 1))}>
-                    <Text style={{ fontSize: FontSize.body, color: i === breadcrumb.length - 1 ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{crumb}</Text>
+                  <Pressable onPress={crumb.go}>
+                    <Text style={{ fontSize: FontSize.body, color: i === breadcrumb.length - 1 ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{crumb.label}</Text>
                   </Pressable>
                 </View>
               ))}
@@ -852,35 +964,31 @@ export default function WorkspaceDatabaseScreen() {
               ? `${totalFiles} fichier(s) · ${ws.database.folders.length} dossier(s)`
               : currentNav.kind === 'folder'
                 ? `${liveFolder?.files.length ?? 0} fichier(s) · ${liveFolder?.subFolders?.length ?? 0} sous-dossier(s)`
-                : `${liveSub?.files.length ?? 0} fichier(s)`
+                : `${liveSub?.files.length ?? 0} fichier(s) · ${liveSub?.subFolders?.length ?? 0} sous-dossier(s)`
             }
           </Text>
         </View>
-        {/* Insert toggle — le popover s'affiche en overlay plein écran plus bas */}
-        {currentNav.kind !== 'subfolder' ? (
-          <IconButton
-            icon={showInsert ? 'close' : 'add-circle'}
-            label="Insérer"
-            onPress={() => setShowInsert(v => !v)}
-            color={showInsert ? C.accent : C.primary}
-            backgroundColor={showInsert ? C.accent + '18' : undefined}
-            borderColor={showInsert ? C.accent + '55' : undefined}
-          />
-        ) : null}
+        {/* Insert toggle — visible à TOUTE profondeur ; popover en overlay plus bas */}
+        <IconButton
+          icon={showInsert ? 'close' : 'add-circle'}
+          label="Insérer"
+          onPress={() => setShowInsert(v => !v)}
+          color={showInsert ? C.accent : C.primary}
+          backgroundColor={showInsert ? C.accent + '18' : undefined}
+          borderColor={showInsert ? C.accent + '55' : undefined}
+        />
 
-        {/* Add folder button */}
-        {currentNav.kind !== 'subfolder' ? (
-          <IconButton
-            icon="create-new-folder"
-            label={currentNav.kind === 'folder' ? 'Nouveau sous-dossier' : 'Nouveau dossier'}
-            onPress={() => {
-              resetFolderForm();
-              if (currentNav.kind === 'folder') setShowAddSubFolder(true);
-              else setShowAddFolder(true);
-            }}
-            color={C.primary}
-          />
-        ) : null}
+        {/* Add folder button — visible à TOUTE profondeur */}
+        <IconButton
+          icon="create-new-folder"
+          label={currentNav.kind === 'root' ? 'Nouveau dossier' : 'Nouveau sous-dossier'}
+          onPress={() => {
+            resetFolderForm();
+            if (currentNav.kind === 'root') setShowAddFolder(true);
+            else setShowAddSubFolder(true);
+          }}
+          color={C.primary}
+        />
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
@@ -989,64 +1097,7 @@ export default function WorkspaceDatabaseScreen() {
           </View>
         ) : null}
 
-        {/* Dossiers (racine) — non-vault + sous-dossiers du vault racine */}
-        {currentNav.kind === 'root' && (
-          ws.database.folders.filter(f => !f.vault && !f.repo).length > 0 || (rootVault?.subFolders?.length ?? 0) > 0
-        ) ? (
-          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Dossiers</Text>
-            {ws.database.folders.filter(f => !f.vault && !f.repo).map(folder => (
-              <FolderCard
-                key={folder.id}
-                folder={folder}
-                onPress={() => pushFolder(folder)}
-                onDelete={() => handleDeleteFolder(folder)}
-                dragItem={{ kind: 'folder', id: folder.id, label: folder.name, icon: folder.icon, color: folder.color, data: { folder } }}
-                dropProps={folderDropProps(folder)}
-              />
-            ))}
-            {rootVault ? (rootVault.subFolders ?? []).map(sub => (
-              <FolderCard
-                key={sub.id}
-                folder={sub}
-                onPress={() => pushSubFolder(rootVault, sub)}
-                onDelete={() => handleDeleteSubFolder(rootVault, sub)}
-                dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: rootVault.id, sub } }}
-                dropProps={vaultSubDropProps(sub)}
-              />
-            )) : null}
-          </View>
-        ) : null}
-
-        {/* Sub-folders (inside a folder) */}
-        {currentNav.kind === 'folder' && liveFolder && (liveFolder.subFolders?.length ?? 0) > 0 ? (
-          <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 2 }}>
-              <MaterialIcons name="account-tree" size={14} color={C.textSecondary} />
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Sous-dossiers</Text>
-            </View>
-            {(liveFolder.subFolders ?? []).map(sub => (
-              <FolderCard
-                key={sub.id}
-                folder={sub}
-                onPress={() => pushSubFolder(liveFolder, sub)}
-                onDelete={() => handleDeleteSubFolder(liveFolder, sub)}
-                dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: liveFolder.id, sub } }}
-                dropProps={{
-                  zoneId: `sub-drop-${sub.id}`,
-                  accepts: (item: DragItem) => item.kind === 'file',
-                  onDrop: (item: DragItem) => {
-                    if (item.kind !== 'file') return;
-                    const { file, fromLoc } = item.data ?? {};
-                    if (file) void performMove(file, fromLoc ?? fileLocationOf(file), { folderId: liveFolder.id, subId: sub.id });
-                  },
-                }}
-              />
-            ))}
-          </View>
-        ) : null}
-
-        {/* Files with sort bar */}
+        {/* Liste unifiée — dossiers puis fichiers dans le même défilement */}
         <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
           {/* Bande de dépôt vers la racine, visible pendant un glisser-déposer */}
           {dragState ? (
@@ -1062,8 +1113,7 @@ export default function WorkspaceDatabaseScreen() {
           ) : null}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: Spacing.xs }}>
             <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Fichiers
-              {displayedFiles.length > 0 ? ` (${displayedFiles.length})` : ''}
+              Contenu{displayedFiles.length + foldersInView > 0 ? ` (${foldersInView + displayedFiles.length})` : ''}
             </Text>
             {displayedFiles.length > 0 ? (
               <Pressable onPress={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: selectMode ? C.accent + '66' : C.border, backgroundColor: selectMode ? C.accent + '18' : C.bgCardAlt }, pressed && { opacity: 0.75 }]}>
@@ -1104,7 +1154,59 @@ export default function WorkspaceDatabaseScreen() {
               <SortBar sortKey={sortKey} sortOrder={sortOrder} onChange={handleSortChange} />
             </ScrollView>
           ) : null}
-          {displayedFiles.length === 0 ? (
+
+          {/* Dossiers / sous-dossiers de la vue courante */}
+          {currentNav.kind === 'root' ? (
+            <>
+              {rootPlainFolders.map(folder => (
+                <FolderCard
+                  key={folder.id}
+                  folder={folder}
+                  onPress={() => pushFolder(folder)}
+                  onRename={() => openRenameFolder(folder)}
+                  onDelete={() => handleDeleteFolder(folder)}
+                  dragItem={{ kind: 'folder', id: folder.id, label: folder.name, icon: folder.icon, color: folder.color, data: { folder } }}
+                  dropProps={folderDropProps(folder)}
+                />
+              ))}
+              {currentSubs.map(sub => rootVault ? (
+                <FolderCard
+                  key={sub.id}
+                  folder={sub}
+                  onPress={() => pushSub(rootVault, [sub])}
+                  onRename={() => openRenameSub(rootVault.id, sub, '')}
+                  onDelete={() => handleDeleteSubFolder(rootVault, sub)}
+                  dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: rootVault.id, sub, chainPrefix: '' } }}
+                  dropProps={subDropProps(rootVault.id, sub)}
+                />
+              ) : null)}
+            </>
+          ) : null}
+          {currentNav.kind === 'folder' && liveFolder ? (liveFolder.subFolders ?? []).map(sub => (
+            <FolderCard
+              key={sub.id}
+              folder={sub}
+              onPress={() => pushSub(liveFolder, [sub])}
+              onRename={() => openRenameSub(liveFolder.id, sub, '')}
+              onDelete={() => handleDeleteSubFolder(liveFolder, sub)}
+              dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: liveFolder.id, sub, chainPrefix: '' } }}
+              dropProps={subDropProps(liveFolder.id, sub)}
+            />
+          )) : null}
+          {currentNav.kind === 'subfolder' && liveFolder ? (liveSub?.subFolders ?? []).map(sub => (
+            <FolderCard
+              key={sub.id}
+              folder={sub}
+              onPress={() => pushSub(liveFolder, [...subNavPath, sub])}
+              onRename={() => openRenameSub(liveFolder.id, sub, navPrefix)}
+              onDelete={() => handleDeleteSubFolder(liveFolder, sub, navPrefix)}
+              dragItem={{ kind: 'folder', id: sub.id, label: sub.name, icon: sub.icon, color: sub.color, data: { parentFolderId: liveFolder.id, sub, chainPrefix: navPrefix } }}
+              dropProps={subDropProps(liveFolder.id, sub)}
+            />
+          )) : null}
+
+          {/* Fichiers de la vue courante */}
+          {displayedFiles.length === 0 && foldersInView === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md }}>
               <MaterialIcons name="folder-open" size={40} color={C.textMuted} />
               <Text style={{ fontSize: FontSize.body, color: C.textSecondary, fontWeight: '600' }}>Aucun fichier</Text>
@@ -1116,6 +1218,7 @@ export default function WorkspaceDatabaseScreen() {
                 key={file.id}
                 file={file}
                 onPress={() => handleOpenFileViewer(file)}
+                onRename={() => openRenameFile(file)}
                 onMove={() => setMovingFile(file)}
                 onDelete={() => handleDeleteFile(file)}
                 selectMode={selectMode}
@@ -1123,7 +1226,7 @@ export default function WorkspaceDatabaseScreen() {
                 dragItem={{
                   kind: 'file',
                   id: file.id,
-                  label: file.name.split('/').pop() ?? file.name,
+                  label: file.name,
                   icon: getFileTypeInfo(file.type).icon,
                   color: getFileTypeInfo(file.type).color,
                   data: { file, fromLoc: fileLocationOf(file) },
@@ -1160,6 +1263,42 @@ export default function WorkspaceDatabaseScreen() {
 
       {/* Fantôme du glisser-déposer */}
       <DragLayer />
+
+      {/* ─── Renommage rapide (fichier / dossier / sous-dossier) ──── */}
+      <Modal visible={renaming !== null} transparent animationType="fade" onRequestClose={() => setRenaming(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }}>
+          <View style={{ width: '100%', maxWidth: 420, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: C.accent + '22', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="edit" size={16} color={C.accent} />
+              </View>
+              <Text style={{ flex: 1, fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>
+                {renaming?.kind === 'folder' ? 'Renommer le dossier' : renaming?.kind === 'sub' ? 'Renommer le sous-dossier' : 'Renommer le fichier'}
+              </Text>
+              <Pressable onPress={() => setRenaming(null)} hitSlop={8}>
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
+              </Pressable>
+            </View>
+            <TextInput
+              style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, color: C.textPrimary, fontSize: FontSize.body, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minHeight: 44 }}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              autoFocus
+              selectTextOnFocus
+              onSubmitEditing={confirmRename}
+              placeholderTextColor={C.textMuted}
+            />
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, justifyContent: 'flex-end' }}>
+              <Pressable onPress={() => setRenaming(null)} style={({ pressed }) => [{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.7 }]}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600' }}>Annuler</Text>
+              </Pressable>
+              <Pressable onPress={confirmRename} disabled={!renameValue.trim()} style={({ pressed }) => [{ paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: C.accent, opacity: !renameValue.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}>
+                <Text style={{ fontSize: FontSize.sm, color: C.bg, fontWeight: '700' }}>Renommer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ─── Move file modal ─────────────────────────────────────── */}
       <Modal visible={!!movingFile} transparent animationType="slide" onRequestClose={() => setMovingFile(null)}>
