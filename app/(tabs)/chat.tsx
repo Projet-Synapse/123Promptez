@@ -3,8 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Modal,
-  Animated, Dimensions, Linking,
+  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Animated, Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,22 +26,14 @@ import { useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
+import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
 
-// Libellés conviviaux des outils agent (les bulles géantes ont été retirées au profit du popover « + »)
-const TOOL_LABELS: Record<string, { label: string; icon: string; color: string }> = {
-  web_search:      { label: 'Recherche web',         icon: 'travel-explore',   color: '#3D7EFF' },
-  image_analysis:  { label: 'Analyse d\'image',      icon: 'image-search',     color: '#00CC6A' },
-  db_access:       { label: 'Accès base de données', icon: 'storage',          color: '#FF6B35' },
-  automation:      { label: 'Automatisation',        icon: 'precision-manufacturing', color: '#9B59B6' },
-  code_exec:       { label: 'Exécution de code',     icon: 'terminal',         color: '#FFB800' },
-  file_read:       { label: 'Lecture de fichier',    icon: 'folder-open',      color: '#00BFFF' },
-};
-function toolInfo(id: string) {
-  return TOOL_LABELS[id] ?? { label: id, icon: 'bolt', color: '#8899BB' };
-}
+// Libellés conviviaux des outils agent — les capacités affichées dans le
+// popover « + » viennent désormais de services/agentCapabilities.ts (source
+// de vérité partagée avec le prompt système).
 
 // ─── Response Modes ───────────────────────────────────────────────────────────
 type ResponseMode = 'auto' | 'normal' | 'quick' | 'deep';
@@ -91,7 +83,7 @@ function ActivityFeed({ activities }: { activities: ChatActivity[] }) {
 // ─── Plus popover (mini-panel above the + button) ─────────────────────────────
 function PlusPopover({
   visible, onClose, onPickFile, onPickImage, responseMode, onChangeMode,
-  tools, onToggleTool, bottomInset,
+  capabilities, bottomInset,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -99,8 +91,7 @@ function PlusPopover({
   onPickImage: () => void;
   responseMode: ResponseMode;
   onChangeMode: (m: ResponseMode) => void;
-  tools: { id: string; enabled: boolean }[];
-  onToggleTool: (id: string) => void;
+  capabilities: AgentCapability[];
   bottomInset: number;
 }) {
   const C = useThemeColors();
@@ -142,27 +133,26 @@ function PlusPopover({
 
         <View style={{ height: 1, backgroundColor: C.border }} />
 
-        {/* Outils disponibles */}
-        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Outils</Text>
+        {/* Capacités RÉELLES de l'agent — source de vérité partagée (agentCapabilities) */}
+        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Capacités de l’agent</Text>
         <View style={{ gap: 2 }}>
-          {tools.map(t => {
-            const info = toolInfo(t.id);
-            return (
-              <Pressable
-                key={t.id}
-                onPress={() => onToggleTool(t.id)}
-                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 7, paddingHorizontal: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
-              >
-                <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: info.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name={info.icon as any} size={14} color={info.color} />
-                </View>
-                <Text style={{ flex: 1, fontSize: FontSize.sm, color: t.enabled ? C.textPrimary : C.textMuted, fontWeight: t.enabled ? '600' : '400' }}>{info.label}</Text>
-                <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: t.enabled ? info.color : C.bgCardAlt, borderWidth: 1, borderColor: t.enabled ? info.color : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
-                  <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: t.enabled ? '#fff' : C.textMuted, alignSelf: t.enabled ? 'flex-end' : 'flex-start' }} />
-                </View>
-              </Pressable>
-            );
-          })}
+          {capabilities.map(c => (
+            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.xs }}>
+              <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: C.accent + '22', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name={(c.icon as any) || 'check'} size={14} color={C.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>{c.label}</Text>
+                <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={2}>{c.description}</Text>
+              </View>
+              <MaterialIcons name="check-circle" size={15} color="#00CC6A" />
+            </View>
+          ))}
+          {capabilities.length === 0 ? (
+            <Text style={{ fontSize: FontSize.sm, color: C.textMuted, paddingVertical: 4 }}>
+              Aucune capacité active — ajoutez des fichiers, des tâches ou connectez un service.
+            </Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -466,7 +456,7 @@ function SideDrawer({
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { bot, toggleAgentTool } = useBot();
+  const { bot } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace,
@@ -484,7 +474,6 @@ export default function ChatScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [activities, setActivities] = useState<ChatActivity[]>([]);
-  const [showModesPanel, setShowModesPanel] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
@@ -590,10 +579,9 @@ export default function ChatScreen() {
       llmConfig: {
         ...bot.llmConfig,
         temperature: Math.max(0, Math.min(2, bot.llmConfig.temperature + modeInfo.tempMod)),
-        maxTokens: Math.max(256, bot.llmConfig.maxTokens + modeInfo.tokensMod),
+        maxTokens: Math.max(256, Math.min(8192, bot.llmConfig.maxTokens + modeInfo.tokensMod)),
       },
     };
-    const currentEnabledTools = bot.agentTools.filter((tool: any) => tool.enabled).map((tool: any) => tool.id);
     const modeInjection = responseMode !== 'auto' && responseMode !== 'normal'
       ? `\n[MODE: ${modeInfo.label.toUpperCase()}] ${modeInfo.desc}.`
       : '';
@@ -615,22 +603,20 @@ export default function ChatScreen() {
     ];
     setActivities([{ key: 'reason', label: 'Raisonnement…', icon: 'psychology', status: 'running' }]);
     const activityTimers: ReturnType<typeof setTimeout>[] = [];
-    let t = 450;
     const scheduleActivity = (delay: number, key: string, label: string, icon: string, cond = true) => {
       if (!cond) return;
       activityTimers.push(setTimeout(() => { if (abortRef.current) pushActivity(key, label, icon); }, delay));
     };
-    scheduleActivity(t, 'db', `Consultation des fichiers du workspace (${wsDbFiles.length})…`, 'folder-open', wsDbFiles.length > 0); t += 650;
-    scheduleActivity(t, 'read', 'Lecture de fichier…', 'description', currentEnabledTools.includes('file_read')); t += 550;
-    scheduleActivity(t, 'write', 'Modification de fichier…', 'edit-document', currentEnabledTools.includes('db_access')); t += 550;
-    scheduleActivity(t, 'term', 'Terminal — exécution de commande…', 'terminal', currentEnabledTools.includes('code_exec'));
+    // Flux d'activités HONNÊTE : uniquement ce qui est réellement fait
+    // (le contexte workspace est injecté dans le prompt, rien d'autre ne s'exécute)
+    scheduleActivity(500, 'ctx', `Contexte du workspace : ${wsDbFiles.length} fichier(s), ${pendingTasks.length} tâche(s)`, 'folder-open', wsDbFiles.length > 0 || pendingTasks.length > 0);
+    scheduleActivity(1000, 'gen', 'Rédaction de la réponse…', 'chat-bubble');
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       let full = '';
-      scheduleActivity(t + 400, 'gen', 'Rédaction de la réponse…', 'chat-bubble');
       await sendChatMessage(
         msg, history as any, adjustedBot, activeWorkspace,
         (token) => {
@@ -644,6 +630,11 @@ export default function ChatScreen() {
       );
       setStreamingText('');
       setActivities([]);
+      // Réponse vide (le modèle n'a rien renvoyé) : on ne crée PAS de bulle vide
+      if (!full.trim()) {
+        showToast('Réponse vide du modèle — réessaie dans un instant', { tone: 'error' });
+        return;
+      }
       // Dépouille les marqueurs de tâches cochées par l'agent : [x:task-…]
       const doneIds = [...full.matchAll(/\[x:(task-[a-zA-Z0-9-]+)\]/g)].map(m => m[1]);
       let finalContent = full;
@@ -682,8 +673,8 @@ export default function ChatScreen() {
     await runGeneration(userMsg, history);
   };
 
-  const handleSend = async () => {
-    let msg = input.trim();
+  const handleSend = async (override?: string) => {
+    let msg = (override ?? input).trim();
     if ((!msg && !pendingAttachment) || isLoading || !activeConversation) return;
 
     if (pendingAttachment) {
@@ -763,15 +754,6 @@ export default function ChatScreen() {
               boxSize={36}
               backgroundColor={C.bgCardAlt}
               color={C.textMuted}
-            />
-            <IconButton
-              icon="bolt"
-              label="Compétences / modes"
-              onPress={() => setShowModesPanel(true)}
-              boxSize={36}
-              backgroundColor={activeModes.length > 0 ? C.accentGlow : C.bgCardAlt}
-              borderColor={activeModes.length > 0 ? C.accent + '55' : C.border}
-              color={activeModes.length > 0 ? C.accent : C.textMuted}
             />
 
             {/* Panneau latéral droit : fichiers, instructions, sites web */}
@@ -874,7 +856,7 @@ export default function ChatScreen() {
                       <ActivityFeed activities={activities} />
                     </View>
                   ) : null}
-                  <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, flexDirection: 'row' }}>
+                  <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
                     <Text style={{ flex: 1, color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22 }}>{streamingText}</Text>
                     <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
                   </View>
@@ -894,6 +876,22 @@ export default function ChatScreen() {
                   </View>
                   <ActivityFeed activities={activities} />
                 </View>
+              </View>
+            ) : null}
+
+            {/* Suggestions de relance sous la dernière réponse de l'IA */}
+            {!isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.md, paddingLeft: 40 }}>
+                {['Continue', 'Peux-tu détailler ?', 'Concrètement, je fais quoi ?'].map(s => (
+                  <Pressable
+                    key={s}
+                    onPress={() => handleSend(s)}
+                    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCard }, pressed && { opacity: 0.7 }]}
+                  >
+                    <MaterialIcons name="arrow-upward" size={11} color={C.accent} />
+                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>{s}</Text>
+                  </Pressable>
+                ))}
               </View>
             ) : null}
           </ScrollView>
@@ -992,8 +990,7 @@ export default function ChatScreen() {
         onPickImage={handlePickImage}
         responseMode={responseMode}
         onChangeMode={setResponseMode}
-        tools={bot.agentTools}
-        onToggleTool={toggleAgentTool}
+        capabilities={getActiveCapabilities(activeWorkspace, bot)}
         bottomInset={insets.bottom}
       />
 
@@ -1008,49 +1005,6 @@ export default function ChatScreen() {
 
       {/* Fantôme du glisser-déposer (fichiers du panneau latéral) */}
       <DragLayer />
-
-      {/* Modes Panel */}
-      <Modal visible={showModesPanel} transparent animationType="slide">
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }} onPress={() => setShowModesPanel(false)}>
-          <Pressable style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '80%' }} onPress={() => {}}>
-            <View style={{ width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center' }} />
-            <View style={{ gap: Spacing.xs }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill, alignSelf: 'flex-start', backgroundColor: activeWorkspace.color + '22' }}>
-                <MaterialIcons name={activeWorkspace.icon as any} size={16} color={activeWorkspace.color} />
-                <Text style={{ fontSize: FontSize.sm, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
-              </View>
-              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>{t('modes')}</Text>
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>Compétences du workspace (Builder + personnalisées)</Text>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Activez des comportements automatiques</Text>
-            </View>
-            {activeWorkspace.modes.length === 0 ? (
-              <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm }}>
-                <MaterialIcons name="widgets" size={32} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.body, color: C.textSecondary }}>Aucune compétence configurée</Text>
-              </View>
-            ) : null}
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {activeWorkspace.modes.map((mode: any) => (
-                <Pressable key={mode.id} onPress={() => toggleMode(activeWorkspace.id, mode.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: mode.enabled ? mode.color + '10' : C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: mode.enabled ? mode.color + '66' : C.border, padding: Spacing.md, marginBottom: Spacing.sm }, pressed && { opacity: 0.75 }]}>
-                  <View style={{ width: 44, height: 44, borderRadius: Radius.sm, backgroundColor: mode.color + '22', alignItems: 'center', justifyContent: 'center' }}>
-                    <MaterialIcons name={mode.icon as any} size={22} color={mode.color} />
-                  </View>
-                  <View style={{ flex: 1, gap: 3 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-                      <Text style={{ fontSize: FontSize.body, color: mode.enabled ? C.textPrimary : C.textSecondary, fontWeight: '600' }}>{mode.label}</Text>
-                      {mode.shortcut ? <View style={{ backgroundColor: C.bg, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: C.border }}><Text style={{ fontSize: FontSize.xs, color: C.textMono, fontFamily: 'monospace' }}>{mode.shortcut}</Text></View> : null}
-                    </View>
-                    <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 17 }}>{mode.description}</Text>
-                  </View>
-                  <View style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: mode.enabled ? mode.color : C.bgCard, borderWidth: 1, borderColor: mode.enabled ? mode.color : C.border, justifyContent: 'center', paddingHorizontal: 3 }}>
-                    <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: mode.enabled ? '#fff' : C.textMuted, alignSelf: mode.enabled ? 'flex-end' : 'flex-start' }} />
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </View>
   );
 }

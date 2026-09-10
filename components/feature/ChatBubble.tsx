@@ -42,15 +42,20 @@ export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, s
         ) : null}
 
         <View style={[
-          {
-            maxWidth: '85%',
-            borderRadius: Radius.lg,
-            paddingHorizontal: Spacing.md,
-            paddingVertical: Spacing.sm + 2,
-          },
           isUser
-            ? { backgroundColor: C.primary, borderBottomRightRadius: 4 }
-            : { backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 4 },
+            ? {
+                maxWidth: '85%',
+                borderRadius: Radius.lg,
+                paddingHorizontal: Spacing.md,
+                paddingVertical: Spacing.sm + 2,
+                backgroundColor: C.primary,
+                borderBottomRightRadius: 4,
+              }
+            : {
+                // Réponse de l'IA SANS bulle : texte étalé sur toute la largeur
+                flex: 1,
+                paddingHorizontal: Spacing.xs,
+              },
         ]}>
           <Text style={{ fontSize: FontSize.body, lineHeight: 22, color: isUser ? '#fff' : C.textPrimary }}>
             {message.content}

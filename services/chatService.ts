@@ -4,6 +4,7 @@ import { Workspace } from '@/contexts/WorkspaceContext';
 import type { UserProfile } from '@/contexts/ProfileContext';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { buildCapabilitiesPrompt, buildWorkspaceContextPrompt } from '@/services/agentCapabilities';
 
 export function buildSystemPrompt(
   bot: BotConfig,
@@ -37,6 +38,9 @@ export function buildSystemPrompt(
     prompt += '\n';
   }
 
+  // Capacités RÉELLES de l'agent — source de vérité unique (services/agentCapabilities.ts)
+  prompt += buildCapabilitiesPrompt(workspace, bot);
+
   // Inject due tasks
   if (dueTasks.length > 0) {
     prompt += '## TÂCHES À FAIRE\n\n';
@@ -63,45 +67,15 @@ export function buildSystemPrompt(
     });
   }
 
-  // Database files
-  const allFiles = [
-    ...workspace.database.rootFiles,
-    ...workspace.database.folders.flatMap(f => [
-      ...f.files,
-      ...(f.subFolders ?? []).flatMap(s => s.files),
-    ]),
-  ];
-  if (allFiles.length > 0) {
-    prompt += '## BASE DE DONNÉES DU WORKSPACE\n\n';
-    allFiles.slice(0, 10).forEach(file => {
-      prompt += `### ${file.name} (${file.type})\n${file.content}\n\n`;
-    });
-  }
+  // Contexte du workspace : inventaire + contenus de fichiers, check-list
+  // des tâches actives, automatisations (source de vérité : agentCapabilities)
+  prompt += buildWorkspaceContextPrompt(workspace);
 
   // FAQ
   if (bot.faqItems.length > 0) {
     prompt += '## FAQ\n\n';
     bot.faqItems.forEach((faq: FAQItem) => {
       prompt += `Q: ${faq.question}\nR: ${faq.answer}\n\n`;
-    });
-  }
-
-  // Agent tools
-  const enabledTools = bot.agentTools.filter(t => t.enabled);
-  if (enabledTools.length > 0) {
-    prompt += '## OUTILS DISPONIBLES\n';
-    enabledTools.forEach(t => {
-      prompt += `- ${t.id}\n`;
-    });
-    prompt += '\n';
-  }
-
-  // Connected apps
-  const enabledApps = bot.connectedApps.filter(a => a.enabled);
-  if (enabledApps.length > 0) {
-    prompt += '## APPLICATIONS CONNECTÉES\n';
-    enabledApps.forEach(a => {
-      prompt += `- ${a.name}: ${a.description}\n`;
     });
   }
 
@@ -130,7 +104,9 @@ interface ChatMessage {
 // Parse a single SSE data line and extract the text delta.
 // The edge function emits `data: {"delta": "..."}` chunks (see
 // supabase/functions/chat/index.ts), terminated by `data: [DONE]`.
-function parseSSEChunk(raw: string): string {
+// Les événements `data: {"error": …}` (stream cassé, HTTP 200) sont remontés
+// via onError au lieu d'être avalés silencieusement.
+function parseSSEChunk(raw: string, onError?: (message: string) => void): string {
   const lines = raw.split('\n');
   let result = '';
   for (const line of lines) {
@@ -139,7 +115,10 @@ function parseSSEChunk(raw: string): string {
     if (payload === '[DONE]') continue;
     try {
       const json = JSON.parse(payload);
-      if (json.error) continue; // surfaced separately via response.ok checks
+      if (json.error) {
+        onError?.(String(json.error));
+        continue;
+      }
       result += json.delta ?? '';
     } catch {
       // Skip malformed lines
@@ -206,6 +185,7 @@ export async function sendChatMessage(
     }
 
     let fullText = '';
+    let streamError: string | null = null; // erreurs émises DANS le flux (HTTP 200)
     const reader = response.body?.getReader();
 
     if (reader) {
@@ -225,7 +205,7 @@ export async function sendChatMessage(
         buffer = parts.pop() ?? '';
         for (const part of parts) {
           if (!part.trim()) continue;
-          const chunk = parseSSEChunk(part);
+          const chunk = parseSSEChunk(part, err => { streamError = err; });
           if (chunk) {
             fullText += chunk;
             if (onToken) onToken(fullText);
@@ -234,7 +214,7 @@ export async function sendChatMessage(
       }
       // Process remaining buffer
       if (buffer.trim()) {
-        const chunk = parseSSEChunk(buffer);
+        const chunk = parseSSEChunk(buffer, err => { streamError = err; });
         if (chunk) {
           fullText += chunk;
           if (onToken) onToken(fullText);
@@ -244,7 +224,7 @@ export async function sendChatMessage(
       // Non-streaming fallback
       const text = await response.text();
       // Try to parse as SSE
-      const chunk = parseSSEChunk(text);
+      const chunk = parseSSEChunk(text, err => { streamError = err; });
       if (chunk) {
         fullText = chunk;
       } else {
@@ -252,6 +232,7 @@ export async function sendChatMessage(
         try {
           const json = JSON.parse(text);
           fullText = json.delta ?? '';
+          if (json.error) streamError = json.error;
         } catch {
           fullText = text;
         }
@@ -259,7 +240,13 @@ export async function sendChatMessage(
       if (onToken && fullText) onToken(fullText);
     }
 
-    return fullText || 'Aucune réponse reçue.';
+    // Le edge function signale ses erreurs DANS le flux (HTTP 200) :
+    // une réponse vide + erreur = vraie erreur, pas une réponse à afficher.
+    if (!fullText.trim() && streamError) {
+      throw new Error(`Erreur IA: ${streamError}`);
+    }
+
+    return fullText;
   } catch (error: any) {
     if (error?.name === 'AbortError' || signal?.aborted) {
       const err = new Error('Génération interrompue');
