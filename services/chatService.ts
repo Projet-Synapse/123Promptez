@@ -173,7 +173,10 @@ export async function sendChatMessage(
         messages,
         model,
         temperature: bot.llmConfig.temperature,
-        maxTokens: bot.llmConfig.maxTokens,
+        // Le « thinking » adaptatif (Sonnet/Opus) puise DANS max_tokens : avec
+        // le budget par défaut (2048), la réflexion du 2e message consomme tout
+        // et la réponse arrive vide. 8192 = plafond accepté par la fonction Edge.
+        maxTokens: Math.max(bot.llmConfig.maxTokens, 8192),
         topP: bot.llmConfig.topP,
       }),
       signal,

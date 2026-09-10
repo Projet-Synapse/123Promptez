@@ -118,7 +118,9 @@ const DEFAULT_BOT: BotConfig = {
   llmConfig: {
     model: 'claude-sonnet-5',
     temperature: 0.7,
-    maxTokens: 2048,
+    // 8192 minimum : le thinking adaptatif (Sonnet/Opus) partage ce budget
+    // avec la réponse — un plafond court renvoie des réponses vides.
+    maxTokens: 8192,
     topP: 0.9,
     systemPrompt: 'Tu es un assistant IA utile, précis et concis. Tu répondras toujours en français sauf si on te parle dans une autre langue.',
     streaming: true,

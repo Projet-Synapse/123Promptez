@@ -27,6 +27,7 @@ import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
+import { AGENT_TOOLS } from '@/constants/config';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -83,7 +84,7 @@ function ActivityFeed({ activities }: { activities: ChatActivity[] }) {
 // ─── Plus popover (mini-panel above the + button) ─────────────────────────────
 function PlusPopover({
   visible, onClose, onPickFile, onPickImage, responseMode, onChangeMode,
-  capabilities, bottomInset,
+  capabilities, connectedApps, onToggleConnectedApp, agentTools, onToggleAgentTool, bottomInset,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -92,6 +93,10 @@ function PlusPopover({
   responseMode: ResponseMode;
   onChangeMode: (m: ResponseMode) => void;
   capabilities: AgentCapability[];
+  connectedApps: { id: string; name: string; description: string; enabled: boolean }[];
+  onToggleConnectedApp: (id: string, enabled: boolean) => void;
+  agentTools: { id: string; enabled: boolean }[];
+  onToggleAgentTool: (id: string) => void;
   bottomInset: number;
 }) {
   const C = useThemeColors();
@@ -99,12 +104,11 @@ function PlusPopover({
   return (
     <View style={{ position: 'absolute', inset: 0, zIndex: 200 }} pointerEvents="box-none">
       <Pressable style={{ flex: 1 }} onPress={onClose} />
-      <View style={{
-        position: 'absolute', left: Spacing.sm, bottom: bottomInset + 76,
-        width: 300, backgroundColor: C.bgCard, borderRadius: Radius.lg,
+      <View style={{ position: 'absolute', left: Spacing.sm, bottom: bottomInset + 76,
+        width: 320, maxHeight: 560, backgroundColor: C.bgCard, borderRadius: Radius.lg,
         borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm,
-        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
-      }}>
+        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 }}>
+        <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled>
         {/* Joindre + mode de réponse */}
         <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
           {[
@@ -153,9 +157,63 @@ function PlusPopover({
               Aucune capacité active — ajoutez des fichiers, des tâches ou connectez un service.
             </Text>
           ) : null}
+
+          {/* Connecteurs — bascules synchronisées avec le Builder */}
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: Spacing.xs }}>Connecteurs</Text>
+          <View style={{ gap: 2 }}>
+            {connectedApps.map(a => (
+              <Pressable
+                key={a.id}
+                onPress={() => onToggleConnectedApp(a.id, !a.enabled)}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
+              >
+                <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: a.enabled ? '#00CC6A' + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="cable" size={14} color={a.enabled ? '#00CC6A' : C.textMuted} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FontSize.sm, color: a.enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{a.name}</Text>
+                  <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>{a.description}</Text>
+                </View>
+                <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: a.enabled ? '#00CC6A' : C.bgCardAlt, borderWidth: 1, borderColor: a.enabled ? '#00CC6A' : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
+                  <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: a.enabled ? '#fff' : C.textMuted, alignSelf: a.enabled ? 'flex-end' : 'flex-start' }} />
+                </View>
+              </Pressable>
+            ))}
+            {connectedApps.length === 0 ? (
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingVertical: 4 }}>Aucun connecteur — ajoute-les dans le Builder.</Text>
+            ) : null}
+          </View>
+
+          {/* Outils IA — bascules synchronisées avec le Builder */}
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: Spacing.xs }}>Outils IA</Text>
+          <View style={{ gap: 2 }}>
+            {AGENT_TOOLS.map(t => {
+              const state = agentTools.find(x => x.id === t.id);
+              const enabled = state?.enabled ?? false;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => onToggleAgentTool(t.id)}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, paddingHorizontal: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.7 }]}
+                >
+                  <View style={{ width: 26, height: 26, borderRadius: Radius.sm, backgroundColor: enabled ? C.accent + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                    <MaterialIcons name={t.icon as any} size={14} color={enabled ? C.accent : C.textMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: FontSize.sm, color: enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{t.label}</Text>
+                    <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>{t.description}</Text>
+                  </View>
+                  <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: enabled ? C.accent : C.bgCardAlt, borderWidth: 1, borderColor: enabled ? C.accent : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
+                    <View style={{ width: 15, height: 15, borderRadius: 8, backgroundColor: enabled ? '#fff' : C.textMuted, alignSelf: enabled ? 'flex-end' : 'flex-start' }} />
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+          </View>
+          </ScrollView>
         </View>
       </View>
-    </View>
   );
 }
 
@@ -456,7 +514,7 @@ function SideDrawer({
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { bot } = useBot();
+  const { bot, toggleAgentTool, updateConnectedApp } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace,
@@ -994,6 +1052,10 @@ export default function ChatScreen() {
         responseMode={responseMode}
         onChangeMode={setResponseMode}
         capabilities={getActiveCapabilities(activeWorkspace, bot)}
+        connectedApps={bot.connectedApps}
+        onToggleConnectedApp={(id, enabled) => updateConnectedApp(id, { enabled })}
+        agentTools={bot.agentTools}
+        onToggleAgentTool={toggleAgentTool}
         bottomInset={insets.bottom}
       />
 
