@@ -87,7 +87,7 @@ export const AGENT_CAPABILITIES: AgentCapability[] = [
 // ─── Connecteurs : décrits honnêtement (aucune exécution externe) ────────────
 function connectorCapabilities(bot: BotConfig): AgentCapability[] {
   return bot.connectedApps
-    .filter(a => a.enabled)
+    .filter(a => a.enabled && !(a.id === 'supabase' || a.presetId === 'supabase'))
     .map(a => ({
       id: `connector_${a.id}`,
       label: a.name,
@@ -100,7 +100,24 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
 
 /** Liste honnête des capacités actives, pour l'UI comme pour le prompt. */
 export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapability[] {
-  return [...AGENT_CAPABILITIES.filter(c => c.enabled(ws, bot)), ...connectorCapabilities(bot)];
+  const caps = [...AGENT_CAPABILITIES.filter(c => c.enabled(ws, bot)), ...connectorCapabilities(bot)];
+
+  // Supabase = backend de l'application (pas un connecteur externe) :
+  // activé, il garantit que la base du workspace est synchronisée et à jour.
+  const supabase = bot.connectedApps.find(
+    a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase'),
+  );
+  if (supabase) {
+    caps.push({
+      id: 'supabase_backend',
+      label: 'Sauvegarde Supabase',
+      description: 'Ton workspace est synchronisé dans le cloud',
+      icon: 'storage',
+      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BASE DU WORKSPACE » en proviennent directement et sont à jour.',
+      enabled: () => true,
+    });
+  }
+  return caps;
 }
 
 /** Section « CE QUE TU PEUX FAIRE » pour le prompt système. */
