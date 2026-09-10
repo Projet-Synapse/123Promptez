@@ -25,8 +25,8 @@ type Props = {
   addVaultFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>, files: { name: string; type: any; content: string; tags: string[] }[]) => string;
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
-  /** Replace vault folder files after sync */
-  replaceFolderFiles: (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[]) => void;
+  /** Fusion du contenu disque après synchronisation (IDs préservés, dossiers matérialisés) */
+  syncFolderFromDisk: (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[], dirs?: string[]) => void;
 };
 
 export function VaultFolderPanel({
@@ -36,7 +36,7 @@ export function VaultFolderPanel({
   addVaultFolder,
   updateFolder,
   removeFolder,
-  replaceFolderFiles,
+  syncFolderFromDisk,
 }: Props) {
   const C = useThemeColors();
   const { bot } = useBot();
@@ -71,13 +71,15 @@ export function VaultFolderPanel({
         return;
       }
       const base = (result.meta.path || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Vault local';
-      addVaultFolder(workspaceId, {
+      const fid = addVaultFolder(workspaceId, {
         name: base,
         icon: 'lock',
         color: '#9B59B6',
         description: `Vault local · ${result.meta.path}`,
         vault: result.meta,
       }, result.files);
+      // Matérialise aussi les dossiers (vides inclus) présents sur le disque
+      syncFolderFromDisk(workspaceId, fid, [], result.dirs);
       showAlert('Dossier vault ajouté', result.meta.syncMessage || `${result.files.length} fichier(s) importé(s).`);
     } catch (e: any) {
       showAlert('Erreur vault', e?.message ?? 'Impossible d’accéder au dossier.');
@@ -94,7 +96,7 @@ export function VaultFolderPanel({
         const result = await resyncLocalVault(folder.vault);
         if (!result) return;
         updateFolder(workspaceId, folder.id, { vault: result.meta });
-        if (result.files.length) replaceFolderFiles(workspaceId, folder.id, result.files);
+        syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
         showAlert('Synchronisation', result.meta.syncMessage || 'Terminé');
       } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName && githubToken) {
         const fakeRepo: GitHubRepoHit = {
@@ -107,7 +109,7 @@ export function VaultFolderPanel({
         };
         const result = await importGitHubRepoAsVault(githubToken, fakeRepo);
         updateFolder(workspaceId, folder.id, { vault: result.meta });
-        if (result.files.length) replaceFolderFiles(workspaceId, folder.id, result.files);
+        syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
         showAlert('Import GitHub', result.meta.syncMessage || 'Terminé');
       }
     } catch (e: any) {

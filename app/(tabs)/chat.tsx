@@ -25,6 +25,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
+import { DragLayer } from '@/components/feature/dnd';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -989,6 +990,9 @@ export default function ChatScreen() {
         onOpenDatabase={openWorkspaceDatabase}
         onOpenSettings={openWorkspaceSettings}
       />
+
+      {/* Fantôme du glisser-déposer (fichiers du panneau latéral) */}
+      <DragLayer />
 
       {/* Modes Panel */}
       <Modal visible={showModesPanel} transparent animationType="slide">
