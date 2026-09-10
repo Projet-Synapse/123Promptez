@@ -73,54 +73,28 @@ export const APP_LANGUAGES = [
   { code: 'ar', label: 'العربية', flag: '🇸🇦' },
 ];
 
-/** Catalogue de connecteurs Builder — OAuth réel non requis (UI + persistence). */
+/**
+ * Catalogue de connecteurs — UNIQUEMENT des connecteurs réellement
+ * fonctionnels (source de vérité partagée Builder + chat).
+ * `iconSet: 'FontAwesome'` = icônes de marques réelles.
+ */
 export const CONNECTOR_PRESETS = [
   {
     id: 'github',
     label: 'GitHub',
-    icon: 'code',
-    color: '#E6EDF3',
-    description: 'Recherche de dépôts pour les dossiers vault (Personal Access Token)',
-    comingSoon: false,
+    iconSet: 'FontAwesome' as const,
+    icon: 'github',
+    color: '#24292F',
+    description: 'Dépôts privés et publics — arborescence complète importée dans la base',
+    connectUrl: 'https://github.com/settings/tokens/new?scopes=repo&description=123Promptez',
   },
   {
     id: 'supabase',
     label: 'Supabase',
-    icon: 'storage',
+    iconSet: 'FontAwesome' as const,
+    icon: 'database',
     color: '#3ECF8E',
     description: 'Base de données cloud du workspace — sauvegarde et lecture par l’IA',
-    comingSoon: false,
-  },
-  {
-    id: 'google',
-    label: 'Google',
-    icon: 'cloud',
-    color: '#4285F4',
-    description: 'Drive, Gmail et calendrier',
-    comingSoon: true,
-  },
-  {
-    id: 'slack',
-    label: 'Slack',
-    icon: 'forum',
-    color: '#E01E5A',
-    description: 'Canaux et notifications d’équipe',
-    comingSoon: true,
-  },
-  {
-    id: 'notion',
-    label: 'Notion',
-    icon: 'description',
-    color: '#FFFFFF',
-    description: 'Pages et bases de connaissances',
-    comingSoon: true,
-  },
-  {
-    id: 'discord',
-    label: 'Discord',
-    icon: 'chat',
-    color: '#5865F2',
-    description: 'Serveurs et webhooks Discord',
-    comingSoon: true,
+    connectUrl: '',
   },
 ] as const;
