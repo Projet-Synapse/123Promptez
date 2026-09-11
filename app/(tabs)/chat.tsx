@@ -709,6 +709,7 @@ export default function ChatScreen() {
           // et la base Supabase (source de vérité : agentCapabilities).
           githubToken: resolveGitHubToken(bot.connectedApps) ?? undefined,
           supabaseTools: bot.connectedApps.some(a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase')),
+          enabledTools: bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id),
           onToolEvent: (label: string) => {
             pushActivity(`outil-${Date.now()}`, label, 'precision-manufacturing');
             // L'IA a écrit dans la bibliothèque côté serveur : on recharge

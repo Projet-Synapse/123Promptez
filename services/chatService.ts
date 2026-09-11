@@ -133,8 +133,10 @@ function parseSSEChunk(raw: string, onError?: (message: string) => void, onTool?
 export interface ChatToolExtras {
   /** Jeton GitHub de l'utilisateur — active les outils serveur de lecture de dépôts */
   githubToken?: string;
-  /** Active les outils de lecture de la base Supabase */
+  /** Active les outils de lecture du stockage cloud */
   supabaseTools?: boolean;
+  /** IDs des outils IA activés par l'utilisateur (gèrent les outils serveur disponibles) */
+  enabledTools?: string[];
   /** Notifié quand la fonction Edge exécute un outil côté serveur */
   onToolEvent?: (label: string) => void;
 }
@@ -194,6 +196,7 @@ export async function sendChatMessage(
         // Outils serveur (source de vérité : agentCapabilities / connecteurs)
         githubToken: extra?.githubToken ?? null,
         enableSupabase: extra?.supabaseTools === true,
+        enabledTools: extra?.enabledTools ?? [],
       }),
       signal,
     });

@@ -54,9 +54,9 @@ export const AGENT_CAPABILITIES: AgentCapability[] = [
   {
     id: 'workspace_files',
     label: 'Bibliothèque du workspace',
-    description: 'Fichiers, vault et dépôts — leur contenu est fourni dans la conversation',
+    description: 'Fichiers, vault et dépôts — lecture, navigation et écriture',
     icon: 'folder-open',
-    truth: 'Lire le contenu des fichiers listés dans « BIBLIOTHÈQUE DU WORKSPACE » ci-dessous, et les modifier ou en créer de nouveaux avec l\'outil workspace_write_file (écriture réelle dans la bibliothèque). Les fichiers absents de cette liste restent inaccessibles.',
+    truth: 'La BIBLIOTHÈQUE DU WORKSPACE ci-dessous est accessible : le contenu des fichiers listés t\'est fourni, tu peux LIRE n\'importe quel fichier de la bibliothèque (workspace_read_file) et les MODIFIER ou en créer (workspace_write_file — écriture réelle). Utilise ces outils dès que l\'utilisateur parle de ses fichiers.',
     enabled: ws => countWorkspaceFiles(ws) > 0,
   },
   {
@@ -95,15 +95,20 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
   );
   if (github) {
     const connected = !!resolveGitHubToken(bot.connectedApps);
+    const fileReadOn = bot.agentTools.some(t => t.id === 'file_read' && t.enabled);
     caps.push({
       id: 'github_repos',
       label: 'Dépôts GitHub',
       description: connected
-        ? 'Connecté — dépôts privés et publics importables dans la base'
+        ? fileReadOn
+          ? 'Connecté — liste et lecture des fichiers de tes dépôts (privés inclus)'
+          : 'Connecté — active l’outil « Lecture de fichiers » pour lire tes dépôts'
         : 'Connecteur actif mais jeton manquant — clique « Connecter GitHub »',
       icon: 'github',
       truth: connected
-        ? 'Des OUTILS serveur te permettent de LISTER et LIRE les fichiers des dépôts GitHub de l\'utilisateur (github_list_files, github_read_file — lecture seule). Utilise-les au lieu de dire que tu ne peux pas accéder.'
+        ? fileReadOn
+          ? 'Des OUTILS serveur te permettent de LISTER les dépôts GitHub de l\'utilisateur (github_list_repos) et de LISTER/LIRE les fichiers d\'un dépôt nommé (github_list_files, github_read_file — lecture seule). Utilise-les spontanément au lieu de dire que tu ne peux pas accéder.'
+          : 'Le connecteur GitHub est connecté, mais l\'outil « Lecture de fichiers » est désactivé : demande à l\'utilisateur de l\'activer dans les outils du chat pour accéder aux dépôts.'
         : 'Le connecteur GitHub est activé mais non connecté : ne prétends pas accéder à des dépôts. L\'utilisateur doit cliquer « Connecter GitHub » et coller son jeton.',
       enabled: () => true,
     });

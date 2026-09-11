@@ -24,6 +24,7 @@ function supportsAdaptiveThinking(model: string): boolean {
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  github_list_repos: 'Liste de tes dépôts GitHub',
   github_list_files: 'Lecture de l’arborescence du dépôt GitHub',
   github_read_file: 'Lecture d’un fichier du dépôt GitHub',
   supabase_list_rows: 'Lecture de la base de données du workspace',
@@ -46,6 +47,7 @@ Deno.serve(async (req: Request) => {
       topP,
       githubToken,
       enableSupabase,
+      enabledTools,
     } = await req.json();
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
@@ -91,38 +93,52 @@ Deno.serve(async (req: Request) => {
         }
       : null;
 
+    // Outils réellement activés par l'utilisateur (toggles du Builder/chat)
+    const enabledTools: string[] = Array.isArray(enabledTools)
+      ? enabledTools.map(String)
+      : [];
+
     const tools: any[] = [];
     if (ghHeaders) {
-      tools.push(
-        {
-          name: 'github_list_files',
-          description: "Liste les fichiers d'un dépôt GitHub de l'utilisateur (privés inclus). Renvoie un chemin par ligne. Utilise-le AVANT de lire un fichier si tu ne connais pas son chemin exact.",
-          input_schema: {
-            type: 'object',
-            properties: {
-              repo: { type: 'string', description: 'Propriétaire/nom du dépôt, ex: catelyn2332-design/map-interactive' },
-              path: { type: 'string', description: 'Préfixe de dossier optionnel pour filtrer la liste' },
-              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
+      // Découverte spontanée des dépôts (toujours disponible, connecteur GitHub)
+      tools.push({
+        name: 'github_list_repos',
+        description: "Liste les dépôts GitHub de l'utilisateur (privés et publics), un par ligne au format propriétaire/nom avec leur description. Utilise-le pour savoir quels dépôts existent.",
+        input_schema: { type: 'object', properties: {} },
+      });
+      // La lecture des fichiers dépend de l'outil « Lecture de fichiers »
+      if (enabledTools.includes('file_read')) {
+        tools.push(
+          {
+            name: 'github_list_files',
+            description: "Liste les fichiers d'un dépôt GitHub de l'utilisateur (privés inclus). Renvoie un chemin par ligne. Utilise-le AVANT de lire un fichier si tu ne connais pas son chemin exact.",
+            input_schema: {
+              type: 'object',
+              properties: {
+                repo: { type: 'string', description: 'Propriétaire/nom du dépôt, ex: catelyn2332-design/map-interactive' },
+                path: { type: 'string', description: 'Préfixe de dossier optionnel pour filtrer la liste' },
+                ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
+              },
+              required: ['repo'],
             },
-            required: ['repo'],
           },
-        },
-        {
-          name: 'github_read_file',
-          description: "Lit le contenu TEXTE d'un fichier d'un dépôt GitHub de l'utilisateur (privés inclus), 20 000 caractères max.",
-          input_schema: {
-            type: 'object',
-            properties: {
-              repo: { type: 'string', description: 'Propriétaire/nom du dépôt' },
-              path: { type: 'string', description: 'Chemin complet du fichier, ex: src/main.ts' },
-              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
+          {
+            name: 'github_read_file',
+            description: "Lit le contenu TEXTE d'un fichier d'un dépôt GitHub de l'utilisateur (privés inclus), 20 000 caractères max.",
+            input_schema: {
+              type: 'object',
+              properties: {
+                repo: { type: 'string', description: 'Propriétaire/nom du dépôt' },
+                path: { type: 'string', description: 'Chemin complet du fichier, ex: src/main.ts' },
+                ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
+              },
+              required: ['repo', 'path'],
             },
-            required: ['repo', 'path'],
           },
-        },
-      );
+        );
+      }
     }
-    if (enableSupabase === true) {
+    if (enableSupabase === true && enabledTools.includes('db_access')) {
       tools.push({
         name: 'supabase_list_rows',
         description: "Lit jusqu'à 50 lignes d'une table du stockage cloud, selon les permissions de l'utilisateur.",
@@ -138,44 +154,47 @@ Deno.serve(async (req: Request) => {
       });
     }
     // La BIBLIOTHÈQUE du workspace (dossiers/fichiers de l'application) —
-    // toujours disponible : lecture ET écriture réelles dans le cloud.
-    tools.push(
-      {
-        name: 'workspace_list_files',
-        description: "Liste l'arborescence de la BIBLIOTHÈQUE du workspace de l'utilisateur (dossiers, sous-dossiers, fichiers).",
-        input_schema: {
-          type: 'object',
-          properties: {
-            workspace: { type: 'string', description: 'Nom du workspace (optionnel — défaut : premier workspace)' },
+    // lecture ET écriture réelles dans le cloud. Pilotée par l'outil
+    // « Accès Base de données » activé par l'utilisateur.
+    if (enabledTools.includes('db_access')) {
+      tools.push(
+        {
+          name: 'workspace_list_files',
+          description: "Liste l'arborescence de la BIBLIOTHÈQUE du workspace de l'utilisateur (dossiers, sous-dossiers, fichiers).",
+          input_schema: {
+            type: 'object',
+            properties: {
+              workspace: { type: 'string', description: 'Nom du workspace (optionnel — défaut : premier workspace)' },
+            },
           },
         },
-      },
-      {
-        name: 'workspace_read_file',
-        description: "Lit le contenu d'un fichier de la BIBLIOTHÈQUE du workspace (20 000 caractères max).",
-        input_schema: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'Nom du fichier, ou Dossier/Sous-dossier/fichier' },
-            workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
+        {
+          name: 'workspace_read_file',
+          description: "Lit le contenu d'un fichier de la BIBLIOTHÈQUE du workspace (20 000 caractères max).",
+          input_schema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Nom du fichier, ou Dossier/Sous-dossier/fichier' },
+              workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
+            },
+            required: ['path'],
           },
-          required: ['path'],
         },
-      },
-      {
-        name: 'workspace_write_file',
-        description: "Crée ou met à jour un fichier de la BIBLIOTHÈQUE du workspace — la modification est réelle et visible par l'utilisateur. Crée les dossiers manquants automatiquement.",
-        input_schema: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'Chemin : nom du fichier, ou Dossier/Sous-dossier/fichier' },
-            content: { type: 'string', description: 'Contenu complet du fichier' },
-            workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
+        {
+          name: 'workspace_write_file',
+          description: "Crée ou met à jour un fichier de la BIBLIOTHÈQUE du workspace — la modification est réelle et visible par l'utilisateur. Crée les dossiers manquants automatiquement.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Chemin : nom du fichier, ou Dossier/Sous-dossier/fichier' },
+              content: { type: 'string', description: 'Contenu complet du fichier' },
+              workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
+            },
+            required: ['path', 'content'],
           },
-          required: ['path', 'content'],
         },
-      },
-    );
+      );
+    }
 
 const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
 
@@ -229,6 +248,16 @@ function resolveWorkspace(workspaces: any[], wanted?: string) {
 }
 
 async function executeTool(name: string, input: any): Promise<string> {
+      if (name === 'github_list_repos') {
+        if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
+        const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', { headers: ghHeaders });
+        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+        const repos: any[] = await res.json();
+        return repos
+          .map((r: any) => `${r.full_name}${r.private ? ' (privé)' : ''} — ${r.description ?? 'sans description'}`)
+          .slice(0, 50)
+          .join('\n');
+      }
       if (name === 'github_list_files') {
         if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
         const [owner, repo] = String(input.repo ?? '').split('/');
