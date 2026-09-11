@@ -159,7 +159,7 @@ export function buildCapabilitiesPrompt(ws: Workspace, bot: BotConfig): string {
 }
 
 // ─── Contexte du workspace injecté au modèle ────────────────────────────────
-const CONTENT_BUDGET_CHARS = 60_000; // contenu total des fichiers
+const CONTENT_BUDGET_CHARS = 150_000; // contenu total des fichiers (~35k tokens, OK en 200k ctx)
 const PER_FILE_CAP = 8_000;          // plafond par fichier
 
 /**
