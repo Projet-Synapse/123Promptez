@@ -21,7 +21,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # NOTE : le secret créé sur ce dépôt s'appelle SUPABBASE_ACCESS_TOKEN
+      # (typo de création) — on accepte les deux orthographes.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABBASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'yvzqbjxngagapskqfcrm' }}
     steps:
       - name: Vérifie la présence du jeton d'accès

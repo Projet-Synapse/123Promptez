@@ -702,6 +702,13 @@ export default function ChatScreen() {
         getDueTasks(activeWorkspace.id),
         (systemInjection ?? '') + modeInjection + tasksInjection,
         controller.signal,
+        {
+          // Outils serveur réels : l'IA peut lire les dépôts GitHub connectés
+          // et la base Supabase (source de vérité : agentCapabilities).
+          githubToken: resolveGitHubToken(bot.connectedApps) ?? undefined,
+          supabaseTools: bot.connectedApps.some(a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase')),
+          onToolEvent: label => pushActivity(`outil-${Date.now()}`, label, 'precision-manufacturing'),
+        },
       );
       setStreamingText('');
       setActivities([]);
