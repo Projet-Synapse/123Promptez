@@ -310,7 +310,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
   // Site du dépôt (GitHub Pages) affiché dans l'iframe + tiroir fichiers/README
   const [repoSiteUrl, setRepoSiteUrl] = useState<string | null>(null);
   const [showRepoFiles, setShowRepoFiles] = useState(false);
-  const [pagesMissing, setPagesMissing] = useState(false);
+  const [siteUrlDraft, setSiteUrlDraft] = useState('');
   const activeRepo = repos.find(r => r.id === activeRepoId) ?? null;
   const activeRepoMeta = activeRepo?.repo ?? null;
   const repoFiles: DBFile[] = activeRepo
@@ -360,39 +360,39 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     }
   };
 
-  const openRepo = async (folder: DBFolder) => {
+  const openRepo = (folder: DBFolder) => {
     setActiveRepoId(folder.id);
     setRepoFile(null);
     setReadme(null);
     setShowRepoFiles(false);
     const meta = folder.repo!;
-    if (meta.sourceKind === 'github' && meta.repoFullName) {
-      // Le SITE du dépôt : GitHub Pages (autorise l'iframe, contrairement à
-      // github.com). Pré-contrôle : Pages renvoie 404 si aucun site n'est déployé.
-      const [owner, name] = meta.repoFullName.split('/');
-      const pagesUrl = `https://${owner}.github.io/${name}/`;
-      setUrl(pagesUrl);
+    // Le site du dépôt est celui ENREGISTRÉ par l'utilisateur (Vercel, Pages…)
+    // — exactement le même chemin que coller l'URL dans le champ.
+    if (meta.siteUrl) {
+      setRepoSiteUrl(meta.siteUrl);
+      setUrl(meta.siteUrl);
+      setLoadedUrl(meta.siteUrl);
       setLoading(true);
-      setPagesMissing(false);
-      let deployed = true;
-      try {
-        const res = await fetch(pagesUrl);
-        if (res.status === 404) deployed = false;
-      } catch {
-        // CORS/réseau indisponible : on laisse l'iframe tenter
-      }
-      if (deployed) {
-        setRepoSiteUrl(pagesUrl);
-        setLoadedUrl(pagesUrl);
-      } else {
-        setRepoSiteUrl(null);
-        setPagesMissing(true);
-      }
-      setLoading(false);
+      setSiteUrlDraft(meta.siteUrl);
     } else {
       setRepoSiteUrl(null);
+      setSiteUrlDraft('');
     }
     void fetchRepoReadme(folder);
+  };
+
+  /** Enregistre l'URL du site sur le dépôt puis l'ouvre dans l'iframe. */
+  const saveAndOpenSite = () => {
+    if (!activeRepo || !siteUrlDraft.trim()) return;
+    const raw = siteUrlDraft.trim();
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const meta = activeRepo.repo;
+    if (meta) updateFolder(workspace.id, activeRepo.id, { repo: { ...meta, siteUrl: url } });
+    setRepoSiteUrl(url);
+    setUrl(url);
+    setLoadedUrl(url);
+    setLoading(true);
+    showToast('URL du site enregistrée pour ce dépôt', { tone: 'success' });
   };
 
   const handleRepoSync = async () => {
@@ -517,22 +517,34 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
           {/* Le site du dépôt */}
           <View style={{ flex: 1 }}>
             {loading ? <ActivityIndicator color={C.accent} style={{ position: 'absolute', top: 20, alignSelf: 'center', zIndex: 2 }} /> : null}
-            {pagesMissing ? (
-              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, padding: Spacing.lg }}>
-                <MaterialIcons name="link-off" size={32} color={C.textMuted} />
-                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700', textAlign: 'center' }}>Aucun site GitHub Pages déployé (404)</Text>
-                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', lineHeight: 17 }}>
-                  Ce dépôt contient du code sans site publié. Active GitHub Pages sur le dépôt (Settings ▸ Pages) pour voir son site ici.
-                </Text>
-                <Pressable onPress={openRepoExternal} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '44' }, pressed && { opacity: 0.7 }]}>
-                  <MaterialIcons name="open-in-new" size={13} color={C.accent} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Ouvrir sur GitHub</Text>
-                </Pressable>
-              </View>
-            ) : repoSiteUrl ? (
+            {repoSiteUrl ? (
               <Iframe src={repoSiteUrl} onLoad={() => setLoading(false)} />
             ) : (
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', marginTop: Spacing.lg }}>Aucun site pour ce dépôt.</Text>
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, padding: Spacing.lg }}>
+                <MaterialIcons name="public" size={32} color={C.textMuted} />
+                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700', textAlign: 'center' }}>Quelle est l’URL du site de ce dépôt ?</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', lineHeight: 16 }}>
+                  Colle l’adresse déployée (Vercel, Pages…) — elle sera enregistrée et s’ouvrira ici à chaque fois.
+                </Text>
+                <TextInput
+                  value={siteUrlDraft}
+                  onChangeText={setSiteUrlDraft}
+                  placeholder="https://mon-site.vercel.app"
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  style={{ width: '100%', backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: 6, color: C.textPrimary, fontSize: FontSize.xs }}
+                />
+                <Pressable
+                  onPress={saveAndOpenSite}
+                  disabled={!siteUrlDraft.trim()}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 7, borderRadius: Radius.pill, backgroundColor: C.accent, opacity: !siteUrlDraft.trim() ? 0.4 : 1 }, pressed && { opacity: 0.8 }]}
+                >
+                  <MaterialIcons name="open-in-browser" size={13} color={C.bg} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.bg, fontWeight: '700' }}>Enregistrer et ouvrir le site</Text>
+                </Pressable>
+              </View>
             )}
           </View>
 

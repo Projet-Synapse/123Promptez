@@ -15,6 +15,8 @@ export interface VaultMeta {
   /** GitHub: owner/repo */
   repoFullName?: string;
   repoId?: number;
+  /** URL du site déployé associé (dépôts : Vercel, Pages…) — choisie par l'utilisateur */
+  siteUrl?: string;
   /** Last sync ISO or Date string */
   lastSyncedAt?: string | null;
   syncStatus?: VaultSyncStatus;
