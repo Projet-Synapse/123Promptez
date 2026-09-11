@@ -139,7 +139,7 @@ export default function WorkspacesScreen() {
         <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-start', backgroundColor: C.primary + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: C.primary + '33', padding: Spacing.md }}>
           <MaterialIcons name="info-outline" size={16} color={C.primary} />
           <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 19 }}>
-            Chaque workspace possède ses propres conversations, compétences et base de données.
+            Chaque workspace possède ses propres conversations, compétences et bibliothèque.
           </Text>
         </View>
 

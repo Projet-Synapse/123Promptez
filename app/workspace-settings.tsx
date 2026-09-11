@@ -212,7 +212,7 @@ export default function WorkspaceSettingsScreen() {
               <MaterialIcons name="storage" size={26} color={C.accent} />
             </View>
             <View style={{ flex: 1, gap: 3 }}>
-              <Text style={[styles.hubBtnTitle, { color: C.textPrimary }]}>Base de données</Text>
+              <Text style={[styles.hubBtnTitle, { color: C.textPrimary }]}>Bibliothèque</Text>
               <Text style={[styles.hubBtnSub, { color: C.textSecondary }]}>Dossiers, fichiers, vault et dépôts connectés</Text>
             </View>
             <MaterialIcons name="chevron-right" size={24} color={C.accent} />

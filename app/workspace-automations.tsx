@@ -22,7 +22,7 @@ const TRIGGERS: { id: AutomationTrigger; label: string; icon: string; color: str
   { id: 'conversation_start', label: 'Démarrage conversation', icon: 'play-circle', color: '#00CC6A', desc: 'Quand une nouvelle conversation commence' },
   { id: 'keyword', label: 'Mot-clé détecté', icon: 'search', color: '#FFB800', desc: 'Quand un mot-clé est trouvé dans le message', hasKeyword: true },
   { id: 'scheduled', label: 'Planifié', icon: 'schedule', color: '#9B59B6', desc: 'Déclenché selon une fréquence', hasFrequency: true },
-  { id: 'file_added', label: 'Fichier ajouté', icon: 'upload-file', color: '#FF6B35', desc: 'Quand un fichier est ajouté à la base de données' },
+  { id: 'file_added', label: 'Fichier ajouté', icon: 'upload-file', color: '#FF6B35', desc: 'Quand un fichier est ajouté à la bibliothèque' },
   { id: 'mode_activated', label: 'Mode activé', icon: 'bolt', color: '#FF4455', desc: 'Quand un mode est activé dans ce workspace' },
 ];
 

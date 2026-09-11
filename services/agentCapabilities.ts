@@ -53,10 +53,10 @@ function collectFiles(ws: Workspace): DBFile[] {
 export const AGENT_CAPABILITIES: AgentCapability[] = [
   {
     id: 'workspace_files',
-    label: 'Lecture de la base du workspace',
-    description: 'Fichiers, vault et dépôts — leur contenu est fourni dans la conversation',
+    label: 'Bibliothèque du workspace',
+    description: 'Fichiers, vault et dépôts — lecture, navigation et écriture',
     icon: 'folder-open',
-    truth: 'Lire le contenu des fichiers listés dans « BASE DU WORKSPACE » ci-dessous (lecture seule : tu ne peux pas créer, modifier ni supprimer de fichiers, ni accéder à des fichiers absents de cette liste).',
+    truth: 'La BIBLIOTHÈQUE DU WORKSPACE ci-dessous est accessible : le contenu des fichiers listés t\'est fourni, tu peux LIRE n\'importe quel fichier de la bibliothèque (workspace_read_file) et les MODIFIER ou en créer (workspace_write_file — écriture réelle). Utilise ces outils dès que l\'utilisateur parle de ses fichiers.',
     enabled: ws => countWorkspaceFiles(ws) > 0,
   },
   {
@@ -95,15 +95,20 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
   );
   if (github) {
     const connected = !!resolveGitHubToken(bot.connectedApps);
+    const fileReadOn = bot.agentTools.some(t => t.id === 'file_read' && t.enabled);
     caps.push({
       id: 'github_repos',
       label: 'Dépôts GitHub',
       description: connected
-        ? 'Connecté — dépôts privés et publics importables dans la base'
+        ? fileReadOn
+          ? 'Connecté — liste et lecture des fichiers de tes dépôts (privés inclus)'
+          : 'Connecté — active l’outil « Lecture de fichiers » pour lire tes dépôts'
         : 'Connecteur actif mais jeton manquant — clique « Connecter GitHub »',
       icon: 'github',
       truth: connected
-        ? 'Des OUTILS serveur te permettent de LISTER et LIRE les fichiers des dépôts GitHub de l\'utilisateur (github_list_files, github_read_file — lecture seule). Utilise-les au lieu de dire que tu ne peux pas accéder.'
+        ? fileReadOn
+          ? 'Des OUTILS serveur te permettent de LISTER les dépôts GitHub de l\'utilisateur (github_list_repos) et de LISTER/LIRE les fichiers d\'un dépôt nommé (github_list_files, github_read_file — lecture seule). Utilise-les spontanément au lieu de dire que tu ne peux pas accéder.'
+          : 'Le connecteur GitHub est connecté, mais l\'outil « Lecture de fichiers » est désactivé : demande à l\'utilisateur de l\'activer dans les outils du chat pour accéder aux dépôts.'
         : 'Le connecteur GitHub est activé mais non connecté : ne prétends pas accéder à des dépôts. L\'utilisateur doit cliquer « Connecter GitHub » et coller son jeton.',
       enabled: () => true,
     });
@@ -140,7 +145,7 @@ export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapab
       label: 'Sauvegarde Supabase',
       description: 'Ton workspace est synchronisé dans le cloud',
       icon: 'storage',
-      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BASE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ta base accessibles selon tes permissions (supabase_list_rows).',
+      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BIBLIOTHÈQUE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ton stockage cloud accessibles selon tes permissions (supabase_list_rows).',
       enabled: () => true,
     });
   }
@@ -182,7 +187,7 @@ export function buildWorkspaceContextPrompt(ws: Workspace): string {
       })
       .join('\n');
     const rootCount = ws.database.rootFiles.length;
-    out += `## BASE DU WORKSPACE (lecture seule)\n\n`;
+    out += `## BIBLIOTHÈQUE DU WORKSPACE (lecture et écriture via l'outil workspace_write_file)\n\n`;
     out += `Inventaire : ${rootCount} fichier(s) à la racine, ${ws.database.folders.length} dossier(s).\n`;
     if (ws.database.rootFiles.length > 0) {
       out += `Racine : ${ws.database.rootFiles.map(f => f.name).join(', ')}\n`;

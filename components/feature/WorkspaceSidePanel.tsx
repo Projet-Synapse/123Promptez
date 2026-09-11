@@ -267,7 +267,7 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
           </ScrollView>
           <Pressable onPress={onOpenFull} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: Spacing.xs + 2, borderRadius: Radius.md, backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '44' }, pressed && { opacity: 0.75 }]}>
             <MaterialIcons name="open-in-new" size={13} color={C.accent} />
-            <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Gérer dans la base de données</Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Gérer dans la bibliothèque</Text>
           </Pressable>
         </View>
       ) : null}
@@ -694,7 +694,7 @@ export function WorkspaceSidePanel({
           <MaterialIcons name={workspace.icon as any} size={15} color={workspace.color} />
         </View>
         <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{workspace.name}</Text>
-        <IconButton icon="open-in-new" label="Base de données complète" onPress={onOpenDatabase} bare size={18} color={C.textSecondary} />
+        <IconButton icon="open-in-new" label="Bibliothèque complète" onPress={onOpenDatabase} bare size={18} color={C.textSecondary} />
         <IconButton icon="close" label="Fermer le panneau" onPress={onClose} bare size={20} color={C.textSecondary} />
       </View>
 
