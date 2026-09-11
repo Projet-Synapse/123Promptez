@@ -1,271 +1,80 @@
-// Edge Function: /functions/chat — proxies chat messages to Anthropic Claude
-// via the official Anthropic TypeScript SDK, with streaming AND a server-side
-// tool-use loop: the model can REALLY read GitHub repos (with the user's
-// token) and Supabase tables (with the user's JWT, RLS-respected).
-//
-// Requires the ANTHROPIC_API_KEY secret to be set on this Supabase project:
-//   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-import Anthropic from 'npm:@anthropic-ai/sdk@^0.60.0';
-
-const corsHeaders = {
+// Edge Function: /functions/chat — proxy streaming vers Anthropic Claude.
+const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
 };
 
-// Keep in sync with constants/config.ts LLM_MODELS on the client.
-const SUPPORTED_MODELS = new Set(['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']);
-const DEFAULT_MODEL = 'claude-sonnet-5';
-
-// Adaptive thinking is supported on Opus 5 / Sonnet 5 but not on the older
-// Haiku 4.5 tier.
-function supportsAdaptiveThinking(model: string): boolean {
-  return model !== 'claude-haiku-4-5';
-}
-
-const TOOL_LABELS: Record<string, string> = {
-  github_list_files: 'Lecture de l’arborescence du dépôt GitHub',
-  github_read_file: 'Lecture d’un fichier du dépôt GitHub',
-  supabase_list_rows: 'Lecture de la base de données du workspace',
-};
-
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   try {
-    const {
-      messages,
-      model,
-      temperature,
-      maxTokens,
-      topP,
-      githubToken,
-      enableSupabase,
-    } = await req.json();
-
+    const { messages, model, maxTokens } = await req.json();
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: 'Anthropic API key not configured. Set ANTHROPIC_API_KEY as a Supabase Edge Function secret.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const anthropic = new Anthropic({ apiKey });
-    const requestedModel = SUPPORTED_MODELS.has(model) ? model : DEFAULT_MODEL;
-
-    // Anthropic takes a single top-level `system` string and alternating
-    // user/assistant turns — split the incoming OpenAI-style message list.
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY manquante');
     const systemMessage = (messages ?? []).find((m: any) => m.role === 'system')?.content ?? '';
-    let conversationMessages = (messages ?? [])
-      .filter((m: any) => m.role !== 'system')
-      .map((m: any) => ({ role: m.role, content: m.content }));
-
-    if (conversationMessages.length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'No user/assistant messages provided' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const convo = (messages ?? []).filter((m: any) => m.role !== 'system');
+    if (convo.length === 0) throw new Error('Aucun message');
+    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model || 'claude-sonnet-5',
+        max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 8192),
+        system: systemMessage,
+        messages: convo,
+        stream: true,
+      }),
+    });
+    if (!apiRes.ok || !apiRes.body) {
+      const t = await apiRes.text().catch(() => '');
+      throw new Error(`Anthropic ${apiRes.status}: ${t.slice(0, 300)}`);
     }
-
-    // Sampling params (temperature/top_p) at non-default values are rejected
-    // on Opus 5 / Sonnet 5 — only forward them for the Haiku 4.5 tier.
-    const samplingParams = requestedModel === 'claude-haiku-4-5'
-      ? { temperature: temperature ?? 1, top_p: topP ?? 1 }
-      : {};
-
-    // ── Outils RÉELS exécutés côté serveur ─────────────────────────────
-    const ghToken = typeof githubToken === 'string' && githubToken.trim()
-      ? githubToken.trim()
-      : null;
-    const ghHeaders: Record<string, string> | null = ghToken
-      ? {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${ghToken}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-        }
-      : null;
-
-    const tools: any[] = [];
-    if (ghHeaders) {
-      tools.push(
-        {
-          name: 'github_list_files',
-          description: "Liste les fichiers d'un dépôt GitHub de l'utilisateur (privés inclus). Renvoie un chemin par ligne. Utilise-le AVANT de lire un fichier si tu ne connais pas son chemin exact.",
-          input_schema: {
-            type: 'object',
-            properties: {
-              repo: { type: 'string', description: 'Propriétaire/nom du dépôt, ex: catelyn2332-design/map-interactive' },
-              path: { type: 'string', description: 'Préfixe de dossier optionnel pour filtrer la liste' },
-              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
-            },
-            required: ['repo'],
-          },
-        },
-        {
-          name: 'github_read_file',
-          description: "Lit le contenu TEXTE d'un fichier d'un dépôt GitHub de l'utilisateur (privés inclus), 20 000 caractères max.",
-          input_schema: {
-            type: 'object',
-            properties: {
-              repo: { type: 'string', description: 'Propriétaire/nom du dépôt' },
-              path: { type: 'string', description: 'Chemin complet du fichier, ex: src/main.ts' },
-              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
-            },
-            required: ['repo', 'path'],
-          },
-        },
-      );
-    }
-    if (enableSupabase === true) {
-      tools.push({
-        name: 'supabase_list_rows',
-        description: "Lit jusqu'à 50 lignes d'une table de la base Supabase du workspace, selon les permissions de l'utilisateur.",
-        input_schema: {
-          type: 'object',
-          properties: {
-            table: { type: 'string', description: 'Nom exact de la table' },
-            limit: { type: 'number', description: 'Nombre de lignes (1-50, défaut 10)' },
-            order: { type: 'string', description: 'Colonne de tri optionnelle (décroissant)' },
-          },
-          required: ['table'],
-        },
-      });
-    }
-
-    const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-
-    async function executeTool(name: string, input: any): Promise<string> {
-      if (name === 'github_list_files') {
-        if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
-        const [owner, repo] = String(input.repo ?? '').split('/');
-        if (!owner || !repo) throw new Error('repo doit être au format propriétaire/nom');
-        const ref = encodeURIComponent(String(input.ref ?? 'main'));
-        const prefix = input.path ? String(input.path).replace(/^\/+|\/+$/g, '') : '';
-        const res = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`,
-          { headers: ghHeaders },
-        );
-        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-        const data: any = await res.json();
-        const paths = (data.tree ?? [])
-          .filter((e: any) => e.type === 'blob' && (!prefix || e.path.startsWith(prefix + '/')))
-          .map((e: any) => e.path)
-          .slice(0, 300);
-        return paths.length ? paths.join('\n') : '(aucun fichier)';
-      }
-      if (name === 'github_read_file') {
-        if (!ghHeaders && !ghToken) throw new Error('Connecteur GitHub non connecté');
-        const [owner, repo] = String(input.repo ?? '').split('/');
-        const ref = encodeURIComponent(String(input.ref ?? 'main'));
-        const p = String(input.path ?? '').replace(/^\/+/, '');
-        if (!owner || !repo || !p) throw new Error('repo et path sont requis');
-        const res = await fetch(
-          `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${p}`,
-          { headers: ghToken ? { Authorization: `Bearer ${ghToken}` } : {} },
-        );
-        if (!res.ok) throw new Error(`Fichier illisible (${res.status})`);
-        return (await res.text()).slice(0, 20_000);
-      }
-      if (name === 'supabase_list_rows') {
-        const url = Deno.env.get('SUPABASE_URL');
-        const anon = Deno.env.get('SUPABASE_ANON_KEY');
-        if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
-        const limit = Math.min(Math.max(Number(input.limit) || 10, 1), 50);
-        const table = encodeURIComponent(String(input.table ?? ''));
-        const order = input.order ? `&order=${encodeURIComponent(String(input.order))}.desc` : '';
-        const res = await fetch(`${url}/rest/v1/${table}?select=*&limit=${limit}${order}`, {
-          headers: {
-            apikey: anon,
-            Authorization: userJwt ? `Bearer ${userJwt}` : `Bearer ${anon}`,
-          },
-        });
-        if (!res.ok) throw new Error(`Lecture impossible (${res.status}) — table inconnue ou permissions insuffisantes`);
-        return JSON.stringify(await res.json(), null, 1).slice(0, 20_000);
-      }
-      throw new Error(`Outil inconnu : ${name}`);
-    }
-
-    const encoder = new TextEncoder();
-    const body = new ReadableStream({
-      async start(controller) {
-        const send = (obj: any) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(ctrl) {
+        const send = (o: any) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
         try {
-          let done = false;
-          // Boucle d'outils : chaque tour peut se terminer par des tool_use,
-          // exécutés côté serveur puis renvoyés au modèle (4 tours max).
-          for (let round = 0; round < 4 && !done; round++) {
-            const stream = anthropic.messages.stream({
-              model: requestedModel,
-              max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 8192),
-              system: systemMessage,
-              messages: conversationMessages,
-              ...(tools.length ? { tools } : {}),
-              ...(supportsAdaptiveThinking(requestedModel) ? { thinking: { type: 'adaptive' } } : {}),
-              ...samplingParams,
-            });
-
-            for await (const event of stream) {
-              if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-                send({ delta: event.delta.text });
+          const reader = apiRes.body.getReader();
+          const dec = new TextDecoder();
+          let buf = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const parts = buf.split('\n\n');
+            buf = parts.pop() ?? '';
+            for (const part of parts) {
+              for (const line of part.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const ev = JSON.parse(line.slice(6));
+                  if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+                    send({ delta: ev.delta.text });
+                  }
+                } catch { /* ignore */ }
               }
-            }
-            const final = await stream.finalMessage();
-
-            if (final.stop_reason !== 'tool_use') {
-              done = true;
-              break;
-            }
-
-            conversationMessages.push({ role: 'assistant', content: final.content });
-            const toolResults: any[] = [];
-            for (const block of final.content) {
-              if (block.type !== 'tool_use') continue;
-              send({ toolEvent: `${TOOL_LABELS[block.name] ?? block.name}…` });
-              let output: string;
-              try {
-                output = await executeTool(block.name, block.input);
-              } catch (toolError: any) {
-                output = `Erreur: ${toolError?.message ?? 'échec de l’outil'}`;
-              }
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: String(output).slice(0, 30_000),
-              });
-            }
-            if (toolResults.length > 0) {
-              conversationMessages.push({ role: 'user', content: toolResults });
-            } else {
-              done = true;
             }
           }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        } catch (streamError: any) {
-          console.error('[chat] Stream error:', streamError);
-          send({ error: streamError?.message ?? 'Stream failed' });
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          send({ done: true });
+        } catch (e: any) {
+          send({ error: e.message ?? 'Stream failed' });
         } finally {
-          controller.close();
+          ctrl.close();
         }
       },
     });
-
-    return new Response(body, {
+    return new Response(stream, {
       status: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-      },
+      headers: { ...CORS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
     });
   } catch (e: any) {
-    console.error('[chat] Unexpected error:', e);
     return new Response(
-      JSON.stringify({ error: e?.message ?? 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: e?.message ?? 'Erreur interne' }),
+      { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
   }
 });
