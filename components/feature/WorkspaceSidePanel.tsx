@@ -310,6 +310,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
   // Site du dépôt (GitHub Pages) affiché dans l'iframe + tiroir fichiers/README
   const [repoSiteUrl, setRepoSiteUrl] = useState<string | null>(null);
   const [showRepoFiles, setShowRepoFiles] = useState(false);
+  const [pagesMissing, setPagesMissing] = useState(false);
   const activeRepo = repos.find(r => r.id === activeRepoId) ?? null;
   const activeRepoMeta = activeRepo?.repo ?? null;
   const repoFiles: DBFile[] = activeRepo
@@ -359,7 +360,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     }
   };
 
-  const openRepo = (folder: DBFolder) => {
+  const openRepo = async (folder: DBFolder) => {
     setActiveRepoId(folder.id);
     setRepoFile(null);
     setReadme(null);
@@ -367,13 +368,27 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     const meta = folder.repo!;
     if (meta.sourceKind === 'github' && meta.repoFullName) {
       // Le SITE du dépôt : GitHub Pages (autorise l'iframe, contrairement à
-      // github.com). L'URL se met dans le champ et le site se charge dedans.
+      // github.com). Pré-contrôle : Pages renvoie 404 si aucun site n'est déployé.
       const [owner, name] = meta.repoFullName.split('/');
       const pagesUrl = `https://${owner}.github.io/${name}/`;
-      setRepoSiteUrl(pagesUrl);
       setUrl(pagesUrl);
       setLoading(true);
-      setLoadedUrl(pagesUrl);
+      setPagesMissing(false);
+      let deployed = true;
+      try {
+        const res = await fetch(pagesUrl);
+        if (res.status === 404) deployed = false;
+      } catch {
+        // CORS/réseau indisponible : on laisse l'iframe tenter
+      }
+      if (deployed) {
+        setRepoSiteUrl(pagesUrl);
+        setLoadedUrl(pagesUrl);
+      } else {
+        setRepoSiteUrl(null);
+        setPagesMissing(true);
+      }
+      setLoading(false);
     } else {
       setRepoSiteUrl(null);
     }
@@ -502,7 +517,19 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
           {/* Le site du dépôt */}
           <View style={{ flex: 1 }}>
             {loading ? <ActivityIndicator color={C.accent} style={{ position: 'absolute', top: 20, alignSelf: 'center', zIndex: 2 }} /> : null}
-            {repoSiteUrl ? (
+            {pagesMissing ? (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, padding: Spacing.lg }}>
+                <MaterialIcons name="link-off" size={32} color={C.textMuted} />
+                <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700', textAlign: 'center' }}>Aucun site GitHub Pages déployé (404)</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', lineHeight: 17 }}>
+                  Ce dépôt contient du code sans site publié. Active GitHub Pages sur le dépôt (Settings ▸ Pages) pour voir son site ici.
+                </Text>
+                <Pressable onPress={openRepoExternal} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '44' }, pressed && { opacity: 0.7 }]}>
+                  <MaterialIcons name="open-in-new" size={13} color={C.accent} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Ouvrir sur GitHub</Text>
+                </Pressable>
+              </View>
+            ) : repoSiteUrl ? (
               <Iframe src={repoSiteUrl} onLoad={() => setLoading(false)} />
             ) : (
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center', marginTop: Spacing.lg }}>Aucun site pour ce dépôt.</Text>

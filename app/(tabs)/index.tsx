@@ -448,18 +448,51 @@ export default function BuilderScreen() {
                     </View>
                     <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 18 }}>{preset.description}</Text>
                   </View>
-                  <Toggle
-                    value={enabled}
-                    onToggle={() => setPresetConnectorEnabled({
-                      id: preset.id,
-                      name: preset.label,
-                      description: preset.description,
-                      webhookUrl: existing?.webhookUrl || '',
-                      icon: preset.icon,
-                      color: preset.color,
-                      presetId: preset.id,
-                    }, !enabled)}
-                  />
+                  {preset.id === 'github' ? (
+                    githubToken ? (
+                      <Pressable
+                        onPress={() => existing && updateConnectedApp(existing.id, { webhookUrl: '' })}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.error + '55', backgroundColor: C.error + '12', opacity: pressed ? 0.8 : 1 }]}
+                        accessibilityLabel="Déconnecter GitHub"
+                      >
+                        <MaterialIcons name="link-off" size={13} color={C.error} />
+                        <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Déconnecter</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={() => {
+                          setPresetConnectorEnabled({
+                            id: preset.id,
+                            name: preset.label,
+                            description: preset.description,
+                            webhookUrl: '',
+                            icon: preset.icon,
+                            color: preset.color,
+                            presetId: preset.id,
+                          }, true);
+                          window.open((preset as any).connectUrl, '_blank', 'noopener');
+                        }}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: '#24292F', opacity: pressed ? 0.8 : 1 }]}
+                        accessibilityLabel="Connecter GitHub"
+                      >
+                        <FontAwesome name="github" size={13} color="#fff" />
+                        <Text style={{ fontSize: FontSize.xs, color: '#fff', fontWeight: '700' }}>Connecter</Text>
+                      </Pressable>
+                    )
+                  ) : (
+                    <Toggle
+                      value={enabled}
+                      onToggle={() => setPresetConnectorEnabled({
+                        id: preset.id,
+                        name: preset.label,
+                        description: preset.description,
+                        webhookUrl: existing?.webhookUrl || '',
+                        icon: preset.icon,
+                        color: preset.color,
+                        presetId: preset.id,
+                      }, !enabled)}
+                    />
+                  )}
                 </View>
                 {preset.id === 'github' && enabled && existing ? (
                   <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm, marginTop: -Spacing.sm }}>
@@ -467,18 +500,46 @@ export default function BuilderScreen() {
                       Connexion GitHub
                     </Text>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
-                      1) Clique « Connecter GitHub » : la page GitHub s’ouvre avec le scope « repo » déjà présélectionné (dépôts privés inclus)
-2) « Generate token », puis copie le jeton
-3) Colle-le ci-dessous — il est stocké dans la config bot synchronisée (cloud).
+                      1) « Connecter GitHub » ouvre la page du jeton (scope « repo » déjà présélectionné — dépôts privés inclus)
+2) « Generate token », copie le jeton
+3) « Coller le jeton » remplit le champ automatiquement (ou Ctrl+V dans le champ).
                     </Text>
                     {!githubToken ? (
-                      <Pressable
-                        onPress={() => window.open((preset as any).connectUrl, '_blank', 'noopener')}
-                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#24292F', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
-                      >
-                        <FontAwesome name="github" size={16} color="#fff" />
-                        <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '700' }}>Connecter GitHub</Text>
-                      </Pressable>
+                      <>
+                        <Pressable
+                          onPress={() => window.open((preset as any).connectUrl, '_blank', 'noopener')}
+                          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#24292F', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
+                        >
+                          <FontAwesome name="github" size={16} color="#fff" />
+                          <Text style={{ fontSize: FontSize.sm, color: '#fff', fontWeight: '700' }}>Connecter GitHub</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              if (text && text.trim().length > 10) {
+                                updateConnectedApp(existing.id, { webhookUrl: text.trim() });
+                                showAlert('Jeton collé', 'La connexion GitHub est établie.');
+                              } else {
+                                showAlert('Presse-papiers vide', 'Copie d\'abord le jeton sur GitHub (bouton « Copy » à côté du token généré).');
+                              }
+                            } catch {
+                              showAlert('Collage automatique refusé', 'Autorise le presse-papiers quand le navigateur le demande, ou colle le jeton manuellement dans le champ ci-dessous (Ctrl+V).');
+                            }
+                          }}
+                          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: C.accent + '66', backgroundColor: C.accent + '15', paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
+                        >
+                          <MaterialIcons name="content-paste" size={16} color={C.accent} />
+                          <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '700' }}>Coller le jeton depuis le presse-papiers</Text>
+                        </Pressable>
+                        <ThemedInput
+                          value={existing.webhookUrl?.startsWith('http') ? '' : (existing.webhookUrl || '')}
+                          onChangeText={v => updateConnectedApp(existing.id, { webhookUrl: v.trim() })}
+                          placeholder="ghp_… (ou utilise « Coller le jeton »)"
+                          secureTextEntry
+                          mono
+                        />
+                      </>
                     ) : (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: '#00CC6A' + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: '#00CC6A' + '55', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2 }}>
                         <FontAwesome name="check-circle" size={15} color="#00CC6A" />
@@ -488,13 +549,20 @@ export default function BuilderScreen() {
                         </Pressable>
                       </View>
                     )}
-                    <ThemedInput
-                      value={existing.webhookUrl?.startsWith('http') ? '' : (existing.webhookUrl || '')}
-                      onChangeText={v => updateConnectedApp(existing.id, { webhookUrl: v.trim() })}
-                      placeholder="ghp_… (colle ici le jeton généré)"
-                      secureTextEntry
-                      mono
-                    />
+                  </View>
+                ) : null}
+                {preset.id === 'supabase' && enabled ? (
+                  <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm, marginTop: -Spacing.sm }}>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                      Connexion Supabase
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: '#00CC6A' + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: '#00CC6A' + '55', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2 }}>
+                      <FontAwesome name="check-circle" size={15} color="#00CC6A" />
+                      <Text style={{ flex: 1, fontSize: FontSize.xs, color: '#00CC6A', fontWeight: '700' }}>Connecté au projet — sauvegarde cloud active</Text>
+                    </View>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
+                      Ton workspace (base de données, conversations, tâches) est sauvegardé automatiquement dans ton projet Supabase, et son contenu est fourni à l’IA à chaque message. Aucune configuration supplémentaire n’est nécessaire : c’est le backend de l’application.
+                    </Text>
                   </View>
                 ) : null}
               </React.Fragment>
