@@ -1,13 +1,11 @@
-// Edge Function: /functions/chat — proxies chat messages to Anthropic Claude
-// via the official Anthropic TypeScript SDK, with streaming AND a server-side
-// tool-use loop: the model can REALLY read GitHub repos (with the user's
-// token) and Supabase tables (with the user's JWT, RLS-respected).
+// Edge Function: /functions/chat — route les messages vers l'API Anthropic
+// Claude avec streaming ET une boucle d'outils exécutée côté serveur.
 //
-// Requires the ANTHROPIC_API_KEY secret to be set on this Supabase project:
+// SANS SDK : appel direct en fetch + parsing SSE — aucun npm: import, le boot
+// ne peut plus échouer sur une dépendance. Version épinglée par ce fichier.
+//
+// Requiert le secret ANTHROPIC_API_KEY sur le projet Supabase :
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-// Version ÉPINGLÉE (pas de caret) : un re-résolution ^0.60.0 au
-// re-déploiement tirait une version incompatible avec Deno → BOOT_ERROR.
-import Anthropic from 'npm:@anthropic-ai/sdk@0.60.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,15 +13,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
 };
 
-// Keep in sync with constants/config.ts LLM_MODELS on the client.
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+
 const SUPPORTED_MODELS = new Set(['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']);
 const DEFAULT_MODEL = 'claude-sonnet-5';
-
-// Adaptive thinking is supported on Opus 5 / Sonnet 5 but not on the older
-// Haiku 4.5 tier.
-function supportsAdaptiveThinking(model: string): boolean {
-  return model !== 'claude-haiku-4-5';
-}
+const MAX_TOOL_ROUNDS = 4;
+const TOOL_RESULT_CAP = 30_000;
 
 const TOOL_LABELS: Record<string, string> = {
   github_list_repos: 'Liste de tes dépôts GitHub',
@@ -44,9 +40,7 @@ Deno.serve(async (req: Request) => {
     const {
       messages,
       model,
-      temperature,
       maxTokens,
-      topP,
       githubToken,
       enableSupabase,
       enabledTools,
@@ -60,13 +54,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const anthropic = new Anthropic({ apiKey });
     const requestedModel = SUPPORTED_MODELS.has(model) ? model : DEFAULT_MODEL;
 
-    // Anthropic takes a single top-level `system` string and alternating
-    // user/assistant turns — split the incoming OpenAI-style message list.
     const systemMessage = (messages ?? []).find((m: any) => m.role === 'system')?.content ?? '';
-    let conversationMessages = (messages ?? [])
+    const conversationMessages = (messages ?? [])
       .filter((m: any) => m.role !== 'system')
       .map((m: any) => ({ role: m.role, content: m.content }));
 
@@ -76,12 +67,6 @@ Deno.serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-
-    // Sampling params (temperature/top_p) at non-default values are rejected
-    // on Opus 5 / Sonnet 5 — only forward them for the Haiku 4.5 tier.
-    const samplingParams = requestedModel === 'claude-haiku-4-5'
-      ? { temperature: temperature ?? 1, top_p: topP ?? 1 }
-      : {};
 
     // ── Outils RÉELS exécutés côté serveur ─────────────────────────────
     const ghToken = typeof githubToken === 'string' && githubToken.trim()
@@ -95,20 +80,17 @@ Deno.serve(async (req: Request) => {
         }
       : null;
 
-    // Outils réellement activés par l'utilisateur (toggles du Builder/chat)
     const enabledTools: string[] = Array.isArray(enabledTools)
       ? enabledTools.map(String)
       : [];
 
     const tools: any[] = [];
     if (ghHeaders) {
-      // Découverte spontanée des dépôts (toujours disponible, connecteur GitHub)
       tools.push({
         name: 'github_list_repos',
         description: "Liste les dépôts GitHub de l'utilisateur (privés et publics), un par ligne au format propriétaire/nom avec leur description. Utilise-le pour savoir quels dépôts existent.",
         input_schema: { type: 'object', properties: {} },
       });
-      // La lecture des fichiers dépend de l'outil « Lecture de fichiers »
       if (enabledTools.includes('file_read')) {
         tools.push(
           {
@@ -156,8 +138,8 @@ Deno.serve(async (req: Request) => {
       });
     }
     // La BIBLIOTHÈQUE du workspace (dossiers/fichiers de l'application) —
-    // lecture ET écriture réelles dans le cloud. Pilotée par l'outil
-    // « Accès Base de données » activé par l'utilisateur.
+    // lecture ET écriture réelles dans le cloud, pilotée par « Accès Base de
+    // données ».
     if (enabledTools.includes('db_access')) {
       tools.push(
         {
@@ -198,58 +180,57 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+    const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
 
-// ── Bibliothèque du workspace : lecture/écriture réelle dans user_app_data ──
-async function loadWorkspacesData(): Promise<any[]> {
-  const url = Deno.env.get('SUPABASE_URL');
-  const anon = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
-  const res = await fetch(
-    `${url}/rest/v1/user_app_data?select=data&data_type=eq.workspaces`,
-    { headers: { apikey: anon, Authorization: `Bearer ${userJwt}` } },
-  );
-  if (!res.ok) throw new Error(`Lecture du workspace impossible (${res.status})`);
-  const rows: any[] = await res.json();
-  const row = (rows ?? [])[0];
-  if (!row?.data) throw new Error('Aucun workspace sauvegardé');
-  return Array.isArray(row.data) ? row.data : [row.data];
-}
+    // ── Exécution des outils ───────────────────────────────────────────
+    async function loadWorkspacesData(): Promise<any[]> {
+      const url = Deno.env.get('SUPABASE_URL');
+      const anon = Deno.env.get('SUPABASE_ANON_KEY');
+      if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
+      const res = await fetch(
+        `${url}/rest/v1/user_app_data?select=data&data_type=eq.workspaces`,
+        { headers: { apikey: anon, Authorization: `Bearer ${userJwt}` } },
+      );
+      if (!res.ok) throw new Error(`Lecture du workspace impossible (${res.status})`);
+      const rows: any[] = await res.json();
+      const row = (rows ?? [])[0];
+      if (!row?.data) throw new Error('Aucun workspace sauvegardé');
+      return Array.isArray(row.data) ? row.data : [row.data];
+    }
 
-async function saveWorkspacesData(workspaces: any[]): Promise<void> {
-  const url = Deno.env.get('SUPABASE_URL');
-  const anon = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
-  // user_id depuis la charge utile du JWT
-  const payloadB64 = userJwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-  const payload = JSON.parse(atob(payloadB64));
-  const res = await fetch(`${url}/rest/v1/user_app_data`, {
-    method: 'POST',
-    headers: {
-      apikey: anon,
-      Authorization: `Bearer ${userJwt}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-    },
-    body: JSON.stringify([{
-      user_id: payload.sub,
-      data_type: 'workspaces',
-      data: workspaces,
-      updated_at: new Date().toISOString(),
-    }]),
-  });
-  if (!res.ok) throw new Error(`Sauvegarde du workspace impossible (${res.status})`);
-}
+    async function saveWorkspacesData(workspaces: any[]): Promise<void> {
+      const url = Deno.env.get('SUPABASE_URL');
+      const anon = Deno.env.get('SUPABASE_ANON_KEY');
+      if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
+      const payloadB64 = userJwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(payloadB64));
+      const res = await fetch(`${url}/rest/v1/user_app_data`, {
+        method: 'POST',
+        headers: {
+          apikey: anon,
+          Authorization: `Bearer ${userJwt}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify([{
+          user_id: payload.sub,
+          data_type: 'workspaces',
+          data: workspaces,
+          updated_at: new Date().toISOString(),
+        }]),
+      });
+      if (!res.ok) throw new Error(`Sauvegarde du workspace impossible (${res.status})`);
+    }
 
-function resolveWorkspace(workspaces: any[], wanted?: string) {
-  if (wanted) {
-    const byName = workspaces.find(w => String(w.name ?? '').toLowerCase() === wanted.toLowerCase() || w.id === wanted);
-    if (byName) return byName;
-  }
-  return workspaces[0];
-}
+    function resolveWorkspace(workspaces: any[], wanted?: string) {
+      if (wanted) {
+        const byName = workspaces.find(w => String(w.name ?? '').toLowerCase() === wanted.toLowerCase() || w.id === wanted);
+        if (byName) return byName;
+      }
+      return workspaces[0];
+    }
 
-async function executeTool(name: string, input: any): Promise<string> {
+    async function executeTool(name: string, input: any): Promise<string> {
       if (name === 'github_list_repos') {
         if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
         const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', { headers: ghHeaders });
@@ -279,14 +260,14 @@ async function executeTool(name: string, input: any): Promise<string> {
         return paths.length ? paths.join('\n') : '(aucun fichier)';
       }
       if (name === 'github_read_file') {
-        if (!ghHeaders && !ghToken) throw new Error('Connecteur GitHub non connecté');
+        if (!ghToken) throw new Error('Connecteur GitHub non connecté');
         const [owner, repo] = String(input.repo ?? '').split('/');
         const ref = encodeURIComponent(String(input.ref ?? 'main'));
         const p = String(input.path ?? '').replace(/^\/+/, '');
         if (!owner || !repo || !p) throw new Error('repo et path sont requis');
         const res = await fetch(
           `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${p}`,
-          { headers: ghToken ? { Authorization: `Bearer ${ghToken}` } : {} },
+          { headers: { Authorization: `Bearer ${ghToken}` } },
         );
         if (!res.ok) throw new Error(`Fichier illisible (${res.status})`);
         return (await res.text()).slice(0, 20_000);
@@ -354,7 +335,6 @@ async function executeTool(name: string, input: any): Promise<string> {
         if (segments.length === 0) throw new Error('Chemin requis');
         const fileName = segments.pop()!;
         const now = new Date().toISOString();
-        // navigate/crée les dossiers par nom, à toute profondeur
         if (!ws.database.folders) ws.database.folders = [];
         let nodes: any[] = ws.database.folders;
         for (const seg of segments) {
@@ -389,61 +369,108 @@ async function executeTool(name: string, input: any): Promise<string> {
       throw new Error(`Outil inconnu : ${name}`);
     }
 
+    // ── Boucle d'outils en streaming SSE brut ──────────────────────────
     const encoder = new TextEncoder();
     const body = new ReadableStream({
       async start(controller) {
         const send = (obj: any) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         try {
+          let convo = conversationMessages.slice();
           let done = false;
-          // Boucle d'outils : chaque tour peut se terminer par des tool_use,
-          // exécutés côté serveur puis renvoyés au modèle (4 tours max).
-          for (let round = 0; round < 4 && !done; round++) {
-            const stream = anthropic.messages.stream({
-              model: requestedModel,
-              max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 8192),
-              system: systemMessage,
-              messages: conversationMessages,
-              ...(tools.length ? { tools } : {}),
-              ...(supportsAdaptiveThinking(requestedModel) ? { thinking: { type: 'adaptive' } } : {}),
-              ...samplingParams,
-            });
 
-            for await (const event of stream) {
-              if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-                send({ delta: event.delta.text });
+          for (let round = 0; round < MAX_TOOL_ROUNDS && !done; round++) {
+            const apiRes = await fetch(ANTHROPIC_URL, {
+              method: 'POST',
+              headers: {
+                'x-api-key': apiKey,
+                'anthropic-version': ANTHROPIC_VERSION,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: requestedModel,
+                max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 8192),
+                system: systemMessage,
+                messages: convo,
+                ...(tools.length ? { tools } : {}),
+                ...(supportsAdaptiveThinking(requestedModel) ? { thinking: { type: 'adaptive' } } : {}),
+                stream: true,
+              }),
+            });
+            if (!apiRes.ok || !apiRes.body) {
+              const t = await apiRes.text().catch(() => '');
+              throw new Error(`Anthropic ${apiRes.status}: ${t.slice(0, 200)}`);
+            }
+
+            // Streaming SSE d'Anthropic : texte transmis en direct, tool_use accumulé
+            const reader = apiRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            let stopReason: string | null = null;
+            const blocks: any[] = []; // {type:'text',text} | {type:'tool_use',id,name,json}
+            let current: any = null;
+
+            while (true) {
+              const { done: rd, value } = await reader.read();
+              if (rd) break;
+              buf += decoder.decode(value, { stream: true });
+              const parts = buf.split('\n\n');
+              buf = parts.pop() ?? '';
+              for (const part of parts) {
+                for (const line of part.split('\n')) {
+                  if (!line.startsWith('data: ')) continue;
+                  let ev: any;
+                  try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+                  if (ev.type === 'content_block_start') {
+                    current = ev.index;
+                    if (ev.content_block.type === 'tool_use') {
+                      blocks[ev.index] = { type: 'tool_use', id: ev.content_block.id, name: ev.content_block.name, json: '' };
+                    } else {
+                      blocks[ev.index] = { type: 'text', text: '' };
+                    }
+                  } else if (ev.type === 'content_block_delta') {
+                    if (ev.delta.type === 'text_delta') {
+                      send({ delta: ev.delta.text });
+                      if (blocks[ev.index]) blocks[ev.index].text += ev.delta.text;
+                    } else if (ev.delta.type === 'input_json_delta' && blocks[ev.index]) {
+                      blocks[ev.index].json += ev.delta.partial_json;
+                    }
+                  } else if (ev.type === 'message_delta' && ev.delta?.stop_reason) {
+                    stopReason = ev.delta.stop_reason;
+                  }
+                }
               }
             }
-            const final = await stream.finalMessage();
 
-            if (final.stop_reason !== 'tool_use') {
+            const toolUses = blocks.filter(b => b.type === 'tool_use');
+            if (stopReason !== 'tool_use' || toolUses.length === 0) {
               done = true;
               break;
             }
 
-            conversationMessages.push({ role: 'assistant', content: final.content });
+            // L'assistant a demandé des outils : exécution + résultats
+            convo.push({
+              role: 'assistant',
+              content: blocks
+                .filter(b => b.type === 'tool_use')
+                .map(b => ({ type: 'tool_use', id: b.id, name: b.name, input: safeJson(b.json) })),
+            });
             const toolResults: any[] = [];
-            for (const block of final.content) {
-              if (block.type !== 'tool_use') continue;
+            for (const tu of toolUses) {
+              const label = `${TOOL_LABELS[tu.name] ?? tu.name}…`;
+              send({ toolEvent: label });
               let output: string;
               try {
-                output = await executeTool(block.name, block.input);
+                output = await executeTool(tu.name, tu.input);
               } catch (toolError: any) {
                 output = `Erreur: ${toolError?.message ?? 'échec de l’outil'}`;
               }
-              // Notifié APRÈS exécution : pour workspace_write_file, le client
-              // recharge alors la bibliothèque depuis le cloud (déjà sauvegardé).
-              send({ toolEvent: `${TOOL_LABELS[block.name] ?? block.name}…` });
               toolResults.push({
                 type: 'tool_result',
-                tool_use_id: block.id,
-                content: String(output).slice(0, 30_000),
+                tool_use_id: tu.id,
+                content: String(output).slice(0, TOOL_RESULT_CAP),
               });
             }
-            if (toolResults.length > 0) {
-              conversationMessages.push({ role: 'user', content: toolResults });
-            } else {
-              done = true;
-            }
+            convo.push({ role: 'user', content: toolResults });
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } catch (streamError: any) {
@@ -472,3 +499,7 @@ async function executeTool(name: string, input: any): Promise<string> {
     );
   }
 });
+
+function safeJson(s: string): any {
+  try { return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
