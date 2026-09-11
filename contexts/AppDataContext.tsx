@@ -17,6 +17,9 @@ interface AppDataContextType {
     profile: unknown | null;
   };
   isDataLoaded: boolean;
+  /** Recharge TOUT depuis le cloud puis incrémente reloadToken (ré-hydratation) */
+  reloadFromCloud: () => Promise<void>;
+  reloadToken: number;
 }
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
@@ -32,6 +35,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     profile: unknown | null;
   }>({ workspaces: null, bot_config: null, profile: null });
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const lastPayloads = useRef<Partial<Record<'workspaces' | 'bot_config' | 'profile', unknown>>>({});
 
   // Load all data when user logs in
@@ -82,8 +86,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [triggerSync]);
 
+  // Recharge TOUT depuis le cloud puis incrémente reloadToken : CloudHydrator
+  // ré-hydrate les contextes (utilisé quand l'IA modifie la bibliothèque côté
+  // serveur — sinon le client écraserait les changements à sa prochaine sync).
+  const reloadFromCloud = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const data = await loadAllUserData(user.id);
+      setLoadedData({
+        workspaces: (data as any).workspaces ?? null,
+        bot_config: (data as any).bot_config ?? null,
+        profile: (data as any).profile ?? null,
+      });
+      setReloadToken(t => t + 1);
+    } catch {
+      // silencieux — un nouvel essai partira à la prochaine modification
+    }
+  }, [user?.id]);
+
   return (
-    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, triggerSync, retrySync, loadedData, isDataLoaded }}>
+    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, triggerSync, retrySync, loadedData, isDataLoaded, reloadFromCloud, reloadToken }}>
       {children}
     </AppDataContext.Provider>
   );
