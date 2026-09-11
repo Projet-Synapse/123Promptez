@@ -349,7 +349,8 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
       if (res.ok) {
         setReadme(await res.text());
       } else if (res.status === 404) {
-        setReadme('(README indisponible — dépôt privé ou jeton sans accès : vérifie le Personal Access Token dans Builder ▸ Connecteurs ▸ GitHub.)');
+        // 404 avec jeton valide : le dépôt n'a simplement pas de README à sa racine
+        setReadme('(Ce dépôt n’a pas de fichier README à sa racine.)');
       } else {
         setReadme(`(README indisponible — GitHub API ${res.status})`);
       }
