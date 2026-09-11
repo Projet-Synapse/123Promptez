@@ -474,13 +474,16 @@ export async function importGitHubRepoAsVault(
     dirs: [],
     error: message,
   });
-  /** Fetch API GitHub : avec jeton, puis anonyme si le jeton est refusé. */
+  /** Fetch API GitHub : ANONYME d'abord (dépôts publics marchent toujours),
+   *  puis avec jeton seulement si anonyme échoue (dépôts privés). */
   const ghFetch = async (url: string): Promise<{ res: Response | null; headers: Record<string, string> }> => {
-    let res = await fetch(url, { headers: authHeaders });
-    let headers = authHeaders;
-    if (!res.ok && t && (res.status === 401 || res.status === 403 || res.status === 404)) {
-      res = await fetch(url, { headers: anonHeaders });
-      headers = anonHeaders;
+    // Anonyme d'abord — suffit pour tous les dépôts publics
+    let res = await fetch(url, { headers: anonHeaders });
+    let headers = anonHeaders;
+    // Si anonyme échoue (404 = dépôt privé) et qu'on a un jeton, réessaie avec
+    if (res.status === 404 && t) {
+      res = await fetch(url, { headers: authHeaders });
+      headers = authHeaders;
     }
     return { res, headers };
   };
