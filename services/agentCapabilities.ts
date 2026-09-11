@@ -103,7 +103,7 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
         : 'Connecteur actif mais jeton manquant — clique « Connecter GitHub »',
       icon: 'github',
       truth: connected
-        ? 'Les dépôts GitHub importés apparaissent dans « BASE DU WORKSPACE » avec leur arborescence complète (lecture seule). L\'utilisateur peut importer d\'autres dépôts via l\'application.'
+        ? 'Des OUTILS serveur te permettent de LISTER et LIRE les fichiers des dépôts GitHub de l\'utilisateur (github_list_files, github_read_file — lecture seule). Utilise-les au lieu de dire que tu ne peux pas accéder.'
         : 'Le connecteur GitHub est activé mais non connecté : ne prétends pas accéder à des dépôts. L\'utilisateur doit cliquer « Connecter GitHub » et coller son jeton.',
       enabled: () => true,
     });
@@ -140,7 +140,7 @@ export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapab
       label: 'Sauvegarde Supabase',
       description: 'Ton workspace est synchronisé dans le cloud',
       icon: 'storage',
-      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BASE DU WORKSPACE » en proviennent directement et sont à jour.',
+      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BASE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ta base accessibles selon tes permissions (supabase_list_rows).',
       enabled: () => true,
     });
   }

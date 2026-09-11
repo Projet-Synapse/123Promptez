@@ -102,11 +102,10 @@ interface ChatMessage {
 }
 
 // Parse a single SSE data line and extract the text delta.
-// The edge function emits `data: {"delta": "..."}` chunks (see
-// supabase/functions/chat/index.ts), terminated by `data: [DONE]`.
-// Les événements `data: {"error": …}` (stream cassé, HTTP 200) sont remontés
-// via onError au lieu d'être avalés silencieusement.
-function parseSSEChunk(raw: string, onError?: (message: string) => void): string {
+// The edge function emits `data: {"delta": "..."}` chunks, terminated by
+// `data: [DONE]`. Les évènements `{"error": …}` sont remontés via onError,
+// les évènements `{"toolEvent": …}` (outils exécutés côté serveur) via onTool.
+function parseSSEChunk(raw: string, onError?: (message: string) => void, onTool?: (label: string) => void): string {
   const lines = raw.split('\n');
   let result = '';
   for (const line of lines) {
@@ -119,12 +118,25 @@ function parseSSEChunk(raw: string, onError?: (message: string) => void): string
         onError?.(String(json.error));
         continue;
       }
+      if (json.toolEvent) {
+        onTool?.(String(json.toolEvent));
+        continue;
+      }
       result += json.delta ?? '';
     } catch {
       // Skip malformed lines
     }
   }
   return result;
+}
+
+export interface ChatToolExtras {
+  /** Jeton GitHub de l'utilisateur — active les outils serveur de lecture de dépôts */
+  githubToken?: string;
+  /** Active les outils de lecture de la base Supabase */
+  supabaseTools?: boolean;
+  /** Notifié quand la fonction Edge exécute un outil côté serveur */
+  onToolEvent?: (label: string) => void;
 }
 
 export async function sendChatMessage(
@@ -137,6 +149,7 @@ export async function sendChatMessage(
   dueTasks?: any[],
   langInjection?: string,
   signal?: AbortSignal,
+  extra?: ChatToolExtras,
 ): Promise<string> {
   const resolvedProfile = profile ?? null;
   const resolvedDueTasks = dueTasks ?? [];
@@ -178,6 +191,9 @@ export async function sendChatMessage(
         // et la réponse arrive vide. 8192 = plafond accepté par la fonction Edge.
         maxTokens: Math.max(bot.llmConfig.maxTokens, 8192),
         topP: bot.llmConfig.topP,
+        // Outils serveur (source de vérité : agentCapabilities / connecteurs)
+        githubToken: extra?.githubToken ?? null,
+        enableSupabase: extra?.supabaseTools === true,
       }),
       signal,
     });
@@ -208,7 +224,7 @@ export async function sendChatMessage(
         buffer = parts.pop() ?? '';
         for (const part of parts) {
           if (!part.trim()) continue;
-          const chunk = parseSSEChunk(part, err => { streamError = err; });
+          const chunk = parseSSEChunk(part, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
           if (chunk) {
             fullText += chunk;
             if (onToken) onToken(fullText);
@@ -217,7 +233,7 @@ export async function sendChatMessage(
       }
       // Process remaining buffer
       if (buffer.trim()) {
-        const chunk = parseSSEChunk(buffer, err => { streamError = err; });
+        const chunk = parseSSEChunk(buffer, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
         if (chunk) {
           fullText += chunk;
           if (onToken) onToken(fullText);
@@ -227,7 +243,7 @@ export async function sendChatMessage(
       // Non-streaming fallback
       const text = await response.text();
       // Try to parse as SSE
-      const chunk = parseSSEChunk(text, err => { streamError = err; });
+      const chunk = parseSSEChunk(text, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
       if (chunk) {
         fullText = chunk;
       } else {
