@@ -24,13 +24,9 @@ function supportsAdaptiveThinking(model: string): boolean {
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  github_list_repos: 'Liste de tes dépôts GitHub',
   github_list_files: 'Lecture de l’arborescence du dépôt GitHub',
   github_read_file: 'Lecture d’un fichier du dépôt GitHub',
   supabase_list_rows: 'Lecture de la base de données du workspace',
-  workspace_list_files: 'Navigation dans la bibliothèque du workspace',
-  workspace_read_file: 'Lecture dans la bibliothèque du workspace',
-  workspace_write_file: 'Écriture dans la bibliothèque du workspace',
 };
 
 Deno.serve(async (req: Request) => {
@@ -47,7 +43,6 @@ Deno.serve(async (req: Request) => {
       topP,
       githubToken,
       enableSupabase,
-      enabledTools,
     } = await req.json();
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
@@ -93,55 +88,41 @@ Deno.serve(async (req: Request) => {
         }
       : null;
 
-    // Outils réellement activés par l'utilisateur (toggles du Builder/chat)
-    const enabledTools: string[] = Array.isArray(enabledTools)
-      ? enabledTools.map(String)
-      : [];
-
     const tools: any[] = [];
     if (ghHeaders) {
-      // Découverte spontanée des dépôts (toujours disponible, connecteur GitHub)
-      tools.push({
-        name: 'github_list_repos',
-        description: "Liste les dépôts GitHub de l'utilisateur (privés et publics), un par ligne au format propriétaire/nom avec leur description. Utilise-le pour savoir quels dépôts existent.",
-        input_schema: { type: 'object', properties: {} },
-      });
-      // La lecture des fichiers dépend de l'outil « Lecture de fichiers »
-      if (enabledTools.includes('file_read')) {
-        tools.push(
-          {
-            name: 'github_list_files',
-            description: "Liste les fichiers d'un dépôt GitHub de l'utilisateur (privés inclus). Renvoie un chemin par ligne. Utilise-le AVANT de lire un fichier si tu ne connais pas son chemin exact.",
-            input_schema: {
-              type: 'object',
-              properties: {
-                repo: { type: 'string', description: 'Propriétaire/nom du dépôt, ex: catelyn2332-design/map-interactive' },
-                path: { type: 'string', description: 'Préfixe de dossier optionnel pour filtrer la liste' },
-                ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
-              },
-              required: ['repo'],
+      tools.push(
+        {
+          name: 'github_list_files',
+          description: "Liste les fichiers d'un dépôt GitHub de l'utilisateur (privés inclus). Renvoie un chemin par ligne. Utilise-le AVANT de lire un fichier si tu ne connais pas son chemin exact.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              repo: { type: 'string', description: 'Propriétaire/nom du dépôt, ex: catelyn2332-design/map-interactive' },
+              path: { type: 'string', description: 'Préfixe de dossier optionnel pour filtrer la liste' },
+              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
             },
+            required: ['repo'],
           },
-          {
-            name: 'github_read_file',
-            description: "Lit le contenu TEXTE d'un fichier d'un dépôt GitHub de l'utilisateur (privés inclus), 20 000 caractères max.",
-            input_schema: {
-              type: 'object',
-              properties: {
-                repo: { type: 'string', description: 'Propriétaire/nom du dépôt' },
-                path: { type: 'string', description: 'Chemin complet du fichier, ex: src/main.ts' },
-                ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
-              },
-              required: ['repo', 'path'],
+        },
+        {
+          name: 'github_read_file',
+          description: "Lit le contenu TEXTE d'un fichier d'un dépôt GitHub de l'utilisateur (privés inclus), 20 000 caractères max.",
+          input_schema: {
+            type: 'object',
+            properties: {
+              repo: { type: 'string', description: 'Propriétaire/nom du dépôt' },
+              path: { type: 'string', description: 'Chemin complet du fichier, ex: src/main.ts' },
+              ref: { type: 'string', description: 'Branche ou tag (défaut: main)' },
             },
+            required: ['repo', 'path'],
           },
-        );
-      }
+        },
+      );
     }
-    if (enableSupabase === true && enabledTools.includes('db_access')) {
+    if (enableSupabase === true) {
       tools.push({
         name: 'supabase_list_rows',
-        description: "Lit jusqu'à 50 lignes d'une table du stockage cloud, selon les permissions de l'utilisateur.",
+        description: "Lit jusqu'à 50 lignes d'une table de la base Supabase du workspace, selon les permissions de l'utilisateur.",
         input_schema: {
           type: 'object',
           properties: {
@@ -153,111 +134,10 @@ Deno.serve(async (req: Request) => {
         },
       });
     }
-    // La BIBLIOTHÈQUE du workspace (dossiers/fichiers de l'application) —
-    // lecture ET écriture réelles dans le cloud. Pilotée par l'outil
-    // « Accès Base de données » activé par l'utilisateur.
-    if (enabledTools.includes('db_access')) {
-      tools.push(
-        {
-          name: 'workspace_list_files',
-          description: "Liste l'arborescence de la BIBLIOTHÈQUE du workspace de l'utilisateur (dossiers, sous-dossiers, fichiers).",
-          input_schema: {
-            type: 'object',
-            properties: {
-              workspace: { type: 'string', description: 'Nom du workspace (optionnel — défaut : premier workspace)' },
-            },
-          },
-        },
-        {
-          name: 'workspace_read_file',
-          description: "Lit le contenu d'un fichier de la BIBLIOTHÈQUE du workspace (20 000 caractères max).",
-          input_schema: {
-            type: 'object',
-            properties: {
-              path: { type: 'string', description: 'Nom du fichier, ou Dossier/Sous-dossier/fichier' },
-              workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
-            },
-            required: ['path'],
-          },
-        },
-        {
-          name: 'workspace_write_file',
-          description: "Crée ou met à jour un fichier de la BIBLIOTHÈQUE du workspace — la modification est réelle et visible par l'utilisateur. Crée les dossiers manquants automatiquement.",
-          input_schema: {
-            type: 'object',
-            properties: {
-              path: { type: 'string', description: 'Chemin : nom du fichier, ou Dossier/Sous-dossier/fichier' },
-              content: { type: 'string', description: 'Contenu complet du fichier' },
-              workspace: { type: 'string', description: 'Nom du workspace (optionnel)' },
-            },
-            required: ['path', 'content'],
-          },
-        },
-      );
-    }
 
-const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+    const userJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
 
-// ── Bibliothèque du workspace : lecture/écriture réelle dans user_app_data ──
-async function loadWorkspacesData(): Promise<any[]> {
-  const url = Deno.env.get('SUPABASE_URL');
-  const anon = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
-  const res = await fetch(
-    `${url}/rest/v1/user_app_data?select=data&data_type=eq.workspaces`,
-    { headers: { apikey: anon, Authorization: `Bearer ${userJwt}` } },
-  );
-  if (!res.ok) throw new Error(`Lecture du workspace impossible (${res.status})`);
-  const rows: any[] = await res.json();
-  const row = (rows ?? [])[0];
-  if (!row?.data) throw new Error('Aucun workspace sauvegardé');
-  return Array.isArray(row.data) ? row.data : [row.data];
-}
-
-async function saveWorkspacesData(workspaces: any[]): Promise<void> {
-  const url = Deno.env.get('SUPABASE_URL');
-  const anon = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!url || !anon) throw new Error('Supabase non configuré côté serveur');
-  // user_id depuis la charge utile du JWT
-  const payloadB64 = userJwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-  const payload = JSON.parse(atob(payloadB64));
-  const res = await fetch(`${url}/rest/v1/user_app_data`, {
-    method: 'POST',
-    headers: {
-      apikey: anon,
-      Authorization: `Bearer ${userJwt}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-    },
-    body: JSON.stringify([{
-      user_id: payload.sub,
-      data_type: 'workspaces',
-      data: workspaces,
-      updated_at: new Date().toISOString(),
-    }]),
-  });
-  if (!res.ok) throw new Error(`Sauvegarde du workspace impossible (${res.status})`);
-}
-
-function resolveWorkspace(workspaces: any[], wanted?: string) {
-  if (wanted) {
-    const byName = workspaces.find(w => String(w.name ?? '').toLowerCase() === wanted.toLowerCase() || w.id === wanted);
-    if (byName) return byName;
-  }
-  return workspaces[0];
-}
-
-async function executeTool(name: string, input: any): Promise<string> {
-      if (name === 'github_list_repos') {
-        if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
-        const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', { headers: ghHeaders });
-        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-        const repos: any[] = await res.json();
-        return repos
-          .map((r: any) => `${r.full_name}${r.private ? ' (privé)' : ''} — ${r.description ?? 'sans description'}`)
-          .slice(0, 50)
-          .join('\n');
-      }
+    async function executeTool(name: string, input: any): Promise<string> {
       if (name === 'github_list_files') {
         if (!ghHeaders) throw new Error('Connecteur GitHub non connecté');
         const [owner, repo] = String(input.repo ?? '').split('/');
@@ -305,85 +185,6 @@ async function executeTool(name: string, input: any): Promise<string> {
         if (!res.ok) throw new Error(`Lecture impossible (${res.status}) — table inconnue ou permissions insuffisantes`);
         return JSON.stringify(await res.json(), null, 1).slice(0, 20_000);
       }
-      if (name === 'workspace_list_files') {
-        const workspaces = await loadWorkspacesData();
-        const ws = resolveWorkspace(workspaces, input.workspace);
-        if (!ws?.database) throw new Error('Workspace introuvable ou sans bibliothèque');
-        const lines: string[] = [`Workspace : ${ws.name}`];
-        const rootFiles: any[] = ws.database.rootFiles ?? [];
-        lines.push(`${rootFiles.length} fichier(s) à la racine :`);
-        for (const f of rootFiles) lines.push(`- ${f.name}`);
-        const walk = (subs: any[], prefix: string) => {
-          for (const s of subs) {
-            lines.push(`[dossier] ${prefix}${s.name}/ (${s.files.length} fichier(s))`);
-            for (const f of s.files) lines.push(`  - ${prefix}${s.name}/${f.name}`);
-            walk(s.subFolders ?? [], `${prefix}${s.name}/`);
-          }
-        };
-        walk(ws.database.folders ?? [], '');
-        return lines.slice(0, 400).join('\n');
-      }
-      if (name === 'workspace_read_file') {
-        const workspaces = await loadWorkspacesData();
-        const ws = resolveWorkspace(workspaces, input.workspace);
-        if (!ws?.database) throw new Error('Workspace introuvable');
-        const fileName = String(input.path ?? '').replace(/^\/+/, '').toLowerCase();
-        const all: any[] = [
-          ...(ws.database.rootFiles ?? []),
-          ...(ws.database.folders ?? []).flatMap((f: any) => [
-            ...f.files,
-            ...(f.subFolders ?? []).flatMap((s: any) => [
-              ...s.files,
-              ...(s.subFolders ?? []).flatMap((ss: any) => ss.files),
-            ]),
-          ]),
-        ];
-        const file = all.find(f => String(f.name).toLowerCase() === fileName)
-          ?? all.find(f => String(f.name).toLowerCase().endsWith('/' + fileName))
-          ?? all.find(f => String(f.name).toLowerCase().endsWith(fileName));
-        if (!file) throw new Error(`Fichier « ${input.path} » introuvable dans la bibliothèque — utilise workspace_list_files pour voir les noms exacts`);
-        return `Fichier : ${file.name}\n\n${file.content || '(vide)'}`.slice(0, 20_000);
-      }
-      if (name === 'workspace_write_file') {
-        const workspaces = await loadWorkspacesData();
-        const ws = resolveWorkspace(workspaces, input.workspace);
-        if (!ws?.database) throw new Error('Workspace introuvable');
-        const segments = String(input.path ?? '').split('/').map((s: string) => s.trim()).filter(Boolean);
-        if (segments.length === 0) throw new Error('Chemin requis');
-        const fileName = segments.pop()!;
-        const now = new Date().toISOString();
-        // navigate/crée les dossiers par nom, à toute profondeur
-        if (!ws.database.folders) ws.database.folders = [];
-        let nodes: any[] = ws.database.folders;
-        for (const seg of segments) {
-          let node = nodes.find((n: any) => String(n.name).toLowerCase() === seg.toLowerCase());
-          if (!node) {
-            node = {
-              id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              name: seg, icon: 'folder', color: '#3D7EFF', description: '',
-              files: [], subFolders: [], createdAt: now,
-            };
-            nodes.push(node);
-          }
-          if (!node.subFolders) node.subFolders = [];
-          nodes = node.subFolders;
-        }
-        const existing = nodes.find((f: any) => String(f.name).toLowerCase() === fileName.toLowerCase());
-        const content = String(input.content ?? '');
-        if (existing) {
-          existing.content = content;
-          existing.size = content.length;
-          existing.updatedAt = now;
-        } else {
-          nodes.push({
-            id: `file-ia-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-            name: fileName, type: 'note', content, tags: ['ia'],
-            size: content.length, createdAt: now, updatedAt: now,
-          });
-        }
-        await saveWorkspacesData(workspaces);
-        return `Fichier « ${fileName} » enregistré dans la bibliothèque du workspace « ${ws.name} »${segments.length ? ` (dossier ${segments.join('/')})` : ' (racine)'}.`;
-      }
       throw new Error(`Outil inconnu : ${name}`);
     }
 
@@ -422,15 +223,13 @@ async function executeTool(name: string, input: any): Promise<string> {
             const toolResults: any[] = [];
             for (const block of final.content) {
               if (block.type !== 'tool_use') continue;
+              send({ toolEvent: `${TOOL_LABELS[block.name] ?? block.name}…` });
               let output: string;
               try {
                 output = await executeTool(block.name, block.input);
               } catch (toolError: any) {
                 output = `Erreur: ${toolError?.message ?? 'échec de l’outil'}`;
               }
-              // Notifié APRÈS exécution : pour workspace_write_file, le client
-              // recharge alors la bibliothèque depuis le cloud (déjà sauvegardé).
-              send({ toolEvent: `${TOOL_LABELS[block.name] ?? block.name}…` });
               toolResults.push({
                 type: 'tool_result',
                 tool_use_id: block.id,
