@@ -474,13 +474,16 @@ export async function importGitHubRepoAsVault(
     dirs: [],
     error: message,
   });
-  /** Fetch API GitHub : avec jeton, puis anonyme si le jeton est refusé. */
+  /** Fetch API GitHub : ANONYME d'abord (dépôts publics marchent toujours),
+   *  puis avec jeton seulement si anonyme échoue (dépôts privés). */
   const ghFetch = async (url: string): Promise<{ res: Response | null; headers: Record<string, string> }> => {
-    let res = await fetch(url, { headers: authHeaders });
-    let headers = authHeaders;
-    if (!res.ok && t && (res.status === 401 || res.status === 403 || res.status === 404)) {
-      res = await fetch(url, { headers: anonHeaders });
-      headers = anonHeaders;
+    // Anonyme d'abord — suffit pour tous les dépôts publics
+    let res = await fetch(url, { headers: anonHeaders });
+    let headers = anonHeaders;
+    // Si anonyme échoue (404 = dépôt privé) et qu'on a un jeton, réessaie avec
+    if (res.status === 404 && t) {
+      res = await fetch(url, { headers: authHeaders });
+      headers = authHeaders;
     }
     return { res, headers };
   };
@@ -508,14 +511,19 @@ export async function importGitHubRepoAsVault(
       )
       .slice(0, 150);
 
-    // 3) Contenus via raw.githubusercontent (mêmes en-têtes que l'arbre réussi)
-    const rawBase = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/`;
+    // 3) Contenus via l'API GitHub Contents (raw.githubusercontent est bloqué
+    //    par CORS depuis le navigateur quand un Authorization est présent)
     const files: VaultFileInput[] = [];
     for (const blob of blobs) {
       try {
-        const rawRes = await fetch(`${rawBase}${blob.path}`, { headers: treeHeaders });
-        if (!rawRes.ok) continue;
-        const content = await rawRes.text();
+        const contentRes = await fetch(
+          `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(blob.path).replace(/%2F/g, '/')}?ref=${encodeURIComponent(branch)}`,
+          { headers: treeHeaders },
+        );
+        if (!contentRes.ok) continue;
+        const contentData: any = await contentRes.json();
+        // L'API Contents renvoie le contenu en base64
+        const content = atob(String(contentData.content ?? '').replace(/\n/g, ''));
         files.push({
           name: blob.path,
           type: inferType(blob.path),
