@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { useToast } from '@/contexts/ToastContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
+import { useAppData } from '@/contexts/AppDataContext';
 import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
@@ -542,6 +543,7 @@ export default function ChatScreen() {
   const { showAlert } = useAlert();
   const { showToast } = useToast();
   const { openPalette } = useCommandPalette();
+  const { reloadFromCloud } = useAppData();
   const { t, systemInjection } = useLanguage();
   const C = useThemeColors();
 
@@ -707,7 +709,12 @@ export default function ChatScreen() {
           // et la base Supabase (source de vérité : agentCapabilities).
           githubToken: resolveGitHubToken(bot.connectedApps) ?? undefined,
           supabaseTools: bot.connectedApps.some(a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase')),
-          onToolEvent: label => pushActivity(`outil-${Date.now()}`, label, 'precision-manufacturing'),
+          onToolEvent: (label: string) => {
+            pushActivity(`outil-${Date.now()}`, label, 'precision-manufacturing');
+            // L'IA a écrit dans la bibliothèque côté serveur : on recharge
+            // depuis le cloud pour que le changement apparaisse à l'écran.
+            if (label.startsWith('Écriture dans la bibliothèque')) void reloadFromCloud();
+          },
         },
       );
       setStreamingText('');

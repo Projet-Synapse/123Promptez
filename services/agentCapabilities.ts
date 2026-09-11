@@ -53,10 +53,10 @@ function collectFiles(ws: Workspace): DBFile[] {
 export const AGENT_CAPABILITIES: AgentCapability[] = [
   {
     id: 'workspace_files',
-    label: 'Lecture de la base du workspace',
+    label: 'Bibliothèque du workspace',
     description: 'Fichiers, vault et dépôts — leur contenu est fourni dans la conversation',
     icon: 'folder-open',
-    truth: 'Lire le contenu des fichiers listés dans « BASE DU WORKSPACE » ci-dessous (lecture seule : tu ne peux pas créer, modifier ni supprimer de fichiers, ni accéder à des fichiers absents de cette liste).',
+    truth: 'Lire le contenu des fichiers listés dans « BIBLIOTHÈQUE DU WORKSPACE » ci-dessous, et les modifier ou en créer de nouveaux avec l\'outil workspace_write_file (écriture réelle dans la bibliothèque). Les fichiers absents de cette liste restent inaccessibles.',
     enabled: ws => countWorkspaceFiles(ws) > 0,
   },
   {
@@ -140,7 +140,7 @@ export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapab
       label: 'Sauvegarde Supabase',
       description: 'Ton workspace est synchronisé dans le cloud',
       icon: 'storage',
-      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BASE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ta base accessibles selon tes permissions (supabase_list_rows).',
+      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BIBLIOTHÈQUE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ton stockage cloud accessibles selon tes permissions (supabase_list_rows).',
       enabled: () => true,
     });
   }
@@ -182,7 +182,7 @@ export function buildWorkspaceContextPrompt(ws: Workspace): string {
       })
       .join('\n');
     const rootCount = ws.database.rootFiles.length;
-    out += `## BASE DU WORKSPACE (lecture seule)\n\n`;
+    out += `## BIBLIOTHÈQUE DU WORKSPACE (lecture et écriture via l'outil workspace_write_file)\n\n`;
     out += `Inventaire : ${rootCount} fichier(s) à la racine, ${ws.database.folders.length} dossier(s).\n`;
     if (ws.database.rootFiles.length > 0) {
       out += `Racine : ${ws.database.rootFiles.map(f => f.name).join(', ')}\n`;

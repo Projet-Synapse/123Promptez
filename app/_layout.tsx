@@ -79,12 +79,13 @@ function InnerLayout() {
 }
 
 function CloudHydrator() {
-  const { loadedData, isDataLoaded } = useAppData();
+  const { loadedData, isDataLoaded, reloadToken } = useAppData();
   const { hydrateFromCloud: hydrateWs } = useWorkspace();
   const { hydrateFromCloud: hydrateProfile } = useProfile();
   const { hydrateFromCloud: hydrateBot } = useBot();
   const hydrated = useRef(false);
 
+  // Hydratation initiale (premier chargement cloud)
   useEffect(() => {
     if (!isDataLoaded || hydrated.current) return;
     hydrated.current = true;
@@ -92,6 +93,14 @@ function CloudHydrator() {
     if (loadedData.profile) hydrateProfile(loadedData.profile as any);
     if (loadedData.bot_config) hydrateBot(loadedData.bot_config as any);
   }, [isDataLoaded, loadedData, hydrateWs, hydrateProfile, hydrateBot]);
+
+  // Re-chargement à la demande (ex : l'IA a modifié la bibliothèque côté serveur)
+  useEffect(() => {
+    if (!reloadToken) return;
+    if (loadedData.workspaces) hydrateWs(loadedData.workspaces as any);
+    if (loadedData.profile) hydrateProfile(loadedData.profile as any);
+    if (loadedData.bot_config) hydrateBot(loadedData.bot_config as any);
+  }, [reloadToken]);
 
   return null;
 }
