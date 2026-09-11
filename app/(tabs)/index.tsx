@@ -1,6 +1,6 @@
 // Powered by OnSpace.AI
 // Builder screen — KB, Agents tools, Custom AI Agents, Connecteurs
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   Modal, KeyboardAvoidingView, Platform, TextInput,
@@ -16,7 +16,7 @@ import { useThemeColors } from '@/hooks/useThemeColors';
 import { AGENT_TOOLS, KB_SOURCE_TYPES, CONNECTOR_PRESETS } from '@/constants/config';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useAlert } from '@/template';
+import { useAlert, getSupabaseClient } from '@/template';
 import type { CustomAgent } from '@/contexts/BotContext';
 
 type ActiveSection = 'kb' | 'agents' | 'custom_agents' | 'apps';
@@ -93,6 +93,24 @@ export default function BuilderScreen() {
   const { showAlert } = useAlert();
   const [activeSection, setActiveSection] = useState<ActiveSection>('kb');
   const [showAddKB, setShowAddKB] = useState(false);
+  // Statut RÉEL de la connexion Supabase (projet + utilisateur authentifié)
+  const [sbInfo, setSbInfo] = useState<{ host: string; user: string | null } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const host = (supabase as any).supabaseUrl ? new URL((supabase as any).supabaseUrl).host : '?';
+      supabase.auth
+        .getUser()
+        .then(({ data }) => { if (alive) setSbInfo({ host, user: data.user?.email ?? null }); })
+        .catch(() => { if (alive) setSbInfo({ host, user: null }); });
+    } catch {
+      // pas de client Supabase (config absente)
+    }
+    return () => { alive = false; };
+  }, []);
   const [showAddApp, setShowAddApp] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [editingAgent, setEditingAgent] = useState<CustomAgent | null>(null);
@@ -558,7 +576,9 @@ export default function BuilderScreen() {
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: '#00CC6A' + '15', borderRadius: Radius.md, borderWidth: 1, borderColor: '#00CC6A' + '55', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2 }}>
                       <FontAwesome name="check-circle" size={15} color="#00CC6A" />
-                      <Text style={{ flex: 1, fontSize: FontSize.xs, color: '#00CC6A', fontWeight: '700' }}>Connecté au projet — sauvegarde cloud active</Text>
+                      <Text style={{ flex: 1, fontSize: FontSize.xs, color: '#00CC6A', fontWeight: '700' }}>
+                        {sbInfo ? `Connecté au projet ${sbInfo.host}${sbInfo.user ? ` — ${sbInfo.user}` : ''}` : 'Vérification de la connexion…'}
+                      </Text>
                     </View>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 17 }}>
                       Ton workspace (base de données, conversations, tâches) est sauvegardé automatiquement dans ton projet Supabase, et son contenu est fourni à l’IA à chaque message. Aucune configuration supplémentaire n’est nécessaire : c’est le backend de l’application.
