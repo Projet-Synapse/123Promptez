@@ -511,14 +511,19 @@ export async function importGitHubRepoAsVault(
       )
       .slice(0, 150);
 
-    // 3) Contenus via raw.githubusercontent (mêmes en-têtes que l'arbre réussi)
-    const rawBase = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/`;
+    // 3) Contenus via l'API GitHub Contents (raw.githubusercontent est bloqué
+    //    par CORS depuis le navigateur quand un Authorization est présent)
     const files: VaultFileInput[] = [];
     for (const blob of blobs) {
       try {
-        const rawRes = await fetch(`${rawBase}${blob.path}`, { headers: treeHeaders });
-        if (!rawRes.ok) continue;
-        const content = await rawRes.text();
+        const contentRes = await fetch(
+          `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(blob.path).replace(/%2F/g, '/')}?ref=${encodeURIComponent(branch)}`,
+          { headers: treeHeaders },
+        );
+        if (!contentRes.ok) continue;
+        const contentData: any = await contentRes.json();
+        // L'API Contents renvoie le contenu en base64
+        const content = atob(String(contentData.content ?? '').replace(/\n/g, ''));
         files.push({
           name: blob.path,
           type: inferType(blob.path),
