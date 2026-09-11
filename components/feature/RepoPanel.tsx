@@ -88,13 +88,10 @@ export function RepoPanel({ workspaceId, onClose }: Props) {
   };
 
   const handleAttachRepo = async (repo: GitHubRepoHit) => {
-    if (!githubToken) {
-      showAlert('Jeton manquant', 'Configurez un Personal Access Token GitHub dans Builder ▸ Connecteurs.');
-      return;
-    }
+    // Le jeton est OPTIONNEL : les dépôts publics s'importent anonymement
     setBusy(true);
     try {
-      const result = await importGitHubRepoAsVault(githubToken, repo);
+      const result = await importGitHubRepoAsVault(githubToken ?? '', repo);
       addVaultFolder(workspaceId, {
         name: repo.full_name,
         icon: 'code',
