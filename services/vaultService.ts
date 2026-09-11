@@ -440,7 +440,9 @@ export async function searchGitHubRepos(
 
 /** Import d'un dépôt GitHub : ARBRE COMPLET des dossiers/fichiers texte via
  *  l'API git trees + raw.githubusercontent (les chemins relatifs materialisent
- *  l'arborescence côté base). Nécessite un jeton avec accès au dépôt. */
+ *  l'arborescence côté base). Fonctionne avec un jeton (dépôts privés) OU
+ *  anonymement (dépôts publics) — retombe en anonyme si le jeton est refusé
+ *  (ex. fine-grained sans ce dépôt sélectionné). */
 export async function importGitHubRepoAsVault(
   token: string,
   repo: GitHubRepoHit,
@@ -452,6 +454,14 @@ export async function importGitHubRepoAsVault(
 }> {
   const [owner, name] = repo.full_name.split('/');
   const branch = repo.default_branch || 'main';
+  const t = token.trim();
+  const anonHeaders: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  const authHeaders: Record<string, string> = t
+    ? { ...anonHeaders, Authorization: `Bearer ${t}` }
+    : anonHeaders;
   const fail = (message: string): { meta: VaultMeta; files: VaultFileInput[]; dirs: string[]; error?: string } => ({
     meta: {
       sourceKind: 'github',
@@ -464,20 +474,24 @@ export async function importGitHubRepoAsVault(
     dirs: [],
     error: message,
   });
+  /** Fetch API GitHub : avec jeton, puis anonyme si le jeton est refusé. */
+  const ghFetch = async (url: string): Promise<{ res: Response | null; headers: Record<string, string> }> => {
+    let res = await fetch(url, { headers: authHeaders });
+    let headers = authHeaders;
+    if (!res.ok && t && (res.status === 401 || res.status === 403 || res.status === 404)) {
+      res = await fetch(url, { headers: anonHeaders });
+      headers = anonHeaders;
+    }
+    return { res, headers };
+  };
   try {
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token.trim()}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-    };
-
     // 1) Arbre complet du dépôt (une seule requête, récursif)
-    const treeRes = await fetch(
+    const { res: treeRes, headers: treeHeaders } = await ghFetch(
       `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`,
-      { headers },
     );
+    if (!treeRes) return fail('Réseau indisponible');
     if (treeRes.status === 404) {
-      return fail('Dépôt introuvable ou privé — vérifie le jeton GitHub (Builder ▸ Connecteurs ▸ GitHub, Personal Access Token avec accès au dépôt).');
+      return fail('Dépôt introuvable ou privé — connecte un jeton GitHub ayant accès (Builder ▸ Connecteurs ▸ GitHub).');
     }
     if (!treeRes.ok) {
       return fail(`GitHub API ${treeRes.status} — impossible de lister ${repo.full_name}`);
@@ -494,14 +508,12 @@ export async function importGitHubRepoAsVault(
       )
       .slice(0, 150);
 
-    // 3) Contenus via raw.githubusercontent
+    // 3) Contenus via raw.githubusercontent (mêmes en-têtes que l'arbre réussi)
+    const rawBase = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/`;
     const files: VaultFileInput[] = [];
     for (const blob of blobs) {
       try {
-        const rawRes = await fetch(
-          `https://raw.githubusercontent.com/${owner}/${name}/${branch}/${blob.path}`,
-          { headers: { Authorization: `Bearer ${token.trim()}` } },
-        );
+        const rawRes = await fetch(`${rawBase}${blob.path}`, { headers: treeHeaders });
         if (!rawRes.ok) continue;
         const content = await rawRes.text();
         files.push({

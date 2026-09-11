@@ -379,8 +379,8 @@ export default function WorkspaceDatabaseScreen() {
         }
       } else if (meta.sourceKind === 'github' && meta.repoFullName) {
         const { resolveGitHubToken, importGitHubRepoAsVault } = await import('@/services/vaultService');
-        const token = resolveGitHubToken(bot.connectedApps);
-        if (!token) { showAlert('Jeton GitHub manquant', 'Configurez un Personal Access Token dans Builder ▸ Connecteurs.'); return; }
+        // Jeton optionnel : les dépôts publics s'importent anonymement
+        const token = resolveGitHubToken(bot.connectedApps) ?? '';
         const result = await importGitHubRepoAsVault(token, {
           id: meta.repoId || 0,
           full_name: meta.repoFullName,
