@@ -5,7 +5,9 @@
 //
 // Requires the ANTHROPIC_API_KEY secret to be set on this Supabase project:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-import Anthropic from 'npm:@anthropic-ai/sdk@^0.60.0';
+// Version ÉPINGLÉE (pas de caret) : un re-résolution ^0.60.0 au
+// re-déploiement tirait une version incompatible avec Deno → BOOT_ERROR.
+import Anthropic from 'npm:@anthropic-ai/sdk@0.60.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
