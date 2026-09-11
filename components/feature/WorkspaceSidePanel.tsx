@@ -329,6 +329,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
 
   // GitHub refuse l'iframe (X-Frame-Options) → on affiche le README via l'API
   // au lieu du site intégré, et « Ouvrir » envoie vers un vrai onglet.
+  // Lecture AVEC jeton si présent, puis repli ANONYME (dépôts publics).
   const fetchRepoReadme = async (folder: DBFolder) => {
     const meta = folder.repo!;
     if (meta.sourceKind !== 'github' || !meta.repoFullName) return;
@@ -336,21 +337,20 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
     setReadme(null);
     try {
       const token = resolveGitHubToken(bot.connectedApps);
-      if (!token) {
-        setReadme('(Aucun jeton GitHub configuré — Builder ▸ Connecteurs ▸ GitHub : colle un Personal Access Token ayant accès à ce dépôt, puis « Resynchroniser ».)');
-        return;
+      const fetchReadme = (headers: Record<string, string>) =>
+        fetch(`https://api.github.com/repos/${meta.repoFullName}/readme`, {
+          headers: { Accept: 'application/vnd.github.raw', ...headers },
+        });
+      let res = await fetchReadme(token ? { Authorization: `Bearer ${token}` } : {});
+      if (!res.ok && res.status !== 404 && token) {
+        res = await fetchReadme({});
       }
-      const res = await fetch(`https://api.github.com/repos/${meta.repoFullName}/readme`, {
-        headers: {
-          Accept: 'application/vnd.github.raw',
-          Authorization: `Bearer ${token}`,
-        },
-      });
       if (res.ok) {
         setReadme(await res.text());
       } else if (res.status === 404) {
-        // 404 avec jeton valide : le dépôt n'a simplement pas de README à sa racine
         setReadme('(Ce dépôt n’a pas de fichier README à sa racine.)');
+      } else if (res.status === 401 || res.status === 403) {
+        setReadme('(Dépôt privé — le jeton connecté n’y a pas accès. Vérifie-le dans Builder ▸ Connecteurs ▸ GitHub.)');
       } else {
         setReadme(`(README indisponible — GitHub API ${res.status})`);
       }
@@ -409,11 +409,8 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
           showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
         }
       } else if (meta.sourceKind === 'github' && meta.repoFullName) {
-        const token = resolveGitHubToken(bot.connectedApps);
-        if (!token) {
-          showToast('Jeton GitHub manquant — Builder ▸ Connecteurs ▸ GitHub', { tone: 'error' });
-          return;
-        }
+        // Jeton optionnel : les dépôts publics s'importent anonymement
+        const token = resolveGitHubToken(bot.connectedApps) ?? '';
         const result = await importGitHubRepoAsVault(token, {
           id: meta.repoId || 0,
           full_name: meta.repoFullName,
