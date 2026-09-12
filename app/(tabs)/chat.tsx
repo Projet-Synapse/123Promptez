@@ -355,6 +355,15 @@ function SideDrawer({
 
   // Expanded workspace sections
   const [expandedWsIds, setExpandedWsIds] = useState<Set<string>>(new Set([activeWorkspace.id]));
+  // À CHAQUE ouverture du tiroir : le workspace actif doit être déplié.
+  // L'état initial est capturé avant l'hydratation cloud — sans cette
+  // resynchronisation, l'historique s'ouvre avec toutes les listes repliées
+  // (seuls les compteurs « N conversations » sont visibles : effet « bugué »).
+  useEffect(() => {
+    if (open) {
+      setExpandedWsIds(prev => (prev.has(activeWorkspace.id) ? prev : new Set([...prev, activeWorkspace.id])));
+    }
+  }, [open, activeWorkspace.id]);
 
   useEffect(() => {
     Animated.timing(slideAnim, {
@@ -851,12 +860,20 @@ export default function ChatScreen() {
             const outcome = await executeClientTool(call, activeWorkspace, {
               updateFile, addFile, addSubFolder,
               // Miroir disque : l'écriture de l'agent est répercutée dans le
-              // dossier local relié (vault / dépôt local) si disponible.
+              // dossier local relié (vault / dépôt local). Un échec n'est plus
+              // silencieux : toast + trace de diagnostic.
               mirrorToDisk: (loc, relPath, content) => {
                 const fld = activeWorkspace.database.folders.find((f: any) =>
                   typeof loc === 'string' ? loc === f.id : loc !== null && loc.folderId === f.id);
                 const meta = fld?.vault ?? fld?.repo;
-                if (meta && meta.sourceKind === 'local') void vaultWriteFile(meta, relPath, content);
+                if (meta && meta.sourceKind === 'local') {
+                  void vaultWriteFile(meta, relPath, content).then(r => {
+                    if (!r.ok) {
+                      recordDiag('agent.miroir.échec', `${relPath} — ${r.error ?? 'inconnue'}`);
+                      showToast(`Disque : ${r.error ?? 'écriture impossible'} (${relPath})`, { tone: 'error' });
+                    }
+                  });
+                }
               },
             });
             outcomes.push({ call, outcome });

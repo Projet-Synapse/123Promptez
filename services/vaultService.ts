@@ -3,6 +3,7 @@
  * Access API + graceful import fallback. GitHub repo search when a token exists.
  */
 import { Platform } from 'react-native';
+import { recordDiag } from '@/services/diagnostics';
 import type { DBFile } from '@/contexts/WorkspaceContext';
 
 export type VaultSourceKind = 'local' | 'github';
@@ -161,8 +162,10 @@ async function ensureFsPerm(root: FsHandle): Promise<boolean> {
   try {
     if ((await root.queryPermission?.({ mode: 'readwrite' })) === 'granted') return true;
     if ((await root.requestPermission?.({ mode: 'readwrite' })) === 'granted') return true;
+    recordDiag('vault.permission', 'permission readwrite refusée/absente (pas de geste utilisateur ?)');
     return false;
-  } catch {
+  } catch (e: any) {
+    recordDiag('vault.permission.erreur', e?.message ?? 'inconnue');
     return false;
   }
 }
@@ -345,7 +348,11 @@ export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
 
   if (hasFsAccess()) {
     // @ts-expect-error File System Access API
-    const handle = await window.showDirectoryPicker({ mode: 'read' });
+    // mode 'readwrite' dès la sélection : un handle obtenu en 'read' ne peut
+    // JAMAIS être écrit (l'élévation readwrite exige un geste utilisateur,
+    // que les écritures de l'agent n'ont pas) — cause des fichiers d'agent
+    // absents de l'explorateur.
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
     // Handle conservé en session + IndexedDB (re-synchro et écritures disque)
@@ -504,7 +511,10 @@ async function mirrorWrite(
   content: string,
   opts?: { toRel?: string; isDir?: boolean },
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+  if (!canMirrorToDisk(meta) || !meta!.path) {
+    recordDiag('vault.miroir.indisponible', `${kind} ${relPath} — canMirrorToDisk=false (handle absent ? liveSync=false ?)`);
+    return { ok: false, error: 'Miroir disque indisponible' };
+  }
   markLocalWrite();
   const bridge = getElectronVault();
   if (bridge) {
@@ -517,7 +527,10 @@ async function mirrorWrite(
   }
   try {
     const root = getFsHandle(meta!.path);
-    if (!root) return { ok: false, error: 'Dossier non relié cette session — clique « Resynchroniser » pour le relier' };
+    if (!root) {
+      recordDiag('vault.miroir.handle', `${kind} ${relPath} — handle non retrouvé cette session`);
+      return { ok: false, error: 'Dossier non relié cette session — clique « Resynchroniser » pour le relier' };
+    }
     if (!(await ensureFsPerm(root))) {
       return { ok: false, error: 'Autorisation du navigateur requise — clique « Resynchroniser » pour la redonner' };
     }
@@ -529,6 +542,7 @@ async function mirrorWrite(
     }
     return { ok: true };
   } catch (e: any) {
+    recordDiag('vault.miroir.erreur', `${kind} ${relPath} — ${e?.name ?? ''} ${e?.message ?? 'inconnue'}`);
     return { ok: false, error: e?.message ?? 'Échec de l’écriture disque' };
   }
 }
