@@ -35,13 +35,13 @@ export const AGENT_TOOLS = [
     id: 'code_exec',
     label: 'Exécution de code',
     icon: 'code',
-    description: 'Exécuter du Python / JS dans un sandbox sécurisé',
+    description: 'Exécuter du JavaScript réel dans le chat (sandbox navigateur, console capturée)',
   },
   {
     id: 'file_read',
     label: 'Lecture de fichiers',
     icon: 'folder-open',
-    description: 'Accéder aux fichiers uploadés dans la knowledge base',
+    description: 'Lire les fichiers de la bibliothèque et des dépôts GitHub publics',
   },
 ];
 
