@@ -157,11 +157,21 @@ export async function sendChatMessage(
   const resolvedDueTasks = dueTasks ?? [];
 
   const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks, langInjection);
-  const messages: ChatMessage[] = [
+  const raw: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...history.slice(-12), // keep last 12 messages for context
     { role: 'user', content: userMessage },
   ];
+  // L'API Anthropic EXIGE des rôles alternés : deux messages consécutifs du
+  // même rôle (ex. résultats d'outils [RÉSULTATS D'OUTILS] suivis du vrai
+  // message utilisateur) provoquent une erreur 400 — « réponse vide au 2e
+  // message ». On fusionne les doublons consécutifs.
+  const messages: ChatMessage[] = [];
+  for (const m of raw) {
+    const prev = messages[messages.length - 1];
+    if (prev && prev.role === m.role) prev.content += `\n\n${m.content}`;
+    else messages.push({ ...m });
+  }
 
   // bot.llmConfig.model is already a real Claude model ID (see constants/config.ts
   // LLM_MODELS); fall back to Sonnet if it's ever unset or stale.

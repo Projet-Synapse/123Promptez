@@ -1,6 +1,6 @@
 // Powered by OnSpace.AI
 // Workspaces screen — adds workspace rename functionality + conversation rename
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   Modal, KeyboardAvoidingView, Platform, TextInput,
@@ -33,6 +33,25 @@ function formatRelativeTime(date: Date): string {
   return `Il y a ${days}j`;
 }
 
+// Zone sensible au clic droit (web) — ouvre le menu contextuel de la carte
+function ContextMenuArea({ onMenu, children }: {
+  onMenu: (pos?: { x: number; y: number }) => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<View>(null);
+  useEffect(() => {
+    const node = ref.current as any;
+    if (Platform.OS !== 'web' || !node) return;
+    const handler = (e: MouseEvent) => {
+      e.preventDefault();
+      onMenu({ x: e.clientX, y: e.clientY });
+    };
+    node.addEventListener?.('contextmenu', handler);
+    return () => node.removeEventListener?.('contextmenu', handler);
+  }, [onMenu]);
+  return <View ref={ref as any} style={{ flex: 1 }}>{children}</View>;
+}
+
 export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
@@ -61,6 +80,9 @@ export default function WorkspacesScreen() {
   // Conversation rename state
   const [renamingConvKey, setRenamingConvKey] = useState<{ wsId: string; convId: string } | null>(null);
   const [convRenameValue, setConvRenameValue] = useState('');
+
+  // Menu contextuel (clic droit) d'une carte workspace
+  const [wsMenu, setWsMenu] = useState<{ x: number; y: number; ws: Workspace } | null>(null);
 
   const handleCreate = () => {
     if (!newName.trim()) return;
@@ -153,6 +175,7 @@ export default function WorkspacesScreen() {
 
           return (
             <View key={ws.id} style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: isActive ? ws.color + '55' : C.border, overflow: 'hidden' }}>
+              <ContextMenuArea onMenu={pos => setWsMenu({ x: pos?.x ?? 0, y: pos?.y ?? 0, ws })}>
               <Pressable onPress={() => !isRenamingThis && setExpandedWsId(isExpanded ? null : ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md }, pressed && !isRenamingThis && { opacity: 0.85 }]}>
                 <View style={{ width: 48, height: 48, borderRadius: Radius.md, backgroundColor: ws.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={ws.icon as any} size={22} color={ws.color} />
@@ -205,17 +228,9 @@ export default function WorkspacesScreen() {
                 </View>
                 {!isRenamingThis ? (
                   <View style={{ flexDirection: 'column', gap: Spacing.xs, alignItems: 'center' }}>
-                    <Pressable onPress={() => startRenameWs(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
-                      <MaterialIcons name="edit" size={17} color={C.textSecondary} />
-                    </Pressable>
                     <Pressable onPress={() => router.push({ pathname: '/workspace-settings', params: { wsId: ws.id } })} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
                       <MaterialIcons name="settings" size={17} color={C.textSecondary} />
                     </Pressable>
-                    {workspaces.length > 1 ? (
-                      <Pressable onPress={() => handleDelete(ws)} hitSlop={8} style={({ pressed }) => [{ padding: Spacing.xs, borderRadius: Radius.sm }, pressed && { opacity: 0.6 }]}>
-                        <MaterialIcons name="delete-outline" size={17} color={C.textMuted} />
-                      </Pressable>
-                    ) : null}
                     <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={20} color={C.textMuted} />
                   </View>
                 ) : (
@@ -224,6 +239,7 @@ export default function WorkspacesScreen() {
                   </Pressable>
                 )}
               </Pressable>
+              </ContextMenuArea>
 
               {/* Conversations */}
               {isExpanded && !isRenamingThis ? (
@@ -368,6 +384,28 @@ export default function WorkspacesScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Menu contextuel (clic droit sur une carte workspace) */}
+      {wsMenu ? (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 400 }} pointerEvents="box-none">
+          <Pressable style={{ flex: 1 }} onPress={() => setWsMenu(null)} />
+          <View style={{ position: 'absolute', left: Math.max(8, Math.min(wsMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 800) - 230)), top: Math.max(8, wsMenu.y - 10), width: 220, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 }}>
+            {[
+              { label: 'Renommer', icon: 'edit', onPress: () => startRenameWs(wsMenu.ws) },
+              ...(workspaces.length > 1 ? [{ label: 'Supprimer', icon: 'delete-outline', danger: true, onPress: () => handleDelete(wsMenu.ws) }] : []),
+            ].map(it => (
+              <Pressable
+                key={it.label}
+                onPress={() => { setWsMenu(null); it.onPress(); }}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 9, paddingHorizontal: Spacing.md }, pressed && { backgroundColor: C.bgCardAlt }]}
+              >
+                <MaterialIcons name={it.icon as any} size={16} color={it.danger ? C.error : C.textSecondary} />
+                <Text style={{ flex: 1, fontSize: FontSize.sm, color: it.danger ? C.error : C.textPrimary, fontWeight: '600' }}>{it.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }

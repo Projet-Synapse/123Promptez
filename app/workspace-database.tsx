@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator, Linking, Dimensions,
+  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator, Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -18,7 +18,7 @@ import { RepoPanel } from '@/components/feature/RepoPanel';
 import { DragLayer, DropZone, Draggable, useDnDState, type DragItem } from '@/components/feature/dnd';
 import {
   resyncLocalVault, canMirrorToDisk, ensureVaultExt, getElectronVault,
-  vaultWriteFile, vaultMakeDir, vaultDeletePath, vaultMovePath, vaultOpenPath,
+  vaultWriteFile, vaultMakeDir, vaultDeletePath, vaultMovePath,
   pickLocalVaultFolder, type VaultMeta,
 } from '@/services/vaultService';
 import { IconButton } from '@/components/ui/IconButton';
@@ -137,68 +137,26 @@ function FileRow({ file, loc, depth, onPress, onContextMenu, selectMode, selecte
 }
 
 // ─── Repo Card (dépôt connecté, séparé du vault) ─────────────────────────────
-function RepoCard({ folder, onPress, onRename, onSync, onOpenExternal, onDelete, busy }: {
-  folder: DBFolder; onPress: () => void; onRename?: () => void; onSync: () => void; onOpenExternal: () => void; onDelete: () => void; busy?: boolean;
+function RepoCard({ folder, onPress, onSync, onDelete, busy }: {
+  folder: DBFolder; onPress: () => void; onSync: () => void; onDelete: () => void; busy?: boolean;
 }) {
   const C = useThemeColors();
   const meta = folder.repo!;
+  // Rangée COMPACTE : nom + resynchroniser + déconnecter (le reste est
+  // accessible ailleurs ; l'objectif est d'alléger visuellement le haut de page)
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: (folder.color || '#00BFFF') + '44', padding: Spacing.sm + 2 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: (folder.color || '#00BFFF') + '33', paddingHorizontal: Spacing.sm, paddingVertical: 5 }}>
       <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 }}>
-        <View style={{ width: 40, height: 40, borderRadius: Radius.sm, backgroundColor: (folder.color || '#00BFFF') + '22', alignItems: 'center', justifyContent: 'center' }}>
-          <MaterialIcons name={(folder.icon as any) || 'code'} size={22} color={folder.color || '#00BFFF'} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{folder.name}</Text>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }} numberOfLines={1}>
-            {meta.sourceKind === 'github' ? `GitHub · ${meta.repoFullName}` : `Local · ${meta.path}`}
-            {meta.lastSyncedAt ? ` · sync ${formatDate(new Date(meta.lastSyncedAt))}` : ''}
-          </Text>
-        </View>
+        <MaterialIcons name={(folder.icon as any) || 'code'} size={14} color={folder.color || '#00BFFF'} />
+        <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', flexShrink: 1 }} numberOfLines={1}>{folder.name}</Text>
+        <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>
+          {meta.sourceKind === 'github' ? 'GitHub' : 'Local'}
+          {meta.lastSyncedAt ? ` · sync ${formatDate(new Date(meta.lastSyncedAt))}` : ''}
+        </Text>
       </Pressable>
       {busy ? <ActivityIndicator size="small" color={C.accent} /> : null}
-      <IconButton icon="sync" label="Resynchroniser le dépôt" onPress={onSync} size={18} bare color={C.accent} />
-      <IconButton
-        icon={meta.sourceKind === 'github' ? 'open-in-new' : 'folder-open'}
-        label={meta.sourceKind === 'github' ? 'Ouvrir sur GitHub' : 'Ouvrir le dossier'}
-        onPress={onOpenExternal}
-        size={18}
-        bare
-        color={C.textSecondary}
-      />
-      {onRename ? (
-        <IconButton icon="edit" label={`Renommer ${folder.name}`} onPress={onRename} size={18} bare color={C.textMuted} />
-      ) : null}
-      <IconButton icon="delete-outline" label="Déconnecter le dépôt" onPress={onDelete} size={18} bare color={C.textMuted} />
-    </View>
-  );
-}
-
-// ─── Sort Bar ─────────────────────────────────────────────────────────────────
-function SortBar({ sortKey, sortOrder, onChange }: { sortKey: SortKey; sortOrder: SortOrder; onChange: (k: SortKey, o: SortOrder) => void }) {
-  const C = useThemeColors();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginRight: 2 }}>Trier :</Text>
-      {SORT_OPTIONS.map(opt => {
-        const active = sortKey === opt.key;
-        return (
-          <Pressable
-            key={opt.key}
-            onPress={() => onChange(opt.key, active ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc')}
-            style={({ pressed }) => [{
-              flexDirection: 'row', alignItems: 'center', gap: 3,
-              paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1,
-              backgroundColor: active ? C.accent + '18' : C.bgCardAlt,
-              borderColor: active ? C.accent + '55' : C.border,
-            }, pressed && { opacity: 0.7 }]}
-          >
-            <MaterialIcons name={opt.icon as any} size={12} color={active ? C.accent : C.textMuted} />
-            <Text style={{ fontSize: 11, color: active ? C.accent : C.textMuted, fontWeight: active ? '700' : '500' }}>{opt.label}</Text>
-            {active && opt.key !== 'custom' ? <MaterialIcons name={sortOrder === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={11} color={C.accent} /> : null}
-          </Pressable>
-        );
-      })}
+      <IconButton icon="sync" label="Resynchroniser le dépôt" onPress={onSync} size={15} bare color={C.accent} />
+      <IconButton icon="link-off" label="Déconnecter le dépôt" onPress={onDelete} size={15} bare color={C.textMuted} />
     </View>
   );
 }
@@ -226,8 +184,6 @@ export default function WorkspaceDatabaseScreen() {
 
   // ── Vault racine du projet ───────────────────────────────────────
   const rootVault = useMemo(() => wsFolders.find(f => f.vault) ?? null, [wsFolders]);
-  const [vaultPath, setVaultPath] = useState(rootVault?.vault?.path ?? '');
-  useEffect(() => { setVaultPath(rootVault?.vault?.path ?? ''); }, [rootVault?.id, rootVault?.vault?.path]);
 
   const handleRootVaultSync = async () => {
     if (!rootVault?.vault || !ws) return;
@@ -410,17 +366,6 @@ export default function WorkspaceDatabaseScreen() {
     }
   };
 
-  const handleRepoOpenExternal = async (folder: DBFolder) => {
-    const meta = folder.repo;
-    if (!meta) return;
-    if (meta.sourceKind === 'github') {
-      void Linking.openURL(meta.path || `https://github.com/${meta.repoFullName}`);
-    } else if (meta.path) {
-      const r = await vaultOpenPath(meta.path);
-      if (!r.ok) showToast(r.error ?? 'Ouverture impossible', { tone: 'error' });
-    }
-  };
-
   // ── États d'interface ────────────────────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
@@ -478,6 +423,18 @@ export default function WorkspaceDatabaseScreen() {
   const [sortKey, setSortKey] = useState<SortKey>('custom');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const handleSortChange = (k: SortKey, o: SortOrder) => { setSortKey(k); setSortOrder(o); };
+  // Un seul bouton : chaque clic passe au tri suivant (Manuel → Nom → Date →
+  // Taille → Type), 2e clic sur le même = ordre inverse.
+  const cycleSort = () => {
+    const idx = SORT_OPTIONS.findIndex(o => o.key === sortKey);
+    const next = SORT_OPTIONS[(idx + 1) % SORT_OPTIONS.length];
+    if (next.key === sortKey) handleSortChange(next.key, sortOrder === 'asc' ? 'desc' : 'asc');
+    else handleSortChange(next.key, 'asc');
+  };
+  const currentSortLabel = SORT_OPTIONS.find(o => o.key === sortKey)?.label ?? 'Manuel';
+
+  // ── Recherche de fichiers (filtre plat quand une requête est saisie) ──
+  const [search, setSearch] = useState('');
 
   const totalFiles = ws
     ? ws.database.rootFiles.length + wsFolders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0)
@@ -494,6 +451,26 @@ export default function WorkspaceDatabaseScreen() {
     if (rootVault?.files.some(f => f.id === file.id)) return rootVault.id;
     return null;
   }, [ws, rootVault]);
+
+  // Résultats de recherche : liste plate (fichier + emplacement) sur TOUTE
+  // la bibliothèque, vault et dépôts compris.
+  const searchFlat = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q || !ws) return null;
+    const out: { file: DBFile; loc: FileLocation; where: string }[] = [];
+    for (const file of rootFilesRaw) out.push({ file, loc: fileLocationOf(file), where: 'racine' });
+    for (const f of wsFolders) {
+      for (const file of f.files) out.push({ file, loc: f.id as FileLocation, where: f.name });
+      const walk = (subs: DBSubFolder[] | undefined, pfx: string) => {
+        for (const s of subs ?? []) {
+          for (const file of s.files) out.push({ file, loc: { folderId: f.id, subId: s.id }, where: `${pfx}/${s.name}` });
+          walk(s.subFolders, `${pfx}/${s.name}`);
+        }
+      };
+      walk(f.subFolders, f.name);
+    }
+    return out.filter(x => x.file.name.toLowerCase().includes(q)).slice(0, 200);
+  }, [search, ws, rootFilesRaw, wsFolders, fileLocationOf]);
 
   // ── Move modal destinations (arbre complet, récursif) ───────────────
   const moveDestinations = useMemo(() => {
@@ -1003,47 +980,29 @@ export default function WorkspaceDatabaseScreen() {
 
   // ── Vault racine du projet : barre compacte avec chemin éditable ─────
   const vaultBar = rootVault ? (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: (rootVault.color || '#9B59B6') + '44', padding: Spacing.sm, flexWrap: 'wrap' }}>
-      <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: (rootVault.color || '#9B59B6') + '22', alignItems: 'center', justifyContent: 'center' }}>
-        <MaterialIcons name={(rootVault.icon as any) || 'lock'} size={16} color={rootVault.color || '#9B59B6'} />
-      </View>
-      <View style={{ flex: 1, minWidth: 150, gap: 3 }}>
-        <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }}>
-          Vault racine — {rootVault.name}
-          {rootVault.vault?.sourceKind === 'github' ? ' (GitHub)' : ''}
+    // Rangée COMPACTE du vault : empilée au-dessus des dépôts, boutons
+    // essentiels seulement (resynchroniser / détacher)
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: (rootVault.color || '#9B59B6') + '33', paddingHorizontal: Spacing.sm, paddingVertical: 5 }}>
+      <MaterialIcons name={(rootVault.icon as any) || 'lock'} size={14} color={rootVault.color || '#9B59B6'} />
+      <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600', flexShrink: 1 }} numberOfLines={1}>{rootVault.name}</Text>
+      {rootVault.vault?.syncMessage ? (
+        <Text style={{ fontSize: 10, color: C.textMuted, flexShrink: 1 }} numberOfLines={1}>
+          {rootVault.vault.syncMessage}
+          {rootVault.vault.lastSyncedAt ? ` · ${new Date(rootVault.vault.lastSyncedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}
         </Text>
-        <TextInput
-          style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, color: C.textSecondary, fontSize: FontSize.xs, paddingHorizontal: Spacing.sm, paddingVertical: 4, fontFamily: 'monospace' }}
-          value={vaultPath}
-          onChangeText={setVaultPath}
-          placeholder="Chemin complet du vault (ex: C:\Users\moi\Documents\mon-vault)"
-          placeholderTextColor={C.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          onEndEditing={() => {
-            if (rootVault.vault && vaultPath.trim() !== (rootVault.vault.path ?? '')) {
-              updateFolder(ws.id, rootVault.id, { vault: { ...rootVault.vault, path: vaultPath.trim() } });
-              showToast('Chemin du vault enregistré', { tone: 'success' });
-            }
-          }}
-        />
-        {rootVault.vault?.syncMessage ? (
-          <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>
-            {rootVault.vault.syncMessage}
-            {rootVault.vault.lastSyncedAt ? ` · ${new Date(rootVault.vault.lastSyncedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}
-          </Text>
-        ) : null}
-      </View>
+      ) : null}
       {busyVault ? <ActivityIndicator size="small" color={C.accent} /> : null}
       {getElectronVault() ? (
-        <IconButton icon="folder-open" label="Choisir le dossier du vault sur le disque (chemin absolu)" bare size={18} color={C.textSecondary} onPress={() => void handlePickVaultPath()} />
-      ) : null}
-      <IconButton icon="sync" label="Resynchroniser le vault" bare size={18} color={C.accent} onPress={() => handleRootVaultSync()} />
+        <IconButton icon="folder-open" label="Choisir le dossier du vault sur le disque" bare size={15} color={C.textSecondary} onPress={() => void handlePickVaultPath()} />
+      ) : (
+        <IconButton icon="add-link" label="Relier le dossier du vault (autorisation navigateur)" bare size={15} color={C.textSecondary} onPress={() => void handlePickVaultPath()} />
+      )}
+      <IconButton icon="sync" label="Resynchroniser le vault" bare size={15} color={C.accent} onPress={() => handleRootVaultSync()} />
       <IconButton
         icon="link-off"
         label="Détacher le vault racine"
         bare
-        size={18}
+        size={15}
         color={C.textMuted}
         onPress={() => showAlert(`Détacher « ${rootVault.name} » ?`, 'Le dossier vault et ses fichiers seront retirés de ce workspace.', [
           { text: 'Annuler', style: 'cancel' },
@@ -1104,19 +1063,18 @@ export default function WorkspaceDatabaseScreen() {
           />
         ) : null}
 
-        {/* Dépôts connectés (dossiers de code / GitHub) — bien séparés du vault */}
-        <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-            <MaterialIcons name="source" size={14} color={C.textSecondary} />
-            <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Dépôts{repoFolders.length > 0 ? ` (${repoFolders.length})` : ''}
+        {/* Sources connectées — petites rangées empilées (vault + dépôts) */}
+        <View style={{ gap: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 }}>
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Sources
             </Text>
             <Pressable
               onPress={() => setShowAddRepo(v => !v)}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.75 }]}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.75 }]}
             >
-              <MaterialIcons name={showAddRepo ? 'close' : 'add-link'} size={13} color={C.accent} />
-              <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>{showAddRepo ? 'Fermer' : 'Connecter'}</Text>
+              <MaterialIcons name={showAddRepo ? 'close' : 'add-link'} size={12} color={C.accent} />
+              <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>{showAddRepo ? 'Fermer' : 'Connecter'}</Text>
             </Pressable>
           </View>
           {showAddRepo ? <RepoPanel workspaceId={ws.id} onClose={() => setShowAddRepo(false)} /> : null}
@@ -1126,20 +1084,13 @@ export default function WorkspaceDatabaseScreen() {
               folder={folder}
               busy={busyRepoId === folder.id}
               onPress={() => { setOpenFolderIds(prev => new Set(prev).add(folder.id)); setInsertTarget(folder.id); }}
-              onRename={() => openRenameFolder(folder)}
               onSync={() => void handleRepoSync(folder)}
-              onOpenExternal={() => void handleRepoOpenExternal(folder)}
               onDelete={() => showAlert(`Déconnecter « ${folder.name} » ?`, 'Les fichiers du dépôt seront retirés de la base (le disque et GitHub ne sont pas touchés).', [
                 { text: 'Annuler', style: 'cancel' },
                 { text: 'Déconnecter', style: 'destructive', onPress: () => removeFolder(ws.id, folder.id) },
               ])}
             />
           ))}
-          {repoFolders.length === 0 && !showAddRepo ? (
-            <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 18 }}>
-              Aucun dépôt connecté. Connectez un dossier de code local ou un dépôt GitHub : ses fichiers apparaîtront ici et dans l’onglet Sites du chat, séparés du vault.
-            </Text>
-          ) : null}
         </View>
 
         {/* Arbre unique — dossiers et fichiers dans le même défilement */}
@@ -1161,9 +1112,33 @@ export default function WorkspaceDatabaseScreen() {
               Contenu
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
-                <SortBar sortKey={sortKey} sortOrder={sortOrder} onChange={handleSortChange} />
-              </ScrollView>
+              {/* Recherche — filtre tous les fichiers (vault + dépôts) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.bgCardAlt, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: 3, minWidth: 160 }}>
+                <MaterialIcons name="search" size={13} color={C.textMuted} />
+                <TextInput
+                  style={{ flex: 1, fontSize: FontSize.xs, color: C.textPrimary, paddingVertical: 0 }}
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Rechercher un fichier…"
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {search ? (
+                  <Pressable onPress={() => setSearch('')} hitSlop={6}>
+                    <MaterialIcons name="close" size={13} color={C.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {/* Tri — un seul bouton icône qui fait défiler les modes */}
+              <Pressable
+                onPress={cycleSort}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt }, pressed && { opacity: 0.7 }]}
+                accessibilityLabel={`Tri : ${currentSortLabel} — cliquer pour changer`}
+              >
+                <MaterialIcons name="sort" size={14} color={C.textMuted} />
+                <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700' }}>{currentSortLabel}</Text>
+              </Pressable>
               {displayedFiles.length > 0 ? (
                 <Pressable onPress={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, borderWidth: 1, borderColor: selectMode ? C.accent + '66' : C.border, backgroundColor: selectMode ? C.accent + '18' : C.bgCardAlt }, pressed && { opacity: 0.75 }]}>
                   <MaterialIcons name={selectMode ? 'close' : 'checklist'} size={14} color={selectMode ? C.accent : C.textMuted} />
@@ -1198,24 +1173,64 @@ export default function WorkspaceDatabaseScreen() {
             </View>
           ) : null}
 
-          {/* Fichiers racine (dont vault racine) */}
-          {displayedFiles.map(file => (
-            <FileRow
-              key={file.id}
-              file={file}
-              loc={fileLocationOf(file)}
-              depth={0}
-              onPress={() => handleOpenFileViewer(file)}
-              onContextMenu={pos => openMenu(pos, fileMenu(file, fileLocationOf(file)))}
-              selectMode={selectMode}
-              selected={selectedFileIds.has(file.id)}
-              onToggleSelect={() => { if (!selectMode) setSelectMode(true); toggleSelectFile(file.id); }}
-              onReorderDrop={item => handleFileReorderDrop(item, file, fileLocationOf(file))}
-            />
-          ))}
+          {searchFlat ? (
+            /* Recherche active : liste plate des fichiers correspondants */
+            searchFlat.length === 0 ? (
+              <Text style={{ fontSize: FontSize.sm, color: C.textMuted, paddingVertical: Spacing.md }}>
+                Aucun fichier ne correspond à « {search.trim()} ».
+              </Text>
+            ) : (
+              searchFlat.map(({ file, loc, where }) => (
+                <FileRow
+                  key={file.id}
+                  file={{ ...file, name: `${where} › ${file.name}` } as DBFile}
+                  loc={loc}
+                  depth={0}
+                  onPress={() => handleOpenFileViewer(file)}
+                  onContextMenu={pos => openMenu(pos, fileMenu(file, loc))}
+                  selectMode={selectMode}
+                  selected={selectedFileIds.has(file.id)}
+                  onToggleSelect={() => { if (!selectMode) setSelectMode(true); toggleSelectFile(file.id); }}
+                  onReorderDrop={() => { /* réordonnancement sans objet en vue recherche */ }}
+                />
+              ))
+            )
+          ) : (
+            <>
+              {/* Fichiers racine (dont vault racine) */}
+              {displayedFiles.map(file => (
+                <FileRow
+                  key={file.id}
+                  file={file}
+                  loc={fileLocationOf(file)}
+                  depth={0}
+                  onPress={() => handleOpenFileViewer(file)}
+                  onContextMenu={pos => openMenu(pos, fileMenu(file, fileLocationOf(file)))}
+                  selectMode={selectMode}
+                  selected={selectedFileIds.has(file.id)}
+                  onToggleSelect={() => { if (!selectMode) setSelectMode(true); toggleSelectFile(file.id); }}
+                  onReorderDrop={item => handleFileReorderDrop(item, file, fileLocationOf(file))}
+                />
+              ))}
 
-          {/* Dossiers (vault inclus, dépôts, dossiers applicatifs) */}
-          {wsFolders.map(folder => renderRootFolder(folder))}
+              {/* 1) Dossiers vault */}
+              {wsFolders.filter(f => f.vault).map(folder => renderRootFolder(folder))}
+
+              {/* 2) Dossiers applicatifs (ni vault ni dépôt) */}
+              {wsFolders.filter(f => !f.vault && !f.repo).map(folder => renderRootFolder(folder))}
+
+              {/* 3) Séparateur visuel, puis les dépôts */}
+              {wsFolders.some(f => f.repo && !f.vault) ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginVertical: Spacing.sm }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
+                  <MaterialIcons name="code" size={12} color={C.textMuted} />
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Dépôts</Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
+                </View>
+              ) : null}
+              {wsFolders.filter(f => f.repo && !f.vault).map(folder => renderRootFolder(folder))}
+            </>
+          )}
 
           {totalFiles === 0 && wsFolders.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md }}>

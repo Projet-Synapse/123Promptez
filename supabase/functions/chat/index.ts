@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: model || 'claude-sonnet-5',
-        max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 8192),
+        max_tokens: Math.min(Math.max(Math.round(maxTokens ?? 4096), 1), 32000),
         system: systemMessage,
         messages: convo,
         stream: true,
