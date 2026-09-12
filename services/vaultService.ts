@@ -521,7 +521,7 @@ export async function importGitHubRepoAsVault(
         (e.size ?? 0) > 0 &&
         (e.size ?? 0) <= 512_000,
       )
-      .slice(0, 300);
+      .slice(0, 600);
 
     // 3) Contenus via raw.githubusercontent SANS Authorization : c'est un CDN
     //    SANS limite de taux (l'API Contents en comptait 1 par fichier → 403
