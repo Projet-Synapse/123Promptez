@@ -203,6 +203,9 @@ export async function sendChatMessage(
         // vide. 16384 = plancher confortable (plafond Edge : 32000).
         maxTokens: Math.max(bot.llmConfig.maxTokens, 16384),
         topP: bot.llmConfig.topP,
+        // Clé API PERSONNELLE (Builder ▸ Paramètres) : le serveur l'utilise en
+        // priorité — paiement à l'usage indépendant des crédits du projet.
+        apiKey: (bot as any).apiKey ?? null,
         // Outils serveur (source de vérité : agentCapabilities / connecteurs)
         githubToken: extra?.githubToken ?? null,
         enableSupabase: extra?.supabaseTools === true,

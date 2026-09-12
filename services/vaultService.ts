@@ -233,6 +233,8 @@ async function fsMove(root: FsHandle, fromRel: string, toRel: string, isDir: boo
 
 /** Signature MÉTADONNÉES du dossier (chemins + taille + mtime) — sans lire les
  *  contenus : assez légère pour un polling toutes les quelques secondes.
+ *  Les DOSSIERS font partie de la signature : supprimer/renommer un dossier
+ *  (même vide) doit déclencher la resynchronisation.
  *  Retourne null si le handle est indisponible ou la permission perdue. */
 export async function fsAccessSignature(root: FsHandle): Promise<string | null> {
   const parts: string[] = [];
@@ -241,7 +243,9 @@ export async function fsAccessSignature(root: FsHandle): Promise<string | null> 
       for await (const [name, entry] of dir.entries()) {
         if (entry.kind === 'directory') {
           if (name === 'node_modules' || name === '.git') continue;
-          await walk(entry, prefix ? `${prefix}/${name}` : name);
+          const rel = prefix ? `${prefix}/${name}` : name;
+          parts.push(`dir:${rel}`);
+          await walk(entry, rel);
         } else {
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
           if (!TEXT_EXT.has(ext)) continue;

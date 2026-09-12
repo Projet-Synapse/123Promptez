@@ -413,12 +413,12 @@ export default function SettingsScreen() {
               {!bot.apiKey ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
                   <MaterialIcons name="info-outline" size={14} color={C.warning} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>Mode démo actif · Ajoutez une clé API pour un vrai LLM</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>Sans clé : c’est la clé du projet qui est utilisée (crédits partagés, limités).</Text>
                 </View>
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
                   <MaterialIcons name="check-circle" size={14} color={C.accent} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>Clé API configurée</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>Ta clé personnelle est utilisée en priorité : paiement à l’usage, indépendant des crédits du projet. Clé Anthropic : console.anthropic.com ▸ API Keys (recharge à partir de 5&nbsp;$).</Text>
                 </View>
               )}
             </View>
