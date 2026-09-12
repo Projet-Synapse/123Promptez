@@ -8,16 +8,21 @@ const CORS = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   try {
-    const { messages, model, maxTokens } = await req.json();
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY manquante');
+    const { messages, model, maxTokens, apiKey } = await req.json();
+    // Clé utilisée : celle PERSONNELLE de l'utilisatrice (Builder ▸ Paramètres,
+    // paiement à l'usage) si elle est fournie, sinon la clé du projet.
+    const personal = typeof apiKey === 'string' && apiKey.startsWith('sk-') ? apiKey.trim() : null;
+    const apiKeyFinal = personal ?? Deno.env.get('ANTHROPIC_API_KEY');
+    if (!apiKeyFinal) {
+      throw new Error('Aucune clé API — colle ta clé Anthropic dans Builder ▸ Paramètres ▸ Clé API');
+    }
     const systemMessage = (messages ?? []).find((m: any) => m.role === 'system')?.content ?? '';
     const convo = (messages ?? []).filter((m: any) => m.role !== 'system');
     if (convo.length === 0) throw new Error('Aucun message');
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
+        'x-api-key': apiKeyFinal,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
