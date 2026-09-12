@@ -417,11 +417,16 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
           description: null,
           private: false,
           html_url: meta.path || '',
-          default_branch: 'main',
+          default_branch: meta.defaultBranch || 'main',
         });
         updateFolder(workspace.id, activeRepo.id, { repo: result.meta });
-        syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs);
-        showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
+        // Import échoué : on NE touche PAS aux fichiers existants
+        if (!result.error) {
+          syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs);
+          showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
+        } else {
+          showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });
+        }
       }
     } catch (e: any) {
       showToast(e?.message ?? 'Resynchronisation impossible', { tone: 'error' });

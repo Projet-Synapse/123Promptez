@@ -15,6 +15,8 @@ export interface VaultMeta {
   /** GitHub: owner/repo */
   repoFullName?: string;
   repoId?: number;
+  /** GitHub: branche par défaut réelle du dépôt (resync sans re-deviner) */
+  defaultBranch?: string;
   /** URL du site déployé associé (dépôts : Vercel, Pages…) — choisie par l'utilisateur */
   siteUrl?: string;
   /** Last sync ISO or Date string */
@@ -467,6 +469,7 @@ export async function importGitHubRepoAsVault(
       sourceKind: 'github',
       repoFullName: repo.full_name,
       repoId: repo.id,
+      defaultBranch: branch,
       syncStatus: 'error',
       syncMessage: message,
     },
@@ -489,12 +492,21 @@ export async function importGitHubRepoAsVault(
   };
   try {
     // 1) Arbre complet du dépôt (une seule requête, récursif)
-    const { res: treeRes, headers: treeHeaders } = await ghFetch(
+    const { res: treeRes } = await ghFetch(
       `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`,
     );
     if (!treeRes) return fail('Réseau indisponible');
     if (treeRes.status === 404) {
       return fail('Dépôt introuvable ou privé — connecte un jeton GitHub ayant accès (Builder ▸ Connecteurs ▸ GitHub).');
+    }
+    if (treeRes.status === 403) {
+      const resetHeader = treeRes.headers.get('x-ratelimit-reset');
+      const waitMin = resetHeader
+        ? Math.max(1, Math.ceil((Number(resetHeader) * 1000 - Date.now()) / 60_000))
+        : null;
+      return fail(
+        `Limite de taux GitHub atteinte (60 requêtes/h anonymes) — réessaie dans ~${waitMin ?? 60} min ou connecte un jeton (Builder ▸ Connecteurs ▸ GitHub).`,
+      );
     }
     if (!treeRes.ok) {
       return fail(`GitHub API ${treeRes.status} — impossible de lister ${repo.full_name}`);
@@ -509,21 +521,40 @@ export async function importGitHubRepoAsVault(
         (e.size ?? 0) > 0 &&
         (e.size ?? 0) <= 512_000,
       )
-      .slice(0, 150);
+      .slice(0, 300);
 
-    // 3) Contenus via l'API GitHub Contents (raw.githubusercontent est bloqué
-    //    par CORS depuis le navigateur quand un Authorization est présent)
+    // 3) Contenus via raw.githubusercontent SANS Authorization : c'est un CDN
+    //    SANS limite de taux (l'API Contents en comptait 1 par fichier → 403
+    //    rate-limit dès 60 fichiers anonymes), et son CORS accepte les GET
+    //    simples sans en-tête custom. Repli Contents API (avec jeton) pour
+    //    les dépôts privés.
+    const rawBase = `https://raw.githubusercontent.com/${owner}/${name}/${encodeURIComponent(branch)}`;
     const files: VaultFileInput[] = [];
+    let rawOk = 0;
+    let contentsFallback = 0;
+    let rateLimited = false;
     for (const blob of blobs) {
+      const encPath = blob.path.split('/').map((p: string) => encodeURIComponent(p)).join('/');
       try {
-        const contentRes = await fetch(
-          `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(blob.path).replace(/%2F/g, '/')}?ref=${encodeURIComponent(branch)}`,
-          { headers: treeHeaders },
-        );
-        if (!contentRes.ok) continue;
-        const contentData: any = await contentRes.json();
-        // L'API Contents renvoie le contenu en base64
-        const content = atob(String(contentData.content ?? '').replace(/\n/g, ''));
+        let content = '';
+        const rawRes = await fetch(`${rawBase}/${encPath}`);
+        if (rawRes.ok) {
+          content = await rawRes.text();
+          rawOk++;
+        } else {
+          // Repli : API Contents (dépôt privé, ou raw momentanément indisponible)
+          const contentRes = await ghFetch(
+            `https://api.github.com/repos/${owner}/${name}/contents/${encPath}?ref=${encodeURIComponent(branch)}`,
+          );
+          if (!contentRes.res || !contentRes.res.ok) {
+            if (contentRes.res?.status === 403) rateLimited = true;
+            continue;
+          }
+          const contentData: any = await contentRes.res.json();
+          // L'API Contents renvoie le contenu en base64
+          content = atob(String(contentData.content ?? '').replace(/\n/g, ''));
+          contentsFallback++;
+        }
         files.push({
           name: blob.path,
           type: inferType(blob.path),
@@ -536,16 +567,21 @@ export async function importGitHubRepoAsVault(
     }
 
     const partial = treeData.truncated ? ' (arbre partiel — dépôt très volumineux)' : '';
+    const viaRaw = contentsFallback > 0 ? `, dont ${contentsFallback} via API (privé)` : '';
+    const rateNote = rateLimited && files.length < blobs.length
+      ? ` — ${blobs.length - files.length} fichier(s) sautés (limite API atteinte, réessaie plus tard)`
+      : '';
     return {
       meta: {
         sourceKind: 'github',
         repoFullName: repo.full_name,
         repoId: repo.id,
+        defaultBranch: branch,
         path: repo.html_url,
         syncStatus: 'ok',
         lastSyncedAt: new Date().toISOString(),
         liveSync: false,
-        syncMessage: `${files.length} fichier(s) importé(s) (arbre complet${partial})`,
+        syncMessage: `${files.length}/${blobs.length} fichier(s) importé(s)${viaRaw}${partial}${rateNote}`,
       },
       files,
       dirs: [],
@@ -556,6 +592,7 @@ export async function importGitHubRepoAsVault(
         sourceKind: 'github',
         repoFullName: repo.full_name,
         repoId: repo.id,
+        defaultBranch: branch,
         syncStatus: 'error',
         syncMessage: e?.message ?? 'Erreur import GitHub',
       },

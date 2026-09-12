@@ -105,12 +105,15 @@ export function VaultFolderPanel({
           description: null,
           private: false,
           html_url: folder.vault.path || '',
-          default_branch: 'main',
+          default_branch: folder.vault.defaultBranch || 'main',
         };
         const result = await importGitHubRepoAsVault(githubToken, fakeRepo);
         updateFolder(workspaceId, folder.id, { vault: result.meta });
-        syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
-        showAlert('Import GitHub', result.meta.syncMessage || 'Terminé');
+        // Import échoué : on NE touche PAS aux fichiers existants
+        if (!result.error) {
+          syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
+        }
+        showAlert(result.error ? 'Échec sync' : 'Import GitHub', result.meta.syncMessage || 'Terminé');
       }
     } catch (e: any) {
       showAlert('Erreur sync', e?.message ?? 'Échec');
