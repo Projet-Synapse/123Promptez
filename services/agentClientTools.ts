@@ -27,21 +27,26 @@ export interface ClientToolCall {
 
 /** Parse tous les marqueurs [OUTIL:nom:{json}] d'un texte (JSON à accolades
  *  équilibrées, chaînes échappées supportées — un « contenu » de fichier
- *  contient des accolades et des \n). */
+ *  contient des accolades et des \n).
+ *  IMPORTANT : les blocs de code ```…``` et les segments `…` sont MASQUÉS
+ *  avant le parse — le modèle cite souvent ses marqueurs en EXEMPLE dans sa
+ *  réponse (liste d'outils, documentation) ; sans ce masque, on exécuterait
+ *  des exemples et lancerait une boucle d'outils à tort. */
 export function parseToolCalls(text: string): ClientToolCall[] {
+  const safe = maskCodeSpans(text);
   const calls: ClientToolCall[] = [];
   const re = /\[OUTIL:([a-zA-Z_]+):/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(safe)) !== null) {
     let i = re.lastIndex;
-    while (text[i] === ' ') i++;
-    if (text[i] !== '{') continue;
+    while (safe[i] === ' ') i++;
+    if (safe[i] !== '{') continue;
     const start = i;
     let depth = 0;
     let inStr = false;
     let esc = false;
-    for (; i < text.length; i++) {
-      const ch = text[i];
+    for (; i < safe.length; i++) {
+      const ch = safe[i];
       if (inStr) {
         if (esc) esc = false;
         else if (ch === '\\') esc = true;
@@ -54,7 +59,7 @@ export function parseToolCalls(text: string): ClientToolCall[] {
       }
     }
     if (depth !== 0) break; // JSON tronqué (stream coupé) : on ignore
-    const argsRaw = text.slice(start, i);
+    const argsRaw = safe.slice(start, i);
     let args: any = null;
     try {
       args = JSON.parse(argsRaw);
@@ -68,11 +73,32 @@ export function parseToolCalls(text: string): ClientToolCall[] {
       re.lastIndex = i;
       continue; // marqueur inexploitable : suivant
     }
-    const end = text[i] === ']' ? i + 1 : i; // englobe le « ] » fermant
-    calls.push({ name: m[1], args, raw: text.slice(m.index, end) });
+    const end = safe[i] === ']' ? i + 1 : i; // englobe le « ] » fermant
+    calls.push({ name: m[1], args, raw: text.slice(m.index, m.index + (end - m.index)) });
     re.lastIndex = end;
   }
   return calls;
+}
+
+/** Remplace ```…``` et `…` par des espaces de même longueur (indices préservés
+ *  pour retrouver les marqueurs réels dans le texte d'origine). */
+function maskCodeSpans(text: string): string {
+  let out = text.split('');
+  const maskRange = (a: number, b: number) => {
+    for (let k = a; k < b && k < out.length; k++) {
+      const ch = out[k];
+      if (ch !== '\n' && ch !== '\r') out[k] = ' ';
+    }
+  };
+  // Blocs fermés ```…```
+  const fence = /```[\s\S]*?```/g;
+  let f: RegExpExecArray | null;
+  while ((f = fence.exec(text)) !== null) maskRange(f.index, f.index + f[0].length);
+  // Segments inline `…` (hors des ``` déjà masqués)
+  const inline = /`[^`\n]*`/g;
+  let c: RegExpExecArray | null;
+  while ((c = inline.exec(text)) !== null) maskRange(c.index, c.index + c[0].length);
+  return out.join('');
 }
 
 /** Tente JSON.parse après échappement des \n \r \t réels situés dans les chaînes. */
