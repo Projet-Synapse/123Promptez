@@ -19,13 +19,14 @@ import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
 import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService';
+import { collectDiagnostics } from '@/services/diagnostics';
+import * as Clipboard from 'expo-clipboard';
 import { useDesktopUpdates } from '@/hooks/useDesktopUpdates';
 import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { buildExportBundle, downloadJson, parseImportBundle } from '@/services/exportService';
 import { useToast } from '@/contexts/ToastContext';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Clipboard from 'expo-clipboard';
 
 type SettingsSection = 'ui' | 'assistant' | 'about';
 
@@ -212,6 +213,23 @@ export default function SettingsScreen() {
             <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>Mon compte</Text>
           </Pressable>
         </View>
+        {/* Diagnostic : rapport compact à coller à l'agent — fini les devinettes */}
+        <Pressable
+          onPress={async () => {
+            try {
+              const report = await collectDiagnostics('rapport demandé depuis les paramètres');
+              await Clipboard.setStringAsync(report);
+              showToast('Diagnostic copié — colle-le dans la conversation avec l’agent', { tone: 'success' });
+            } catch (e: any) {
+              showToast(e?.message ?? 'Copie impossible', { tone: 'error' });
+            }
+          }}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 7, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt, marginTop: Spacing.xs }, pressed && { opacity: 0.75 }]}
+          accessibilityLabel="Copier le diagnostic de l'application"
+        >
+          <MaterialIcons name="troubleshoot" size={15} color={C.textSecondary} />
+          <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '700' }}>Copier le diagnostic (en cas de bug)</Text>
+        </Pressable>
       </View>
 
       {/* ── Section tabs ─────────────────────────────────────────────── */}

@@ -16,6 +16,7 @@ import { ToastProvider } from '@/contexts/ToastContext';
 import { CommandPaletteProvider } from '@/contexts/CommandPaletteContext';
 import { CommandPalette } from '@/components/feature/CommandPalette';
 import { VaultLiveSync } from '@/components/feature/VaultLiveSync';
+import { installGlobalDiag } from '@/services/diagnostics';
 import { useRef, useEffect, useCallback } from 'react';
 
 // ── Hydrates contexts from cloud once data is loaded ─────────────────────────
@@ -86,31 +87,34 @@ function InnerLayout() {
 function WebScrollbars() {
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    // Capte aussi les erreurs non rattrapées pour le diagnostic
+    installGlobalDiag();
     const style = document.createElement('style');
     style.id = 'promptez-scrollbars';
     // react-native-web moderne génère des CLASSES CSS (plus de styles inline) :
     // cibler div[style*=…] était voué à l'échec. On applique le scrollbar à
-    // tous les conteneurs défilants, universellement.
+    // TOUS les conteneurs, avec !important pour battre les `scrollbar-width:
+    // none` posés en inline par les ScrollView (showsVerticalScrollIndicator=false).
     style.textContent = `
       * {
-        scrollbar-width: thin;
-        scrollbar-color: #b6bdc7 transparent;
+        scrollbar-width: thin !important;
+        scrollbar-color: #b6bdc7 transparent !important;
       }
       *::-webkit-scrollbar {
-        width: 10px; height: 10px; display: block;
+        width: 10px !important; height: 10px !important; display: block !important;
       }
       *::-webkit-scrollbar-thumb {
-        background: #b6bdc7; border-radius: 6px; border: 2px solid transparent;
-        background-clip: content-box;
+        background: #b6bdc7 !important; border-radius: 6px !important;
+        border: 2px solid transparent !important; background-clip: content-box !important;
       }
       *::-webkit-scrollbar-thumb:hover {
-        background: #99a3b0; border: 2px solid transparent; background-clip: content-box;
+        background: #99a3b0 !important; border: 2px solid transparent !important; background-clip: content-box !important;
       }
       *::-webkit-scrollbar-track {
-        background: transparent;
+        background: transparent !important;
       }
       *::-webkit-scrollbar-corner {
-        background: transparent;
+        background: transparent !important;
       }
     `;
     document.head.appendChild(style);

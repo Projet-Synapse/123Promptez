@@ -34,6 +34,7 @@ import {
   parseToolCalls, stripToolCalls, executeClientTool, formatToolResults,
   type ClientToolCall, type ToolOutcome,
 } from '@/services/agentClientTools';
+import { recordDiag } from '@/services/diagnostics';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 
@@ -811,6 +812,7 @@ export default function ChatScreen() {
       // boucle d'outils, on l'explique VISIBLEMENT (et pas juste un toast).
       if (!full.trim()) {
         setActivities([]);
+        recordDiag('chat.réponseVide', `tour ${toolRound} — msg: ${msg.slice(0, 80)}`);
         if (toolRound > 0) {
           addMessageToConversation(activeWorkspace.id, activeConversation.id, {
             role: 'assistant',
@@ -878,6 +880,7 @@ export default function ChatScreen() {
         } catch (e: any) {
           // Un échec d'outil ne doit JAMAIS laisser la conversation suspendue
           // sans explication visible.
+          recordDiag('chat.boucleOutils.erreur', e?.message ?? 'inconnue');
           setActivities([]);
           addMessageToConversation(activeWorkspace.id, activeConversation.id, {
             role: 'assistant',
@@ -901,6 +904,7 @@ export default function ChatScreen() {
       if (err?.name === 'AbortError' || String(err?.message || '').includes('interrompue')) {
         // handled by handleStop / abort
       } else {
+        recordDiag('chat.generation.erreur', `tour ${toolRound} — ${err?.message ?? 'inconnue'}`);
         showAlert('Erreur', err.message || 'Erreur lors de la génération');
       }
     } finally {
