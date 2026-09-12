@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Linking, TextInput, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useBot } from '@/hooks/useBot';
@@ -120,6 +121,7 @@ function ColorRow({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { bot, updateBot, updateLLMConfig, updateAgentToolConfig, resetBot, hydrateFromCloud: hydrateBotFromHook } = useBot();
   const { showAlert } = useAlert();
   const { mode, toggleTheme, setTheme, customPalette, setCustomColor, resetCustomPalette, colors: themeColors } = useTheme();
@@ -195,8 +197,21 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.md, gap: 2 }}>
-        <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>{t('settings')}</Text>
-        <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginBottom: Spacing.sm }}>LLM, langue, apparence et configuration avancée</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>{t('settings')}</Text>
+            <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, marginBottom: Spacing.sm }}>LLM, langue, apparence et configuration avancée</Text>
+          </View>
+          {/* Le compte n'est plus une section principale : accessible ici */}
+          <Pressable
+            onPress={() => router.push('/(tabs)/profile')}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 8, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCard }, pressed && { opacity: 0.75 }]}
+            accessibilityLabel="Ouvrir mon compte"
+          >
+            <MaterialIcons name="person" size={16} color={C.accent} />
+            <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>Mon compte</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* ── Section tabs ─────────────────────────────────────────────── */}
