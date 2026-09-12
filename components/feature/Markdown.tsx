@@ -30,7 +30,7 @@ export function MarkdownView({ content }: { content: string }) {
     link: { color: C.accent, textDecorationLine: 'underline' },
     blockquote: { backgroundColor: C.bgCardAlt, borderLeftColor: C.accent, borderLeftWidth: 3, borderRadius: Radius.sm, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, marginVertical: Spacing.xs },
     blockquote_text: { color: C.textSecondary, fontStyle: 'italic' },
-    code_inline: { color: C.textMono, backgroundColor: C.bgCardAlt, fontFamily: 'monospace', fontSize: FontSize.sm, lineHeight: 20, paddingHorizontal: 4, borderRadius: 4 },
+    code_inline: { color: C.textMono, backgroundColor: C.bgCardAlt, fontFamily: 'monospace', fontSize: 12, lineHeight: 16, paddingHorizontal: 4, paddingVertical: 0, borderRadius: 4, alignSelf: 'center' },
     fence: { backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border },
     bullet_list_icon: { color: C.accent, lineHeight: 22 },
     ordered_list_icon: { color: C.accent, lineHeight: 22 },
@@ -70,7 +70,7 @@ export function MarkdownView({ content }: { content: string }) {
               <Text style={{ fontSize: 10, color: copiedFence === key ? C.accent : C.textSecondary, fontWeight: '700' }}>{copiedFence === key ? 'Copié' : 'Copier'}</Text>
             </Pressable>
           </View>
-          <Text style={{ backgroundColor: C.bgCardAlt, borderBottomLeftRadius: Radius.md, borderBottomRightRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.sm, color: C.textMono, fontFamily: 'monospace', fontSize: FontSize.sm, lineHeight: 20, width: '100%', flexShrink: 1 }}>
+          <Text style={{ backgroundColor: C.bgCardAlt, borderBottomLeftRadius: Radius.md, borderBottomRightRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs, color: C.textMono, fontFamily: 'monospace', fontSize: 11, lineHeight: 16, width: '100%', flexShrink: 1 }}>
             {code}
           </Text>
         </View>

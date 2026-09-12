@@ -10,7 +10,7 @@
 //   arrive, on ne modifie QUE ici : prompt et interface restent synchronisés
 //   et honnêtes (plus de promesses non tenues).
 import type { BotConfig } from '@/contexts/BotContext';
-import type { Workspace, DBFile } from '@/contexts/WorkspaceContext';
+import type { Workspace, DBFile, DBSubFolder } from '@/contexts/WorkspaceContext';
 
 export interface AgentCapability {
   id: string;
@@ -29,22 +29,24 @@ export interface AgentCapability {
 }
 
 export function countWorkspaceFiles(ws: Workspace): number {
+  const countSubs = (subs?: DBSubFolder[]): number =>
+    (subs ?? []).reduce((acc, s) => acc + s.files.length + countSubs(s.subFolders), 0);
   return (
     ws.database.rootFiles.length +
     ws.database.folders.reduce(
-      (acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0),
+      (acc, f) => acc + f.files.length + countSubs(f.subFolders),
       0,
     )
   );
 }
 
+/** Tous les fichiers du workspace, TOUTE PROFONDEUR de sous-dossiers confondue. */
 function collectFiles(ws: Workspace): DBFile[] {
+  const fromSubs = (subs?: DBSubFolder[]): DBFile[] =>
+    (subs ?? []).flatMap(s => [...s.files, ...fromSubs(s.subFolders)]);
   return [
     ...ws.database.rootFiles,
-    ...ws.database.folders.flatMap(f => [
-      ...f.files,
-      ...(f.subFolders ?? []).flatMap(s => s.files),
-    ]),
+    ...ws.database.folders.flatMap(f => [...f.files, ...fromSubs(f.subFolders)]),
   ];
 }
 
@@ -200,21 +202,38 @@ export function buildWorkspaceContextPrompt(ws: Workspace): string {
   // 1) Inventaire complet (tous les fichiers, même hors budget contenu)
   const files = collectFiles(ws);
   if (files.length > 0) {
-    const tree = ws.database.folders
-      .map(f => {
-        const subs = (f.subFolders ?? [])
-          .map(s => `  - ${s.name}/ (${s.files.length} fichier(s))`)
-          .join('\n');
-        return `- ${f.name}/ (${f.files.length} fichier(s)${subs ? '\n' + subs : ''})`;
-      })
-      .join('\n');
+    // Arborescence COMPLÈTE (toute profondeur) : l'agent doit voir chaque
+    // fichier pour pouvoir les lire/modifier via ses outils [OUTIL:…].
+    const lines: string[] = [];
+    const MAX_LINES = 900;
+    const renderDir = (
+      name: string,
+      dirFiles: DBFile[],
+      subs: { name: string; files: DBFile[]; subFolders?: any[] }[] | undefined,
+      indent: string,
+      depth: number,
+    ) => {
+      if (lines.length >= MAX_LINES) return;
+      lines.push(`${indent}- ${name}/ (${dirFiles.length} fichier(s))`);
+      if (depth >= 8 || lines.length >= MAX_LINES) return;
+      for (const s of subs ?? []) {
+        if (lines.length >= MAX_LINES) { lines.push(`${indent}  …`); return; }
+        renderDir(s.name, s.files, s.subFolders, `${indent}  `, depth + 1);
+      }
+      for (const file of dirFiles) {
+        if (lines.length >= MAX_LINES) { lines.push(`${indent}  …`); return; }
+        lines.push(`${indent}  - ${file.name}`);
+      }
+    };
+    for (const f of ws.database.folders) renderDir(f.name, f.files, f.subFolders, '', 0);
+    if (lines.length >= MAX_LINES) lines.push('… (arborescence tronquée)');
     const rootCount = ws.database.rootFiles.length;
-    out += `## BIBLIOTHÈQUE DU WORKSPACE (lecture et écriture via l'outil workspace_write_file)\n\n`;
-    out += `Inventaire : ${rootCount} fichier(s) à la racine, ${ws.database.folders.length} dossier(s).\n`;
+    out += `## BIBLIOTHÈQUE DU WORKSPACE (lecture et écriture via les outils [OUTIL:lire_fichier] et [OUTIL:ecrire_fichier])\n\n`;
+    out += `Inventaire complet : ${rootCount} fichier(s) à la racine, ${ws.database.folders.length} dossier(s), ${files.length} fichier(s) au total. Les chemins ci-dessous sont EXACTEMENT ceux à utiliser dans les outils.\n`;
     if (ws.database.rootFiles.length > 0) {
-      out += `Racine : ${ws.database.rootFiles.map(f => f.name).join(', ')}\n`;
+      out += `Racine :\n${ws.database.rootFiles.map(f => `- ${f.name}`).join('\n')}\n`;
     }
-    if (ws.database.folders.length > 0) out += `${tree}\n`;
+    if (lines.length > 0) out += `${lines.join('\n')}\n`;
     out += '\n';
 
     // 2) Contenus : fichiers les plus récents d'abord, dans la limite du budget

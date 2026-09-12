@@ -1,6 +1,7 @@
 // Root layout — wires WorkspaceProvider, ProfileProvider & BotProvider to cloud auto-sync
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import * as SplashScreen from 'expo-splash-screen';
@@ -62,6 +63,7 @@ function InnerLayout() {
         <BotProvider onDataChange={onBotChange}>
           <CloudHydrator />
           <VaultLiveSync />
+          <WebScrollbars />
           <CommandPalette />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
@@ -76,6 +78,46 @@ function InnerLayout() {
       </WorkspaceProvider>
     </ProfileProvider>
   );
+}
+
+/** Barres de défilement visibles (web) : repère visuel sur toutes les pages.
+ *  Les vues défilantes de react-native-web sont des div avec overflow inline —
+ *  on les cible par sélecteur d'attribut et on force un scrollbar discret. */
+function WebScrollbars() {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const style = document.createElement('style');
+    style.id = 'promptez-scrollbars';
+    style.textContent = `
+      div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"],
+      div[style*="overflow: auto"], div[style*="overflow: scroll"] {
+        scrollbar-width: thin !important;
+        scrollbar-color: #b6bdc7 transparent !important;
+      }
+      div[style*="overflow-y: auto"]::-webkit-scrollbar,
+      div[style*="overflow-y: scroll"]::-webkit-scrollbar,
+      div[style*="overflow: auto"]::-webkit-scrollbar,
+      div[style*="overflow: scroll"]::-webkit-scrollbar {
+        width: 10px; height: 10px; display: block;
+      }
+      div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb,
+      div[style*="overflow-y: scroll"]::-webkit-scrollbar-thumb,
+      div[style*="overflow: auto"]::-webkit-scrollbar-thumb,
+      div[style*="overflow: scroll"]::-webkit-scrollbar-thumb {
+        background: #b6bdc7; border-radius: 6px; border: 2px solid transparent;
+        background-clip: content-box;
+      }
+      div[style*="overflow-y: auto"]::-webkit-scrollbar-track,
+      div[style*="overflow-y: scroll"]::-webkit-scrollbar-track,
+      div[style*="overflow: auto"]::-webkit-scrollbar-track,
+      div[style*="overflow: scroll"]::-webkit-scrollbar-track {
+        background: transparent;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+  return null;
 }
 
 function CloudHydrator() {
