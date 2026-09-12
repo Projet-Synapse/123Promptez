@@ -462,7 +462,18 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       ...w, conversations: w.conversations.map(c => {
         if (c.id !== cid) return c;
         const isFirst = c.messages.length === 0 && msg.role === 'user';
-        const title = isFirst ? msg.content.slice(0, 40) + (msg.content.length > 40 ? '...' : '') : c.title;
+        let title = c.title;
+        if (isFirst) {
+          // Titre lisible : sans le bloc « [PIÈCE JOINTE: …] », espaces compactés,
+          // coupe nette au mot près.
+          const raw = msg.content
+            .replace(/^\[PIÈCE JOINTE:[\s\S]*?\]\s*/, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          title = raw.length > 48
+            ? raw.slice(0, 48).replace(/\s+\S*$/, '') + '…'
+            : (raw || msg.content.slice(0, 40));
+        }
         return { ...c, title, messages: [...c.messages, newMsg], updatedAt: new Date() };
       })
     }));

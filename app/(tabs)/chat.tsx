@@ -1,10 +1,10 @@
 // Powered by OnSpace.AI
 // Chat screen — side drawer history + attachment button + response mode selector
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Animated, Dimensions,
+  Animated, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/contexts/ProfileContext';
 import { ChatBubble, IconButton } from '@/components';
+import { MarkdownView } from '@/components/feature/Markdown';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { sendChatMessage } from '@/services/chatService';
@@ -33,6 +34,32 @@ import { resolveGitHubToken } from '@/services/vaultService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
+
+/** Ouvre une URL externe sans crasher sur natif (window n'existe pas hors web) */
+function openExternal(url?: string) {
+  if (!url) return;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener');
+  } else {
+    Linking.openURL(url).catch(() => {});
+  }
+}
+
+/** Texte de streaming throttlé : le markdown n'est ré-analysé qu'à intervalle
+ *  régulier (le parsing à chaque token serait trop coûteux sur mobile). */
+function useThrottledText(value: string, ms = 200): string {
+  const [shown, setShown] = useState(value);
+  const latest = useRef(value);
+  latest.current = value;
+  const active = value !== '';
+  useEffect(() => {
+    if (!active) return;
+    setShown(latest.current);
+    const id = setInterval(() => setShown(latest.current), ms);
+    return () => clearInterval(id);
+  }, [active, ms]);
+  return shown;
+}
 
 // Libellés conviviaux des outils agent — les capacités affichées dans le
 // popover « + » viennent désormais de services/agentCapabilities.ts (source
@@ -182,7 +209,7 @@ function PlusPopover({
                   </View>
                   {p.id === 'github' && enabled && !ghToken ? (
                     <Pressable
-                      onPress={() => window.open((p as any).connectUrl, '_blank', 'noopener')}
+                      onPress={() => openExternal((p as any).connectUrl)}
                       style={({ pressed }) => [{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: '#24292F' }, pressed && { opacity: 0.8 }]}
                     >
                       <Text style={{ fontSize: 10, color: '#fff', fontWeight: '700' }}>Connecter</Text>
@@ -564,9 +591,27 @@ export default function ChatScreen() {
   const lastUserMsgRef = useRef<string>('');
 
   const activeConversation = getActiveConversation(activeWorkspace.id);
-  const chatMessages = activeConversation?.messages ?? [];
+  const chatMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
 
-  useEffect(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, [chatMessages, streamingText]);
+  // Dernier message utilisateur (éditable) + texte de streaming throttlé
+  const lastUserMsgId = [...chatMessages].reverse().find((m: any) => m.role === 'user')?.id;
+  const throttledStream = useThrottledText(streamingText);
+  const inputRef = useRef<TextInput>(null);
+
+  // Suivi de la position de scroll : l'auto-scroll ne s'applique que si
+  // l'utilisateur est déjà en bas de la conversation.
+  const isNearBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const handleChatScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const nearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 140;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollToBottom(!nearBottom && chatMessages.length > 2);
+  };
+
+  useEffect(() => {
+    if (isNearBottomRef.current) scrollRef.current?.scrollToEnd({ animated: true });
+  }, [chatMessages, streamingText]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -734,7 +779,9 @@ export default function ChatScreen() {
         showToast(`${doneIds.length} tâche(s) cochée(s)`, { tone: 'success' });
       }
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent });
-      getDueTasks(activeWorkspace.id).forEach((task: any) => completeTask(activeWorkspace.id, task.id));
+      // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
+      // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
+      // traitée par l'agent doit rester ouverte jusqu'à être réellement faite.
     } catch (err: any) {
       setStreamingText('');
       setActivities([]);
@@ -761,6 +808,15 @@ export default function ChatScreen() {
     const history = msgs.slice(0, userIdx).map((m: any) => ({ role: m.role, content: m.content }));
     truncateMessagesAfter(activeWorkspace.id, activeConversation.id, assistantMsgId);
     await runGeneration(userMsg, history);
+  };
+
+  // Éditer un message utilisateur : retire ce message et tout ce qui suit,
+  // puis pré-remplit le champ de saisie (le renvoi est explicite).
+  const handleEditUserMessage = (msgId: string, content: string) => {
+    if (isLoading || !activeConversation) return;
+    truncateMessagesAfter(activeWorkspace.id, activeConversation.id, msgId);
+    setInput(content);
+    setTimeout(() => inputRef.current?.focus(), 60);
   };
 
   const handleSend = async (override?: string) => {
@@ -892,7 +948,14 @@ export default function ChatScreen() {
           ) : null}
 
           {/* Messages */}
-          <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: 0, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: Spacing.md, gap: 0, paddingBottom: insets.bottom + 80 }}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleChatScroll}
+            scrollEventThrottle={120}
+          >
             {chatMessages.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
                 <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
@@ -930,6 +993,11 @@ export default function ChatScreen() {
                 botName={bot.name}
                 botColor={bot.avatarColor}
                 onCopy={() => handleCopyMessage(msg.content)}
+                onEdit={
+                  msg.role === 'user' && msg.id === lastUserMsgId && !isLoading
+                    ? () => handleEditUserMessage(msg.id, msg.content)
+                    : undefined
+                }
                 onRegenerate={
                   msg.role === 'assistant' && idx === chatMessages.length - 1 && !isLoading
                     ? () => handleRegenerate(msg.id)
@@ -950,7 +1018,9 @@ export default function ChatScreen() {
                     </View>
                   ) : null}
                   <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
-                    <Text style={{ flex: 1, color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22 }}>{streamingText}</Text>
+                    <View style={{ flex: 1 }}>
+                      <MarkdownView content={throttledStream} />
+                    </View>
                     <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
                   </View>
                 </View>
@@ -988,6 +1058,27 @@ export default function ChatScreen() {
               </View>
             ) : null}
           </ScrollView>
+
+          {/* Bouton « revenir en bas » (visible quand on a remonté dans l'historique) */}
+          {showScrollToBottom ? (
+            <Pressable
+              onPress={() => {
+                isNearBottomRef.current = true;
+                setShowScrollToBottom(false);
+                scrollRef.current?.scrollToEnd({ animated: true });
+              }}
+              style={({ pressed }) => [{
+                position: 'absolute', right: Spacing.md, bottom: 96,
+                width: 40, height: 40, borderRadius: 20,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border,
+                shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 5,
+              }, pressed && { opacity: 0.75 }]}
+              accessibilityLabel="Revenir en bas de la conversation"
+            >
+              <MaterialIcons name="keyboard-arrow-down" size={22} color={C.textSecondary} />
+            </Pressable>
+          ) : null}
 
           {/* Pending attachment badge */}
           {pendingAttachment ? (
@@ -1032,6 +1123,7 @@ export default function ChatScreen() {
             </Pressable>
 
             <TextInput
+              ref={inputRef}
               style={{ flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
               value={input} onChangeText={setInput}
               placeholder={pendingAttachment ? `Message + "${pendingAttachment.name}"` : t('typeMessage')}

@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Radius, Spacing, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { ChatMessage } from '@/contexts/BotContext';
+import { MarkdownView } from '@/components/feature/Markdown';
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -12,13 +13,15 @@ interface ChatBubbleProps {
   botColor: string;
   onCopy?: () => void;
   onRegenerate?: () => void;
+  /** Éditer ce message utilisateur (reprise de la conversation à partir de lui) */
+  onEdit?: () => void;
   showActions?: boolean;
 }
 
-export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, showActions }: ChatBubbleProps) {
+export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, onEdit, showActions }: ChatBubbleProps) {
   const C = useThemeColors();
   const isUser = message.role === 'user';
-  const actionsVisible = showActions !== false && (!!onCopy || (!isUser && !!onRegenerate));
+  const actionsVisible = showActions !== false && (!!onCopy || (!isUser && !!onRegenerate) || (isUser && !!onEdit));
 
   return (
     <View style={{
@@ -52,14 +55,19 @@ export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, s
                 borderBottomRightRadius: 4,
               }
             : {
-                // Réponse de l'IA SANS bulle : texte étalé sur toute la largeur
+                // Réponse de l'IA SANS bulle : texte étalé sur toute la largeur,
+                // rendu en markdown (titres, listes, blocs de code copiables)
                 flex: 1,
                 paddingHorizontal: Spacing.xs,
               },
         ]}>
-          <Text style={{ fontSize: FontSize.body, lineHeight: 22, color: isUser ? '#fff' : C.textPrimary }}>
-            {message.content}
-          </Text>
+          {isUser ? (
+            <Text style={{ fontSize: FontSize.body, lineHeight: 22, color: '#fff' }}>
+              {message.content}
+            </Text>
+          ) : (
+            <MarkdownView content={message.content} />
+          )}
         </View>
 
         {message.toolsUsed && message.toolsUsed.length > 0 ? (
@@ -78,6 +86,11 @@ export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, s
               {onCopy ? (
                 <Pressable onPress={onCopy} hitSlop={8} accessibilityLabel="Copier" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
                   <MaterialIcons name="content-copy" size={13} color={C.textMuted} />
+                </Pressable>
+              ) : null}
+              {isUser && onEdit ? (
+                <Pressable onPress={onEdit} hitSlop={8} accessibilityLabel="Modifier le message" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+                  <MaterialIcons name="edit" size={13} color={C.textMuted} />
                 </Pressable>
               ) : null}
               {!isUser && onRegenerate ? (

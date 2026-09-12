@@ -280,7 +280,14 @@ export default function WorkspacesScreen() {
                               <Pressable onPress={() => startRenameConv(ws.id, conv.id, conv.title)} hitSlop={10} style={{ padding: Spacing.xs }}>
                                 <MaterialIcons name="edit" size={14} color={C.textMuted} />
                               </Pressable>
-                              <Pressable onPress={() => removeConversation(ws.id, conv.id)} hitSlop={10} style={{ padding: Spacing.xs }}>
+                              <Pressable
+                                onPress={() => showAlert(`Supprimer "${conv.title}" ?`, 'Cette action est définitive.', [
+                                  { text: t('cancel'), style: 'cancel' },
+                                  { text: t('delete'), style: 'destructive', onPress: () => removeConversation(ws.id, conv.id) },
+                                ])}
+                                hitSlop={10}
+                                style={{ padding: Spacing.xs }}
+                              >
                                 <MaterialIcons name="delete-outline" size={15} color={C.textMuted} />
                               </Pressable>
                               <MaterialIcons name="chevron-right" size={18} color={ws.color + '88'} />

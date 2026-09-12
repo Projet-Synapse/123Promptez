@@ -5,6 +5,7 @@ export { Toggle } from './ui/Toggle';
 export { KBSourceCard } from './feature/KBSourceCard';
 export { AgentToolRow } from './feature/AgentToolRow';
 export { ChatBubble } from './feature/ChatBubble';
+export { MarkdownView } from './feature/Markdown';
 export { SliderRow } from './feature/SliderRow';
 
 export { Tooltip, withNativeTitle } from './ui/Tooltip';

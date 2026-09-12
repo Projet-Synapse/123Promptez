@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput,
+  Modal, KeyboardAvoidingView, Platform, TextInput, Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
@@ -20,6 +20,26 @@ import { useAlert, getSupabaseClient } from '@/template';
 import type { CustomAgent } from '@/contexts/BotContext';
 
 type ActiveSection = 'kb' | 'agents' | 'custom_agents' | 'apps';
+
+/** Ouvre une URL externe sans crasher sur natif (window n'existe pas hors web) */
+function openExternal(url?: string) {
+  if (!url) return;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener');
+  } else {
+    Linking.openURL(url).catch(() => {});
+  }
+}
+
+/** Lit le presse-papiers (web uniquement — API absente sur natif) */
+async function readClipboardText(): Promise<string | null> {
+  if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return null;
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return null;
+  }
+}
 
 // ── Complexity badge ──────────────────────────────────────────────────────────
 const COMPLEXITY_LABELS: Record<number, { label: string; color: string; icon: string }> = {
@@ -488,7 +508,7 @@ export default function BuilderScreen() {
                             color: preset.color,
                             presetId: preset.id,
                           }, true);
-                          window.open((preset as any).connectUrl, '_blank', 'noopener');
+                          openExternal((preset as any).connectUrl);
                         }}
                         style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.pill, backgroundColor: '#24292F', opacity: pressed ? 0.8 : 1 }]}
                         accessibilityLabel="Connecter GitHub"
@@ -525,7 +545,7 @@ export default function BuilderScreen() {
                     {!githubToken ? (
                       <>
                         <Pressable
-                          onPress={() => window.open((preset as any).connectUrl, '_blank', 'noopener')}
+                          onPress={() => openExternal((preset as any).connectUrl)}
                           style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#24292F', borderRadius: Radius.md, paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
                         >
                           <FontAwesome name="github" size={16} color="#fff" />
@@ -533,16 +553,14 @@ export default function BuilderScreen() {
                         </Pressable>
                         <Pressable
                           onPress={async () => {
-                            try {
-                              const text = await navigator.clipboard.readText();
-                              if (text && text.trim().length > 10) {
-                                updateConnectedApp(existing.id, { webhookUrl: text.trim() });
-                                showAlert('Jeton collé', 'La connexion GitHub est établie.');
-                              } else {
-                                showAlert('Presse-papiers vide', 'Copie d\'abord le jeton sur GitHub (bouton « Copy » à côté du token généré).');
-                              }
-                            } catch {
-                              showAlert('Collage automatique refusé', 'Autorise le presse-papiers quand le navigateur le demande, ou colle le jeton manuellement dans le champ ci-dessous (Ctrl+V).');
+                            const text = await readClipboardText();
+                            if (text && text.trim().length > 10) {
+                              updateConnectedApp(existing.id, { webhookUrl: text.trim() });
+                              showAlert('Jeton collé', 'La connexion GitHub est établie.');
+                            } else if (text === null) {
+                              showAlert('Collage automatique indisponible', 'Colle le jeton manuellement dans le champ ci-dessous (Ctrl+V).');
+                            } else {
+                              showAlert('Presse-papiers vide', 'Copie d\'abord le jeton sur GitHub (bouton « Copy » à côté du token généré).');
                             }
                           }}
                           style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: C.accent + '66', backgroundColor: C.accent + '15', paddingVertical: Spacing.sm + 2, opacity: pressed ? 0.8 : 1 }]}
