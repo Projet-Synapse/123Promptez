@@ -88,45 +88,28 @@ function WebScrollbars() {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const style = document.createElement('style');
     style.id = 'promptez-scrollbars';
-    // RN-web écrit les styles inline SANS espace (overflow-y:auto) : on cible
-    // les deux variantes.
+    // react-native-web moderne génère des CLASSES CSS (plus de styles inline) :
+    // cibler div[style*=…] était voué à l'échec. On applique le scrollbar à
+    // tous les conteneurs défilants, universellement.
     style.textContent = `
-      div[style*="overflow-y: auto"], div[style*="overflow-y:auto"],
-      div[style*="overflow: auto"], div[style*="overflow:auto"],
-      div[style*="overflow-y: scroll"], div[style*="overflow-y:scroll"],
-      div[style*="overflow: scroll"], div[style*="overflow:scroll"] {
-        scrollbar-width: thin !important;
-        scrollbar-color: #b6bdc7 transparent !important;
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #b6bdc7 transparent;
       }
-      div[style*="overflow-y: auto"]::-webkit-scrollbar,
-      div[style*="overflow-y:auto"]::-webkit-scrollbar,
-      div[style*="overflow: auto"]::-webkit-scrollbar,
-      div[style*="overflow:auto"]::-webkit-scrollbar,
-      div[style*="overflow-y: scroll"]::-webkit-scrollbar,
-      div[style*="overflow-y:scroll"]::-webkit-scrollbar,
-      div[style*="overflow: scroll"]::-webkit-scrollbar,
-      div[style*="overflow:scroll"]::-webkit-scrollbar {
+      *::-webkit-scrollbar {
         width: 10px; height: 10px; display: block;
       }
-      div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb,
-      div[style*="overflow-y:auto"]::-webkit-scrollbar-thumb,
-      div[style*="overflow: auto"]::-webkit-scrollbar-thumb,
-      div[style*="overflow:auto"]::-webkit-scrollbar-thumb,
-      div[style*="overflow-y: scroll"]::-webkit-scrollbar-thumb,
-      div[style*="overflow-y:scroll"]::-webkit-scrollbar-thumb,
-      div[style*="overflow: scroll"]::-webkit-scrollbar-thumb,
-      div[style*="overflow:scroll"]::-webkit-scrollbar-thumb {
+      *::-webkit-scrollbar-thumb {
         background: #b6bdc7; border-radius: 6px; border: 2px solid transparent;
         background-clip: content-box;
       }
-      div[style*="overflow-y: auto"]::-webkit-scrollbar-track,
-      div[style*="overflow-y:auto"]::-webkit-scrollbar-track,
-      div[style*="overflow: auto"]::-webkit-scrollbar-track,
-      div[style*="overflow:auto"]::-webkit-scrollbar-track,
-      div[style*="overflow-y: scroll"]::-webkit-scrollbar-track,
-      div[style*="overflow-y:scroll"]::-webkit-scrollbar-track,
-      div[style*="overflow: scroll"]::-webkit-scrollbar-track,
-      div[style*="overflow:scroll"]::-webkit-scrollbar-track {
+      *::-webkit-scrollbar-thumb:hover {
+        background: #99a3b0; border: 2px solid transparent; background-clip: content-box;
+      }
+      *::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      *::-webkit-scrollbar-corner {
         background: transparent;
       }
     `;

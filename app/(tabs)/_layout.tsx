@@ -18,7 +18,6 @@ const TAB_ITEMS: { name: string; titleKey: string; icon: keyof typeof MaterialIc
   { name: 'index', titleKey: 'builder', icon: 'construction', href: '/(tabs)/' },
   { name: 'workspaces', titleKey: 'workspaces', icon: 'workspaces', href: '/(tabs)/workspaces' },
   { name: 'chat', titleKey: 'chat', icon: 'chat-bubble', href: '/(tabs)/chat' },
-  { name: 'profile', titleKey: 'profile', icon: 'person', href: '/(tabs)/profile' },
   { name: 'settings', titleKey: 'settings', icon: 'tune', href: '/(tabs)/settings' },
 ];
 
@@ -79,13 +78,11 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <MaterialIcons name="chat-bubble" size={size} color={color} accessibilityLabel="Chat" />,
         }}
       />
+      {/* Profil : retiré des onglets principaux — bouton « Mon compte » dans
+          les Paramètres. La route reste montée pour la navigation. */}
       <Tabs.Screen
         name="profile"
-        options={{
-          title: 'Profil',
-          tabBarAccessibilityLabel: 'Profil',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} accessibilityLabel="Profil" />,
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="settings"

@@ -414,7 +414,19 @@ async function toolReadGithub(args: any): Promise<ToolOutcome> {
 
 export function formatToolResults(outcomes: { call: ClientToolCall; outcome: ToolOutcome }[]): string {
   const lines = outcomes.map(({ call, outcome }) => `▸ ${call.name} → ${outcome.summary}`);
-  const details = outcomes.map(({ call, outcome }, i) => `--- Résultat ${i + 1} (${call.name}) ---\n${outcome.detail}`);
+  // Détails plafonnés : des lectures multiples ne doivent pas gonfler
+  // démesurément le message de résultats (et donc le contexte du tour suivant).
+  const PER_DETAIL = 4_000;
+  const TOTAL_CAP = 30_000;
+  const details: string[] = [];
+  let total = 0;
+  outcomes.forEach(({ call, outcome }, i) => {
+    let d = outcome.detail;
+    if (d.length > PER_DETAIL) d = d.slice(0, PER_DETAIL) + '\n[… tronqué]';
+    if (total + d.length > TOTAL_CAP) d = d.slice(0, Math.max(0, TOTAL_CAP - total)) + '\n[… tronqué]';
+    total += d.length;
+    details.push(`--- Résultat ${i + 1} (${call.name}) ---\n${d}`);
+  });
   return [
     `[RÉSULTATS D'OUTILS — exécutés automatiquement par l'application]`,
     ...lines,

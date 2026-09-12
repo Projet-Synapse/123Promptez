@@ -310,7 +310,12 @@ function SideDrawer({
   });
   const drawerWRef = useRef(drawerW);
   drawerWRef.current = drawerW;
-  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+  // L'offset part de la largeur RÉELLE : sinon (offset -340 vs largeur 500)
+  // un bout du tiroir fermé dépasse à l'écran — le « bug » de superposition.
+  const slideAnim = useRef(new Animated.Value(-drawerW)).current;
+  useEffect(() => {
+    if (!open) slideAnim.setValue(-drawerW);
+  }, [drawerW]);
   const { showAlert } = useAlert();
 
   // Renaming
@@ -756,7 +761,12 @@ export default function ChatScreen() {
         ...(f.subFolders ?? []).flatMap((s: any) => s.files),
       ]),
     ];
-    setActivities([{ key: 'reason', label: 'Raisonnement…', icon: 'psychology', status: 'running' }]);
+    // Activités qui S'ACCUMULENT entre les tours d'outils : les fichiers
+    // lus/modifiés restent visibles pendant que l'IA poursuit sa réponse.
+    setActivities(prev => [
+      ...prev,
+      { key: `reason-${toolRound}-${Date.now()}`, label: toolRound > 0 ? `Poursuite de la réponse (outils exécutés ci-dessus)…` : 'Raisonnement…', icon: 'psychology', status: 'running' as ActivityStatus },
+    ]);
     const activityTimers: ReturnType<typeof setTimeout>[] = [];
     const scheduleActivity = (delay: number, key: string, label: string, icon: string, cond = true) => {
       if (!cond) return;
@@ -764,7 +774,7 @@ export default function ChatScreen() {
     };
     // Flux d'activités HONNÊTE : uniquement ce qui est réellement fait
     // (le contexte workspace est injecté dans le prompt, rien d'autre ne s'exécute)
-    scheduleActivity(500, 'ctx', `Contexte du workspace : ${wsDbFiles.length} fichier(s), ${pendingTasks.length} tâche(s)`, 'folder-open', wsDbFiles.length > 0 || pendingTasks.length > 0);
+    scheduleActivity(500, 'ctx', `Contexte du workspace : ${wsDbFiles.length} fichier(s), ${pendingTasks.length} tâche(s)`, 'folder-open', toolRound === 0 && (wsDbFiles.length > 0 || pendingTasks.length > 0));
     scheduleActivity(1000, 'gen', 'Rédaction de la réponse…', 'chat-bubble');
 
     const controller = new AbortController();
@@ -797,10 +807,18 @@ export default function ChatScreen() {
         },
       );
       setStreamingText('');
-      // Réponse vide (le modèle n'a rien renvoyé) : on ne crée PAS de bulle vide
+      // Réponse vide : on ne crée PAS de bulle vide. En plein milieu d'une
+      // boucle d'outils, on l'explique VISIBLEMENT (et pas juste un toast).
       if (!full.trim()) {
         setActivities([]);
-        showToast('Réponse vide du modèle — réessaie dans un instant', { tone: 'error' });
+        if (toolRound > 0) {
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+            role: 'assistant',
+            content: '_(La suite de la réponse n’a pas abouti — le modèle est reparti sans texte. Relance-moi pour que je continue.)_',
+          });
+        } else {
+          showToast('Réponse vide du modèle — réessaie dans un instant', { tone: 'error' });
+        }
         return;
       }
       // Dépouille les marqueurs de tâches cochées par l'agent : [x:task-…]
@@ -821,41 +839,52 @@ export default function ChatScreen() {
         if (cleanContent.trim()) {
           addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent });
         }
-        const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
-        for (const call of toolCalls) {
-          pushActivity(`outil-${call.name}-${outcomes.length}`, `Outil ${call.name}…`, 'precision-manufacturing');
-          if (call.name === 'lire_fichier_github') {
-            call.args = { ...call.args, token: resolveGitHubToken(bot.connectedApps) ?? undefined };
+        try {
+          const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
+          for (const call of toolCalls) {
+            pushActivity(`outil-${call.name}-${outcomes.length}`, `Outil ${call.name}…`, 'precision-manufacturing');
+            if (call.name === 'lire_fichier_github') {
+              call.args = { ...call.args, token: resolveGitHubToken(bot.connectedApps) ?? undefined };
+            }
+            const outcome = await executeClientTool(call, activeWorkspace, {
+              updateFile, addFile, addSubFolder,
+              // Miroir disque : l'écriture de l'agent est répercutée dans le
+              // dossier local relié (vault / dépôt local) si disponible.
+              mirrorToDisk: (loc, relPath, content) => {
+                const fld = activeWorkspace.database.folders.find((f: any) =>
+                  typeof loc === 'string' ? loc === f.id : loc !== null && loc.folderId === f.id);
+                const meta = fld?.vault ?? fld?.repo;
+                if (meta && meta.sourceKind === 'local') void vaultWriteFile(meta, relPath, content);
+              },
+            });
+            outcomes.push({ call, outcome });
+            pushActivity(
+              `outil-${call.name}-${outcomes.length - 1}`,
+              outcome.summary,
+              outcome.ok ? 'check-circle' : 'error-outline',
+              outcome.detail.split('\n').slice(0, 3).join('\n').slice(0, 280),
+            );
           }
-          const outcome = await executeClientTool(call, activeWorkspace, {
-            updateFile, addFile, addSubFolder,
-            // Miroir disque : l'écriture de l'agent est répercutée dans le
-            // dossier local relié (vault / dépôt local) si disponible.
-            mirrorToDisk: (loc, relPath, content) => {
-              const fld = activeWorkspace.database.folders.find((f: any) =>
-                typeof loc === 'string' ? loc === f.id : loc !== null && loc.folderId === f.id);
-              const meta = fld?.vault ?? fld?.repo;
-              if (meta && meta.sourceKind === 'local') void vaultWriteFile(meta, relPath, content);
-            },
+          const resultsText = formatToolResults(outcomes);
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: resultsText });
+          activityTimers.forEach(clearTimeout);
+          const nextHistory = [
+            ...history,
+            { role: 'user', content: msg },
+            ...(cleanContent.trim() ? [{ role: 'assistant', content: cleanContent }] : []),
+          ];
+          await runGeneration(resultsText, nextHistory, toolRound + 1);
+          return;
+        } catch (e: any) {
+          // Un échec d'outil ne doit JAMAIS laisser la conversation suspendue
+          // sans explication visible.
+          setActivities([]);
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+            role: 'assistant',
+            content: `_(Erreur pendant l’exécution des outils : ${e?.message ?? 'inconnue'} — tu peux me relancer.)_`,
           });
-          outcomes.push({ call, outcome });
-          pushActivity(
-            `outil-${call.name}-${outcomes.length - 1}`,
-            outcome.summary,
-            outcome.ok ? 'check-circle' : 'error-outline',
-            outcome.detail.split('\n').slice(0, 3).join('\n').slice(0, 280),
-          );
+          return;
         }
-        const resultsText = formatToolResults(outcomes);
-        addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: resultsText });
-        activityTimers.forEach(clearTimeout);
-        const nextHistory = [
-          ...history,
-          { role: 'user', content: msg },
-          ...(cleanContent.trim() ? [{ role: 'assistant', content: cleanContent }] : []),
-        ];
-        await runGeneration(resultsText, nextHistory, toolRound + 1);
-        return;
       }
       if (toolCalls.length > 0) {
         // 3 tours déjà atteints : on retire les marqueurs et on conclut

@@ -457,7 +457,10 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   const setActiveConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, activeConversationId: cid } : w));
   const addMessageToConversation = (wid: string, cid: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
-    const newMsg: ChatMessage = { ...msg, id: `msg-${Date.now()}`, timestamp: new Date() };
+    // ID unique : deux messages ajoutés dans la même milliseconde (assistant
+    // puis résultats d'outils) partageaient le même id → clés React dupliquées
+    // → messages invisibles dans la liste.
+    const newMsg: ChatMessage = { ...msg, id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, timestamp: new Date() };
     setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
       ...w, conversations: w.conversations.map(c => {
         if (c.id !== cid) return c;

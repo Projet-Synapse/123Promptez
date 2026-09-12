@@ -50,9 +50,11 @@ export function ResizeHandle({
       ref={ref as any}
       style={{
         position: 'absolute', top: 0, bottom: 0,
-        left: edge === 'left' ? -4 : undefined,
-        right: edge === 'right' ? -4 : undefined,
-        width: 9, alignItems: 'center', justifyContent: 'center', zIndex: 6,
+        // À FLEUR du bord (pas d'offset négatif) : la poignée ne doit pas
+        // recouvrir le contenu voisin ni gêner ses clics.
+        left: edge === 'left' ? 0 : undefined,
+        right: edge === 'right' ? 0 : undefined,
+        width: 10, alignItems: 'center', justifyContent: 'center', zIndex: 6,
         cursor: 'ew-resize' as any,
       }}
     >

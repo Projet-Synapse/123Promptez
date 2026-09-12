@@ -43,9 +43,14 @@ export default function ProfileScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
       <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
 
-        {/* Header */}
+        {/* Header — le profil n'est plus un onglet principal : retour fourni */}
         <View style={{ gap: 2 }}>
-          <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Profil</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+            <Pressable onPress={() => router.back()} hitSlop={8} accessibilityLabel="Retour">
+              <MaterialIcons name="arrow-back" size={22} color={C.textPrimary} />
+            </Pressable>
+            <Text style={{ fontSize: FontSize.xl, color: C.textPrimary, fontWeight: FontWeight.bold }}>Profil</Text>
+          </View>
           <Text style={{ fontSize: FontSize.sm, color: C.textSecondary }}>Identité et compte</Text>
         </View>
 
