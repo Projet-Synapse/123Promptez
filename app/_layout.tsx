@@ -1,7 +1,7 @@
 // Root layout — wires WorkspaceProvider, ProfileProvider & BotProvider to cloud auto-sync
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Platform } from 'react-native';
+import { Platform, View, Text } from 'react-native';
 import { useFonts } from 'expo-font';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import * as SplashScreen from 'expo-splash-screen';
@@ -65,6 +65,7 @@ function InnerLayout() {
           <CloudHydrator />
           <VaultLiveSync />
           <WebScrollbars />
+          <MultiTabBanner />
           <CommandPalette />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
@@ -78,6 +79,20 @@ function InnerLayout() {
         </BotProvider>
       </WorkspaceProvider>
     </ProfileProvider>
+  );
+}
+
+/** Avertissement permanent dans un onglet NON leader : un autre onglet de
+ *  l'app détient la sauvegarde cloud — les modifications d'ici restent locales. */
+function MultiTabBanner() {
+  const { isLeader } = useAppData();
+  if (Platform.OS !== 'web' || isLeader) return null;
+  return (
+    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#B45309', paddingVertical: 6, paddingHorizontal: 12, zIndex: 500 }}>
+      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>
+        ⚠️ L’app est aussi ouverte dans un autre onglet : c’est lui qui sauvegarde. Fermez-le pour que CET onglet prenne le relais.
+      </Text>
+    </View>
   );
 }
 
