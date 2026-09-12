@@ -336,7 +336,15 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
       setSiteUrlDraft(meta.siteUrl);
     } else {
       setRepoSiteUrl(null);
-      setSiteUrlDraft('');
+      // Pré-remplissage : hypothèse GitHub Pages (l'utilisatrice peut coller
+      // son URL réelle — Vercel, Grok… — qui sera ensuite chargée d'un clic).
+      const full = meta.repoFullName;
+      if (meta.sourceKind === 'github' && full) {
+        const [owner, repo] = full.split('/');
+        setSiteUrlDraft(`https://${owner}.github.io/${repo}/`);
+      } else {
+        setSiteUrlDraft('');
+      }
     }
   };
 

@@ -34,7 +34,7 @@ import {
   type ClientToolCall, type ToolOutcome,
 } from '@/services/agentClientTools';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
-import { resolveGitHubToken } from '@/services/vaultService';
+import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -92,22 +92,31 @@ function formatRelativeTime(date: Date): string {
 
 // ─── Activity feed (before the answer) ────────────────────────────────────────
 export type ActivityStatus = 'running' | 'done';
-export interface ChatActivity { key: string; label: string; icon: string; status: ActivityStatus }
+export interface ChatActivity { key: string; label: string; icon: string; status: ActivityStatus; detail?: string }
 
+// Flux d'activités SANS bulle : liste plate en filigrane sous l'avatar,
+// avec une ligne de détail (fichier concerné, taille, extrait de console…).
 function ActivityFeed({ activities }: { activities: ChatActivity[] }) {
   const C = useThemeColors();
   if (activities.length === 0) return null;
   return (
-    <View style={{ gap: 5, marginBottom: Spacing.xs }}>
+    <View style={{ gap: 6, marginBottom: Spacing.sm, paddingLeft: Spacing.xs }}>
       {activities.map(a => (
-        <View key={a.key} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-          {a.status === 'running'
-            ? <ActivityIndicator size="small" color={C.accent} />
-            : <MaterialIcons name="check-circle" size={14} color="#00CC6A" />}
-          <MaterialIcons name={a.icon as any} size={13} color={a.status === 'running' ? C.accent : C.textMuted} />
-          <Text style={{ fontSize: FontSize.xs, color: a.status === 'running' ? C.accent : C.textSecondary, fontWeight: a.status === 'running' ? '600' : '400' }}>
-            {a.label}
-          </Text>
+        <View key={a.key}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+            {a.status === 'running'
+              ? <ActivityIndicator size="small" color={C.accent} />
+              : <MaterialIcons name="check-circle" size={14} color="#00CC6A" />}
+            <MaterialIcons name={a.icon as any} size={13} color={a.status === 'running' ? C.accent : C.textMuted} />
+            <Text style={{ fontSize: FontSize.xs, color: a.status === 'running' ? C.accent : C.textSecondary, fontWeight: a.status === 'running' ? '600' : '400' }} numberOfLines={1}>
+              {a.label}
+            </Text>
+          </View>
+          {a.detail ? (
+            <Text style={{ marginLeft: 38, marginTop: 1, fontSize: 10, lineHeight: 14, color: C.textMuted, fontFamily: 'monospace' }} numberOfLines={3}>
+              {a.detail}
+            </Text>
+          ) : null}
         </View>
       ))}
     </View>
@@ -368,10 +377,10 @@ function SideDrawer({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — top/left/right/bottom explicites (« inset » est ignoré en RN) */}
       {open ? (
         <Pressable
-          style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100 }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 900 }}
           onPress={onClose}
         />
       ) : null}
@@ -384,7 +393,8 @@ function SideDrawer({
         backgroundColor: C.bgCard,
         borderRightWidth: 1,
         borderRightColor: C.border,
-        zIndex: 101,
+        zIndex: 901,
+        elevation: 24,
         transform: [{ translateX: slideAnim }],
       }}>
         <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
@@ -688,10 +698,10 @@ export default function ChatScreen() {
   };
 
   // Ajoute une activité au flux défilant affiché pendant que l'IA travaille
-  const pushActivity = (key: string, label: string, icon: string) => {
+  const pushActivity = (key: string, label: string, icon: string, detail?: string) => {
     setActivities(prev => {
       const without = prev.filter(a => a.key !== key);
-      return [...without.map(a => ({ ...a, status: 'done' as ActivityStatus })), { key, label, icon, status: 'running' as ActivityStatus }];
+      return [...without.map(a => ({ ...a, status: 'done' as ActivityStatus })), { key, label, icon, status: 'running' as ActivityStatus, detail }];
     });
   };
 
@@ -799,9 +809,24 @@ export default function ChatScreen() {
           if (call.name === 'lire_fichier_github') {
             call.args = { ...call.args, token: resolveGitHubToken(bot.connectedApps) ?? undefined };
           }
-          const outcome = await executeClientTool(call, activeWorkspace, { updateFile, addFile, addSubFolder });
+          const outcome = await executeClientTool(call, activeWorkspace, {
+            updateFile, addFile, addSubFolder,
+            // Miroir disque : l'écriture de l'agent est répercutée dans le
+            // dossier local relié (vault / dépôt local) si disponible.
+            mirrorToDisk: (loc, relPath, content) => {
+              const fld = activeWorkspace.database.folders.find((f: any) =>
+                typeof loc === 'string' ? loc === f.id : loc !== null && loc.folderId === f.id);
+              const meta = fld?.vault ?? fld?.repo;
+              if (meta && meta.sourceKind === 'local') void vaultWriteFile(meta, relPath, content);
+            },
+          });
           outcomes.push({ call, outcome });
-          pushActivity(`outil-${call.name}-${outcomes.length - 1}`, outcome.summary, outcome.ok ? 'check-circle' : 'error-outline');
+          pushActivity(
+            `outil-${call.name}-${outcomes.length - 1}`,
+            outcome.summary,
+            outcome.ok ? 'check-circle' : 'error-outline',
+            outcome.detail.split('\n').slice(0, 3).join('\n').slice(0, 280),
+          );
         }
         const resultsText = formatToolResults(outcomes);
         addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: resultsText });
@@ -898,20 +923,6 @@ export default function ChatScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* Side Drawer */}
-      <SideDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        activeWorkspace={activeWorkspace}
-        workspaces={workspaces}
-        setActiveWorkspace={setActiveWorkspace}
-        setActiveConversation={setActiveConversation}
-        addConversation={addConversation}
-        removeConversation={removeConversation}
-        renameConversation={renameConversation}
-        onNavigate={handleNavigate}
-      />
-
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
 
@@ -1053,11 +1064,7 @@ export default function ChatScreen() {
                   <MaterialIcons name="smart-toy" size={14} color="#fff" />
                 </View>
                 <View style={{ flex: 1, gap: Spacing.xs }}>
-                  {activities.length > 0 ? (
-                    <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm }}>
-                      <ActivityFeed activities={activities} />
-                    </View>
-                  ) : null}
+                  <ActivityFeed activities={activities} />
                   <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
                     <View style={{ flex: 1 }}>
                       <MarkdownView content={throttledStream} />
@@ -1069,15 +1076,11 @@ export default function ChatScreen() {
             ) : null}
 
             {isLoading && !streamingText ? (
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm, marginBottom: Spacing.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, marginBottom: Spacing.md }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
                   <ActivityIndicator size="small" color="#fff" />
                 </View>
-                <View style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, gap: Spacing.xs }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
-                    <MaterialIcons name="smart-toy" size={14} color={C.accent} />
-                    <Text style={{ fontSize: FontSize.sm, color: C.accent, fontWeight: '700' }}>{t('generating')}</Text>
-                  </View>
+                <View style={{ flex: 1, paddingTop: 8 }}>
                   <ActivityFeed activities={activities} />
                 </View>
               </View>
@@ -1235,6 +1238,21 @@ export default function ChatScreen() {
 
       {/* Fantôme du glisser-déposer (fichiers du panneau latéral) */}
       <DragLayer />
+
+      {/* Side Drawer — en DERNIER enfant + zIndex élevé : garantit qu'il
+          recouvre l'en-tête (sinon l'historique s'affiche dessous, bugué) */}
+      <SideDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        activeWorkspace={activeWorkspace}
+        workspaces={workspaces}
+        setActiveWorkspace={setActiveWorkspace}
+        setActiveConversation={setActiveConversation}
+        addConversation={addConversation}
+        removeConversation={removeConversation}
+        renameConversation={renameConversation}
+        onNavigate={handleNavigate}
+      />
     </View>
   );
 }

@@ -16,7 +16,7 @@ export function MarkdownView({ content }: { content: string }) {
   const [copiedFence, setCopiedFence] = useState<string | null>(null);
 
   const styles = useMemo(() => ({
-    body: { color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22 },
+    body: { color: C.textPrimary, fontSize: FontSize.body, lineHeight: 22, maxWidth: '100%', flexShrink: 1 },
     heading1: { color: C.textPrimary, fontSize: FontSize.lg, fontWeight: '700', marginTop: Spacing.md, marginBottom: Spacing.xs },
     heading2: { color: C.textPrimary, fontSize: FontSize.md, fontWeight: '700', marginTop: Spacing.sm + 4, marginBottom: Spacing.xs },
     heading3: { color: C.textPrimary, fontSize: FontSize.body, fontWeight: '700', marginTop: Spacing.sm, marginBottom: Spacing.xs },
@@ -30,7 +30,7 @@ export function MarkdownView({ content }: { content: string }) {
     link: { color: C.accent, textDecorationLine: 'underline' },
     blockquote: { backgroundColor: C.bgCardAlt, borderLeftColor: C.accent, borderLeftWidth: 3, borderRadius: Radius.sm, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, marginVertical: Spacing.xs },
     blockquote_text: { color: C.textSecondary, fontStyle: 'italic' },
-    code_inline: { color: C.textMono, backgroundColor: C.bgCardAlt, fontFamily: 'monospace', fontSize: FontSize.sm },
+    code_inline: { color: C.textMono, backgroundColor: C.bgCardAlt, fontFamily: 'monospace', fontSize: FontSize.sm, lineHeight: 20, paddingHorizontal: 4, borderRadius: 4 },
     fence: { backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border },
     bullet_list_icon: { color: C.accent, lineHeight: 22 },
     ordered_list_icon: { color: C.accent, lineHeight: 22 },
@@ -47,7 +47,7 @@ export function MarkdownView({ content }: { content: string }) {
       const code = node?.content ?? node?.children?.[0]?.content ?? '';
       const key = node?.key ?? node?.sourceInfo?.ln ?? '';
       return (
-        <View key={key} style={{ marginVertical: Spacing.sm }}>
+        <View key={key} style={{ marginVertical: Spacing.sm, width: '100%', alignSelf: 'stretch', overflow: 'hidden', flexShrink: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.bgCard, borderTopLeftRadius: Radius.md, borderTopRightRadius: Radius.md, borderWidth: 1, borderBottomWidth: 0, borderColor: C.border, paddingHorizontal: Spacing.sm, paddingVertical: 5 }}>
             <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               {node?.sourceInfo?.info || 'code'}
@@ -70,7 +70,7 @@ export function MarkdownView({ content }: { content: string }) {
               <Text style={{ fontSize: 10, color: copiedFence === key ? C.accent : C.textSecondary, fontWeight: '700' }}>{copiedFence === key ? 'Copié' : 'Copier'}</Text>
             </Pressable>
           </View>
-          <Text style={{ backgroundColor: C.bgCardAlt, borderBottomLeftRadius: Radius.md, borderBottomRightRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.sm, color: C.textMono, fontFamily: 'monospace', fontSize: FontSize.sm, lineHeight: 20 }}>
+          <Text style={{ backgroundColor: C.bgCardAlt, borderBottomLeftRadius: Radius.md, borderBottomRightRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm + 2, paddingVertical: Spacing.sm, color: C.textMono, fontFamily: 'monospace', fontSize: FontSize.sm, lineHeight: 20, width: '100%', flexShrink: 1 }}>
             {code}
           </Text>
         </View>

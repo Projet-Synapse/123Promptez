@@ -189,6 +189,8 @@ type WsActions = {
   updateFile: (wid: string, loc: FileLocation, fileId: string, updates: Partial<DBFile>) => void;
   addFile: (wid: string, loc: FileLocation, file: Omit<DBFile, 'id' | 'createdAt' | 'updatedAt' | 'size'>) => void;
   addSubFolder: (wid: string, folderId: string, sub: Omit<DBSubFolder, 'id' | 'files' | 'createdAt'>, parentSubId?: string) => string;
+  /** Miroir disque optionnel : répercute l'écriture dans le dossier local relié (vault). */
+  mirrorToDisk?: (loc: FileLocation, relPath: string, content: string) => void;
 };
 
 function inferFileType(name: string): DBFile['type'] {
@@ -287,6 +289,7 @@ function toolWriteFile(args: any, ws: Workspace, actions: WsActions): ToolOutcom
       size: contenu.length,
       updatedAt: new Date(),
     });
+    actions.mirrorToDisk?.(existing.loc, existing.file.path ?? existing.file.name, contenu);
     return { ok: true, summary: `Modifié ${existing.file.name} (${contenu.length} car.)`, detail: `Fichier ${existing.file.name} modifié (ancien contenu remplacé, ${contenu.length} caractères).` };
   }
 
@@ -319,6 +322,7 @@ function toolWriteFile(args: any, ws: Workspace, actions: WsActions): ToolOutcom
     content: contenu,
     tags: ['agent'],
   });
+  actions.mirrorToDisk?.(loc, chemin, contenu);
   return { ok: true, summary: `Créé ${chemin} (${contenu.length} car.)`, detail: `Fichier ${chemin} créé dans la bibliothèque (${contenu.length} caractères).` };
 }
 
