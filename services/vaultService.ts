@@ -77,16 +77,181 @@ function markLocalWrite() {
 
 /** Un dossier local (vault ou dépôt) peut-il être répercuté sur le disque ? */
 export function canMirrorToDisk(meta?: VaultMeta | null): boolean {
-  const bridge = getElectronVault();
-  return !!bridge?.writeFile && !!meta && meta.sourceKind === 'local' && !!meta.path && meta.liveSync !== false;
+  if (!meta || meta.sourceKind !== 'local' || !meta.path || meta.liveSync === false) return false;
+  if (getElectronVault()?.writeFile) return true;
+  return !!getFsHandle(meta.path);
 }
 
-function hasFsAccess(): boolean {
+export function hasFsAccess(): boolean {
   return (
     Platform.OS === 'web' &&
     typeof window !== 'undefined' &&
     typeof (window as any).showDirectoryPicker === 'function'
   );
+}
+
+// ── File System Access (navigateur Chrome / Edge) ────────────────────────────
+// Les handles ne sont pas sérialisables dans le cloud : on les garde en
+// session ET dans IndexedDB pour les retrouver après un rechargement.
+
+type FsHandle = any;
+
+export function getFsHandle(name?: string): FsHandle | null {
+  if (!hasFsAccess() || !name) return null;
+  return (window as any).__promptezVaultHandles?.[name] ?? null;
+}
+
+function openHandleDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('promptez-vault-handles', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Conserve le handle en session + IndexedDB (survit au rechargement). */
+export async function saveFsHandle(handle: FsHandle): Promise<void> {
+  const store = (window as any).__promptezVaultHandles ?? {};
+  store[handle.name] = handle;
+  (window as any).__promptezVaultHandles = store;
+  try {
+    const db = await openHandleDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(handle, handle.name);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // IndexedDB indisponible : la synchro fonctionnera quand même cette session
+  }
+}
+
+/** Restaure les handles au démarrage de l'app (permission réaccordée par le
+ *  navigateur = synchro silencieuse ; sinon un clic « Resynchroniser » la
+ *  redonnera — geste utilisateur requis par le navigateur). */
+export async function restoreFsHandles(): Promise<void> {
+  if (!hasFsAccess()) return;
+  try {
+    const db = await openHandleDb();
+    const entries = await new Promise<{ name: string; handle: FsHandle }[]>((resolve, reject) => {
+      const tx = db.transaction('handles', 'readonly');
+      const out: { name: string; handle: FsHandle }[] = [];
+      const cursorReq = tx.objectStore('handles').openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          out.push({ name: String(cursor.key), handle: cursor.value });
+          cursor.continue();
+        } else resolve(out);
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+    });
+    const store = (window as any).__promptezVaultHandles ?? {};
+    for (const { name, handle } of entries) store[name] = handle;
+    (window as any).__promptezVaultHandles = store;
+  } catch {
+    // pas grave : la session courante garde ses handles en mémoire
+  }
+}
+
+/** Permission readwrite ; `requestPermission` ne passe que dans un geste utilisateur. */
+async function ensureFsPerm(root: FsHandle): Promise<boolean> {
+  try {
+    if ((await root.queryPermission?.({ mode: 'readwrite' })) === 'granted') return true;
+    if ((await root.requestPermission?.({ mode: 'readwrite' })) === 'granted') return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function fsDirHandle(root: FsHandle, relDir: string, create: boolean): Promise<FsHandle> {
+  let cur = root;
+  for (const part of relDir.split('/').filter(Boolean)) {
+    cur = await cur.getDirectoryHandle(part, { create });
+  }
+  return cur;
+}
+
+async function fsWrite(root: FsHandle, relPath: string, content: string): Promise<void> {
+  const parts = relPath.split('/');
+  const fileName = parts.pop() as string;
+  const dir = await fsDirHandle(root, parts.join('/'), true);
+  const fh = await dir.getFileHandle(fileName, { create: true });
+  const writable = await fh.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+async function fsDelete(root: FsHandle, relPath: string, isDir: boolean): Promise<void> {
+  const parts = relPath.split('/');
+  const name = parts.pop() as string;
+  const dir = await fsDirHandle(root, parts.join('/'), false);
+  await dir.removeEntry(name, { recursive: isDir });
+}
+
+/** L'API n'a pas de renommage : déplacer = réécrire puis supprimer. */
+async function fsMove(root: FsHandle, fromRel: string, toRel: string, isDir: boolean): Promise<void> {
+  if (!isDir) {
+    const src = await fsDirHandle(root, fromRel.split('/').slice(0, -1).join('/'), false);
+    const fh = await src.getFileHandle(fromRel.split('/').pop() as string);
+    const file = await fh.getFile();
+    const content = await file.text();
+    await fsWrite(root, toRel, content);
+    await fsDelete(root, fromRel, false);
+    return;
+  }
+  const copyDir = async (srcDir: FsHandle, destRel: string) => {
+    for await (const [name, entry] of srcDir.entries()) {
+      if (entry.kind === 'directory') {
+        await fsDirHandle(root, `${destRel}/${name}`, true);
+        const sub = await srcDir.getDirectoryHandle(name);
+        await copyDir(sub, `${destRel}/${name}`);
+      } else {
+        const fh = await srcDir.getFileHandle(name);
+        const file = await fh.getFile();
+        if (file.size > 512_000) continue;
+        await fsWrite(root, `${destRel}/${name}`, await file.text());
+      }
+    }
+  };
+  const fromParts = fromRel.split('/');
+  const fromName = fromParts.pop() as string;
+  const srcRoot = await fsDirHandle(root, fromParts.join('/'), false);
+  const toParts = toRel.split('/');
+  const toName = toParts.pop() as string;
+  const destParentRel = toParts.join('/');
+  await fsDirHandle(root, destParentRel, true);
+  await copyDir(await srcRoot.getDirectoryHandle(fromName), destParentRel ? `${destParentRel}/${toName}` : toName);
+  await fsDelete(root, fromRel, true);
+}
+
+/** Signature MÉTADONNÉES du dossier (chemins + taille + mtime) — sans lire les
+ *  contenus : assez légère pour un polling toutes les quelques secondes.
+ *  Retourne null si le handle est indisponible ou la permission perdue. */
+export async function fsAccessSignature(root: FsHandle): Promise<string | null> {
+  const parts: string[] = [];
+  try {
+    const walk = async (dir: FsHandle, prefix: string): Promise<void> => {
+      for await (const [name, entry] of dir.entries()) {
+        if (entry.kind === 'directory') {
+          if (name === 'node_modules' || name === '.git') continue;
+          await walk(entry, prefix ? `${prefix}/${name}` : name);
+        } else {
+          const ext = name.split('.').pop()?.toLowerCase() ?? '';
+          if (!TEXT_EXT.has(ext)) continue;
+          const file = await entry.getFile();
+          parts.push(`${prefix}/${name}:${file.size}:${file.lastModified}`);
+        }
+      }
+    };
+    await walk(root, '');
+    return parts.join('|');
+  } catch {
+    return null; // NotAllowedError / handle perdu
+  }
 }
 
 function hasElectronVault(): boolean {
@@ -183,10 +348,8 @@ export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
     const handle = await window.showDirectoryPicker({ mode: 'read' });
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
-    // Store handle on window for session re-sync (not serializable to cloud)
-    (window as any).__promptezVaultHandles = (window as any).__promptezVaultHandles || {};
-    const key = handle.name;
-    (window as any).__promptezVaultHandles[key] = handle;
+    // Handle conservé en session + IndexedDB (re-synchro et écritures disque)
+    await saveFsHandle(handle);
 
     async function walk(dir: any, prefix: string) {
       for await (const [name, entry] of dir.entries()) {
@@ -324,7 +487,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
   };
 }
 
-// ── Écritures (app → disque) — actives sur la build Electron ─────────────────
+// ── Écritures (app → disque) — Electron ET navigateur (File System Access) ──
 
 /** Complète l'extension disque d'un fichier créé depuis l'appli (nom sans point). */
 export function ensureVaultExt(name: string, type: DBFile['type']): string {
@@ -333,32 +496,57 @@ export function ensureVaultExt(name: string, type: DBFile['type']): string {
   return `${name}.${ext}`;
 }
 
-export async function vaultWriteFile(meta: VaultMeta | null, relPath: string, content: string): Promise<{ ok: boolean; error?: string }> {
-  const bridge = getElectronVault();
-  if (!bridge?.writeFile || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
+/** Répartit vers le pont Electron ou le handle File System Access. */
+async function mirrorWrite(
+  meta: VaultMeta | null,
+  kind: 'write' | 'mkdir' | 'delete' | 'move',
+  relPath: string,
+  content: string,
+  opts?: { toRel?: string; isDir?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
   markLocalWrite();
-  return bridge.writeFile(meta!.path, relPath, content);
+  const bridge = getElectronVault();
+  if (bridge) {
+    switch (kind) {
+      case 'write': return bridge.writeFile!(meta!.path, relPath, content);
+      case 'mkdir': return bridge.makeDir!(meta!.path, relPath);
+      case 'delete': return bridge.deletePath!(meta!.path, relPath, !!opts?.isDir);
+      case 'move': return bridge.movePath!(meta!.path, relPath, opts!.toRel!);
+    }
+  }
+  try {
+    const root = getFsHandle(meta!.path);
+    if (!root) return { ok: false, error: 'Dossier non relié cette session — clique « Resynchroniser » pour le relier' };
+    if (!(await ensureFsPerm(root))) {
+      return { ok: false, error: 'Autorisation du navigateur requise — clique « Resynchroniser » pour la redonner' };
+    }
+    switch (kind) {
+      case 'write': await fsWrite(root, relPath, content); break;
+      case 'mkdir': await fsDirHandle(root, relPath, true); break;
+      case 'delete': await fsDelete(root, relPath, !!opts?.isDir); break;
+      case 'move': await fsMove(root, relPath, opts!.toRel!, !!opts?.isDir); break;
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Échec de l’écriture disque' };
+  }
+}
+
+export async function vaultWriteFile(meta: VaultMeta | null, relPath: string, content: string): Promise<{ ok: boolean; error?: string }> {
+  return mirrorWrite(meta, 'write', relPath, content);
 }
 
 export async function vaultMakeDir(meta: VaultMeta | null, relPath: string): Promise<{ ok: boolean; error?: string }> {
-  const bridge = getElectronVault();
-  if (!bridge?.makeDir || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
-  markLocalWrite();
-  return bridge.makeDir(meta!.path, relPath);
+  return mirrorWrite(meta, 'mkdir', relPath, '');
 }
 
 export async function vaultDeletePath(meta: VaultMeta | null, relPath: string, isDir: boolean): Promise<{ ok: boolean; error?: string }> {
-  const bridge = getElectronVault();
-  if (!bridge?.deletePath || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
-  markLocalWrite();
-  return bridge.deletePath(meta!.path, relPath, isDir);
+  return mirrorWrite(meta, 'delete', relPath, '', { isDir });
 }
 
 export async function vaultMovePath(meta: VaultMeta | null, fromRel: string, toRel: string): Promise<{ ok: boolean; error?: string }> {
-  const bridge = getElectronVault();
-  if (!bridge?.movePath || !canMirrorToDisk(meta) || !meta!.path) return { ok: false, error: 'Miroir disque indisponible' };
-  markLocalWrite();
-  return bridge.movePath(meta!.path, fromRel, toRel);
+  return mirrorWrite(meta, 'move', fromRel, '', { toRel });
 }
 
 export async function vaultOpenPath(targetPath: string): Promise<{ ok: boolean; error?: string }> {
