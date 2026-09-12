@@ -319,37 +319,78 @@ function toolWriteFile(args: any, ws: Workspace, actions: WsActions): ToolOutcom
     return { ok: true, summary: `Modifié ${existing.file.name} (${contenu.length} car.)`, detail: `Fichier ${existing.file.name} modifié (ancien contenu remplacé, ${contenu.length} caractères).` };
   }
 
-  // Création : sous le dossier existant correspondant au 1er segment si présent,
-  // sinon à la racine. Les sous-dossiers intermédiaires sont créés au besoin.
+  // Création. Le 1er segment peut désigner :
+  //   a) un dossier racine (« map-interactive/src/App.tsx »), ou
+  //   b) un SOUS-DOSSIER d'un dossier (« test/notes.md » où test/ est dans le
+  //      vault) — sans cela le fichier partait à la racine, hors de tous les
+  //      dossiers (bug « créé dans aucun des dossiers »).
   const segments = chemin.split('/').map(s => s.trim()).filter(Boolean);
   const fileName = segments.pop() as string;
   let loc: FileLocation = null;
-  const rootFolder = segments.length > 0
-    ? ws.database.folders.find(f => f.name === segments[0])
-    : undefined;
-  if (rootFolder) {
-    loc = rootFolder.id;
-    let subs = rootFolder.subFolders ?? [];
-    for (const seg of segments.slice(1)) {
-      let sub = subs.find(s => s.name === seg);
-      if (!sub) {
-        const id = actions.addSubFolder(wid, rootFolder.id, {
-          name: seg, icon: 'folder', color: '#8899BB', description: '',
-        });
-        sub = { id, name: seg, icon: 'folder', color: '#8899BB', description: '', files: [], subFolders: [], createdAt: new Date() } as DBSubFolder;
+  let matchedFolder: DBFolder | undefined;
+  let diskRel: string | null = null; // chemin relatif au dossier disque (miroir)
+  if (segments.length > 0) {
+    let walkSegments = segments.slice(1);
+    let startSub: DBSubFolder | undefined;
+    matchedFolder = ws.database.folders.find(f => f.name === segments[0]);
+    if (!matchedFolder) {
+      for (const f of ws.database.folders) {
+        const found = findSubByName(f.subFolders ?? [], segments[0]);
+        if (found) {
+          matchedFolder = f;
+          startSub = found;
+          walkSegments = segments.slice(1);
+          break;
+        }
       }
-      loc = { folderId: rootFolder.id, subId: sub.id };
-      subs = sub.subFolders ?? [];
+    }
+    if (matchedFolder) {
+      loc = matchedFolder.id as FileLocation;
+      let subs = matchedFolder.subFolders ?? [];
+      if (startSub) {
+        loc = { folderId: matchedFolder.id, subId: startSub.id };
+        subs = startSub.subFolders ?? [];
+      }
+      for (const seg of walkSegments) {
+        let sub = subs.find(s => s.name === seg);
+        if (!sub) {
+          const parentSubId = loc !== null && typeof loc === 'object' ? loc.subId : undefined;
+          const id = actions.addSubFolder(wid, matchedFolder.id, {
+            name: seg, icon: 'folder', color: '#8899BB', description: '',
+          }, parentSubId);
+          sub = { id, name: seg, icon: 'folder', color: '#8899BB', description: '', files: [], subFolders: [], createdAt: new Date() } as DBSubFolder;
+        }
+        loc = { folderId: matchedFolder.id, subId: sub.id };
+        subs = sub.subFolders ?? [];
+      }
+      // Chemin disque RELATIF au dossier : le nom complet en chemin disque
+      // créait un sous-dossier dupliqué à l'intérieur du vault.
+      diskRel = chemin.startsWith(matchedFolder.name + '/') ? chemin.slice(matchedFolder.name.length + 1) : chemin;
     }
   }
+  // Nom complet cohérent avec les fichiers voisins du dossier cible.
+  const fullName = matchedFolder
+    ? (chemin.startsWith(matchedFolder.name + '/') ? chemin : `${matchedFolder.name}/${chemin}`)
+    : chemin;
   actions.addFile(wid, loc, {
-    name: chemin, // chemin relatif complet, comme les imports de dépôts
+    name: fullName,
+    path: diskRel ?? undefined,
     type: inferFileType(fileName),
     content: contenu,
     tags: ['agent'],
   });
-  actions.mirrorToDisk?.(loc, chemin, contenu);
-  return { ok: true, summary: `Créé ${chemin} (${contenu.length} car.)`, detail: `Fichier ${chemin} créé dans la bibliothèque (${contenu.length} caractères).` };
+  if (diskRel !== null) actions.mirrorToDisk?.(loc, diskRel, contenu);
+  return { ok: true, summary: `Créé ${fullName} (${contenu.length} car.)`, detail: `Fichier ${fullName} créé dans la bibliothèque (${contenu.length} caractères).` };
+}
+
+/** Recherche récursive d'un sous-dossier par NOM dans l'arbre d'un dossier. */
+function findSubByName(subs: DBSubFolder[], name: string): DBSubFolder | undefined {
+  for (const s of subs) {
+    if (s.name === name) return s;
+    const deep = findSubByName(s.subFolders ?? [], name);
+    if (deep) return deep;
+  }
+  return undefined;
 }
 
 async function toolExecJs(args: any): Promise<ToolOutcome> {

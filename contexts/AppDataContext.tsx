@@ -1,14 +1,24 @@
 // AppDataContext — orchestrates cloud sync for all contexts.
 // Passes onDataChange callbacks to WorkspaceProvider & ProfileProvider so every
 // mutation is auto-saved to cloud after a 2-second debounce.
+//
+// GARDE-FOU MULTI-ONGLETS : deux onglets ouverts = deux états en concurrence,
+// chacun resauvegarde sa version et ÉCRASE l'autre (import effacé par un
+// onglet chargé avant — perte de données réelle). Seul l'onglet LEADER (le
+// plus ancien encore vivant) sauvegarde dans le cloud ; les autres affichent
+// un avertissement et restent locaux.
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import { useAuth } from '@/template';
 import { saveToCloud, loadAllUserData } from '@/services/cloudSyncService';
+import { recordDiag } from '@/services/diagnostics';
 
 interface AppDataContextType {
   isSyncing: boolean;
   lastSyncAt: Date | null;
   syncError: string | null;
+  /** false si un AUTRE onglet de l'app est le leader de sauvegarde */
+  isLeader: boolean;
   triggerSync: (dataType: 'workspaces' | 'bot_config' | 'profile', data: unknown) => Promise<void>;
   retrySync: () => Promise<void>;
   loadedData: {
@@ -37,6 +47,44 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const lastPayloads = useRef<Partial<Record<'workspaces' | 'bot_config' | 'profile', unknown>>>({});
+
+  // ── Élection du tab leader (web) ────────────────────────────────────
+  const tabIdRef = useRef(Math.random().toString(36).slice(2, 9));
+  const startedAtRef = useRef(Date.now());
+  const [isLeader, setIsLeader] = useState(true);
+  const isLeaderRef = useRef(true);
+  useEffect(() => { isLeaderRef.current = isLeader; }, [isLeader]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    const KEY = 'promptez.tabs.heartbeat';
+    const beat = () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(KEY) || '{}');
+        raw[tabIdRef.current] = { startedAt: startedAtRef.current, at: Date.now() };
+        for (const id of Object.keys(raw)) {
+          if (Date.now() - raw[id].at > 8000) delete raw[id]; // onglet mort
+        }
+        localStorage.setItem(KEY, JSON.stringify(raw));
+        const ids = Object.keys(raw);
+        const leaderId = ids.sort((a, b) => raw[a].startedAt - raw[b].startedAt)[0];
+        setIsLeader(leaderId === tabIdRef.current);
+      } catch {
+        // stockage indisponible : on reste leader par défaut
+      }
+    };
+    beat();
+    const iv = setInterval(beat, 3000);
+    const unload = () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(KEY) || '{}');
+        delete raw[tabIdRef.current];
+        localStorage.setItem(KEY, JSON.stringify(raw));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('beforeunload', unload);
+    return () => { clearInterval(iv); window.removeEventListener('beforeunload', unload); };
+  }, []);
 
   // Load all data when user logs in
   useEffect(() => {
@@ -67,6 +115,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const triggerSync = useCallback(async (dataType: 'workspaces' | 'bot_config' | 'profile', data: unknown) => {
     if (!user?.id) return;
     lastPayloads.current[dataType] = data;
+    // Un onglet NON leader ne sauvegarde PAS : ses données restent locales,
+    // l'onglet leader (le plus ancien) garde la main sur le cloud.
+    if (!isLeaderRef.current) {
+      recordDiag('sync.bloqué', `${dataType} — onglet non leader (un autre onglet sauvegarde)`);
+      return;
+    }
     setIsSyncing(true);
     setSyncError(null);
     try {
@@ -105,7 +159,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [user?.id]);
 
   return (
-    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, triggerSync, retrySync, loadedData, isDataLoaded, reloadFromCloud, reloadToken }}>
+    <AppDataContext.Provider value={{ isSyncing, lastSyncAt, syncError, isLeader, triggerSync, retrySync, loadedData, isDataLoaded, reloadFromCloud, reloadToken }}>
       {children}
     </AppDataContext.Provider>
   );
