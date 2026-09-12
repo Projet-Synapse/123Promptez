@@ -21,7 +21,26 @@ interface ChatBubbleProps {
 export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, onEdit, showActions }: ChatBubbleProps) {
   const C = useThemeColors();
   const isUser = message.role === 'user';
-  const actionsVisible = showActions !== false && (!!onCopy || (!isUser && !!onRegenerate) || (isUser && !!onEdit));
+  // Message synthétique [RÉSULTATS D'OUTILS] (boucle d'outils client) :
+  // carte compacte centrée, pas une bulle utilisateur classique.
+  const isToolResults = isUser && message.content.startsWith('[RÉSULTATS D\'OUTILS');
+  const actionsVisible = !isToolResults && showActions !== false && (!!onCopy || (!isUser && !!onRegenerate) || (isUser && !!onEdit));
+
+  if (isToolResults) {
+    return (
+      <View style={{ alignSelf: 'center', width: '92%', marginVertical: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+          <MaterialIcons name="precision-manufacturing" size={13} color={C.accent} />
+          <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Résultats d’outils — transmis à l’IA
+          </Text>
+        </View>
+        <Text style={{ fontSize: 11, lineHeight: 16, color: C.textSecondary, fontFamily: 'monospace' }} numberOfLines={8}>
+          {message.content}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{

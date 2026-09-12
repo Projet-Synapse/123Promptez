@@ -11,7 +11,6 @@
 //   et honnêtes (plus de promesses non tenues).
 import type { BotConfig } from '@/contexts/BotContext';
 import type { Workspace, DBFile } from '@/contexts/WorkspaceContext';
-import { resolveGitHubToken } from '@/services/vaultService';
 
 export interface AgentCapability {
   id: string;
@@ -54,10 +53,18 @@ export const AGENT_CAPABILITIES: AgentCapability[] = [
   {
     id: 'workspace_files',
     label: 'Bibliothèque du workspace',
-    description: 'Fichiers, vault et dépôts — lecture, navigation et écriture',
+    description: 'Lire et écrire réellement dans les fichiers via [OUTIL:…]',
     icon: 'folder-open',
-    truth: 'La BIBLIOTHÈQUE DU WORKSPACE ci-dessous est accessible : le contenu des fichiers listés t\'est fourni, tu peux LIRE n\'importe quel fichier de la bibliothèque (workspace_read_file) et les MODIFIER ou en créer (workspace_write_file — écriture réelle). Utilise ces outils dès que l\'utilisateur parle de ses fichiers.',
+    truth: 'Lire un fichier de la BIBLIOTHÈQUE DU WORKSPACE avec [OUTIL:lire_fichier:{"chemin":"…"}] et le MODIFIER ou en CRÉER un avec [OUTIL:ecrire_fichier:{"chemin":"…","contenu":"…"}] — exécution réelle par l\'application, résultat au tour suivant. Utilise ces outils dès que l\'utilisateur parle de ses fichiers.',
     enabled: ws => countWorkspaceFiles(ws) > 0,
+  },
+  {
+    id: 'code_exec_client',
+    label: 'Exécution de code',
+    description: 'JavaScript réel dans une sandbox navigateur, console capturée',
+    icon: 'code',
+    truth: 'Exécuter du JavaScript RÉEL avec [OUTIL:executer_js:{"code":"…"}] — console.log et erreurs te reviennent au tour suivant (timeout 10 s). Sers-t-en pour calculer, tester un algorithme, vérifier une logique ou déboguer du code de la bibliothèque.',
+    enabled: (_ws, bot) => bot.agentTools.some(t => t.id === 'code_exec' && t.enabled),
   },
   {
     id: 'workspace_tasks',
@@ -94,22 +101,17 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
     a => a.enabled && (a.id === 'github' || a.presetId === 'github'),
   );
   if (github) {
-    const connected = !!resolveGitHubToken(bot.connectedApps);
     const fileReadOn = bot.agentTools.some(t => t.id === 'file_read' && t.enabled);
     caps.push({
       id: 'github_repos',
       label: 'Dépôts GitHub',
-      description: connected
-        ? fileReadOn
-          ? 'Connecté — liste et lecture des fichiers de tes dépôts (privés inclus)'
-          : 'Connecté — active l’outil « Lecture de fichiers » pour lire tes dépôts'
-        : 'Connecteur actif mais jeton manquant — clique « Connecter GitHub »',
+      description: fileReadOn
+        ? 'Lecture réelle des fichiers de dépôts publics via [OUTIL:…]'
+        : 'Active l’outil « Lecture de fichiers » pour lire tes dépôts',
       icon: 'github',
-      truth: connected
-        ? fileReadOn
-          ? 'Des OUTILS serveur te permettent de LISTER les dépôts GitHub de l\'utilisateur (github_list_repos) et de LISTER/LIRE les fichiers d\'un dépôt nommé (github_list_files, github_read_file — lecture seule). Utilise-les spontanément au lieu de dire que tu ne peux pas accéder.'
-          : 'Le connecteur GitHub est connecté, mais l\'outil « Lecture de fichiers » est désactivé : demande à l\'utilisateur de l\'activer dans les outils du chat pour accéder aux dépôts.'
-        : 'Le connecteur GitHub est activé mais non connecté : ne prétends pas accéder à des dépôts. L\'utilisateur doit cliquer « Connecter GitHub » et coller son jeton.',
+      truth: fileReadOn
+        ? 'Lire un fichier d\'un dépôt GitHub PUBLIC avec [OUTIL:lire_fichier_github:{"depot":"propriétaire/nom","chemin":"…"}] (paramètre « branche » optionnel, « main » par défaut) — exécution réelle, résultat au tour suivant.'
+        : 'Le connecteur GitHub est activé, mais l\'outil « Lecture de fichiers » est désactivé : demande à l\'utilisateur de l\'activer dans les outils du chat pour lire les dépôts.',
       enabled: () => true,
     });
   }
@@ -145,7 +147,7 @@ export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapab
       label: 'Sauvegarde Supabase',
       description: 'Ton workspace est synchronisé dans le cloud',
       icon: 'storage',
-      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BIBLIOTHÈQUE DU WORKSPACE » en proviennent directement et sont à jour. Un OUTIL serveur permet aussi de LIRE les tables de ton stockage cloud accessibles selon tes permissions (supabase_list_rows).',
+      truth: 'Le workspace actif est sauvegardé dans Supabase : les fichiers de la section « BIBLIOTHÈQUE DU WORKSPACE » en proviennent directement et sont à jour — toute écriture via ecrire_fichier est sauvegardée dans le cloud.',
       enabled: () => true,
     });
   }
@@ -160,6 +162,26 @@ export function buildCapabilitiesPrompt(ws: Workspace, bot: BotConfig): string {
   caps.forEach(c => {
     out += `- ${c.truth}\n`;
   });
+
+  // Protocole d'outils client : décrit précisément dès qu'au moins un outil
+  // [OUTIL:…] est annoncé dans les capacités ci-dessus.
+  if (caps.some(c => c.truth.includes('[OUTIL:'))) {
+    out += `
+### PROTOCOLE DES OUTILS (très important)
+
+Pour exécuter une action réelle, écris dans ta réponse un marqueur EXACT de cette forme, sur sa propre ligne :
+[OUTIL:nom_outil:{"parametre":"valeur"}]
+
+L'application exécute le marqueur PUIS t'envoie un message « [RÉSULTATS D'OUTILS — …] ». Tu continues alors ta réponse en te servant de ces résultats.
+- Le contenu entre [OUTIL: et ] doit être du JSON VALIDE : échappe les guillemets et les retours à la ligne (\\n) dans les chaînes.
+- Écris d'abord une phrase courte annonçant l'action, puis le(s) marqueur(s) en fin de réponse. N'écris JAMAIS un marqueur dans un bloc de code.
+- Tu peux mettre plusieurs marqueurs dans une même réponse pour plusieurs actions indépendantes.
+- Pour modifier un fichier : ecrire_fichier REMPLACE tout le contenu du fichier par « contenu » — renvoie donc le fichier COMPLET, pas seulement un extrait.
+- Ne réinvente jamais un résultat d'outil : attends le message [RÉSULTATS D'OUTILS].
+- Après 3 tours d'outils consécutifs, conclus avec ce que tu sais.
+
+`;
+  }
   return `${out}\n`;
 }
 

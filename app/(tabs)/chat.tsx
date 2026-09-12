@@ -29,6 +29,10 @@ import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
+import {
+  parseToolCalls, stripToolCalls, executeClientTool, formatToolResults,
+  type ClientToolCall, type ToolOutcome,
+} from '@/services/agentClientTools';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken } from '@/services/vaultService';
 
@@ -565,6 +569,7 @@ export default function ChatScreen() {
     renameConversation, setActiveConversation, setActiveWorkspace,
     addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
     getDueTasks, completeTask,
+    updateFile, addFile, addSubFolder,
   } = useWorkspace();
   const { profile } = useProfile();
   const { showAlert } = useAlert();
@@ -690,7 +695,7 @@ export default function ChatScreen() {
     });
   };
 
-  const runGeneration = async (msg: string, history: { role: string; content: string }[]) => {
+  const runGeneration = async (msg: string, history: { role: string; content: string }[], toolRound = 0) => {
     if (!activeConversation) return;
     setIsLoading(true); setStreamingText('');
     lastUserMsgRef.current = msg;
@@ -764,9 +769,9 @@ export default function ChatScreen() {
         },
       );
       setStreamingText('');
-      setActivities([]);
       // Réponse vide (le modèle n'a rien renvoyé) : on ne crée PAS de bulle vide
       if (!full.trim()) {
+        setActivities([]);
         showToast('Réponse vide du modèle — réessaie dans un instant', { tone: 'error' });
         return;
       }
@@ -778,6 +783,42 @@ export default function ChatScreen() {
         doneIds.forEach(id => completeTask(activeWorkspace.id, id));
         showToast(`${doneIds.length} tâche(s) cochée(s)`, { tone: 'success' });
       }
+
+      // ── Boucle d'outils CLIENT : [OUTIL:nom:{json}] → exécution réelle ──
+      // L'application exécute les outils (bibliothèque, JS sandbox, GitHub)
+      // puis relance l'IA avec les résultats (3 tours maximum).
+      const toolCalls = parseToolCalls(finalContent);
+      if (toolCalls.length > 0 && toolRound < 3) {
+        const cleanContent = stripToolCalls(finalContent, toolCalls);
+        if (cleanContent.trim()) {
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent });
+        }
+        const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
+        for (const call of toolCalls) {
+          pushActivity(`outil-${call.name}-${outcomes.length}`, `Outil ${call.name}…`, 'precision-manufacturing');
+          if (call.name === 'lire_fichier_github') {
+            call.args = { ...call.args, token: resolveGitHubToken(bot.connectedApps) ?? undefined };
+          }
+          const outcome = await executeClientTool(call, activeWorkspace, { updateFile, addFile, addSubFolder });
+          outcomes.push({ call, outcome });
+          pushActivity(`outil-${call.name}-${outcomes.length - 1}`, outcome.summary, outcome.ok ? 'check-circle' : 'error-outline');
+        }
+        const resultsText = formatToolResults(outcomes);
+        addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: resultsText });
+        activityTimers.forEach(clearTimeout);
+        const nextHistory = [
+          ...history,
+          { role: 'user', content: msg },
+          ...(cleanContent.trim() ? [{ role: 'assistant', content: cleanContent }] : []),
+        ];
+        await runGeneration(resultsText, nextHistory, toolRound + 1);
+        return;
+      }
+      if (toolCalls.length > 0) {
+        // 3 tours déjà atteints : on retire les marqueurs et on conclut
+        finalContent = `${stripToolCalls(finalContent, toolCalls)}\n\n_(Limite de 3 tours d'outils consécutifs atteinte — les actions restantes n'ont pas été exécutées.)_`;
+      }
+      setActivities([]);
       addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent });
       // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
       // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
