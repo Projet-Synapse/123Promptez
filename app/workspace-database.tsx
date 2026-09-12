@@ -245,19 +245,24 @@ export default function WorkspaceDatabaseScreen() {
         }
       } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName) {
         const { resolveGitHubToken, importGitHubRepoAsVault } = await import('@/services/vaultService');
-        const token = resolveGitHubToken(bot.connectedApps);
-        if (!token) { showAlert('Jeton GitHub manquant', 'Configurez un Personal Access Token dans Builder ▸ Connecteurs.'); return; }
+        // Jeton optionnel : les dépôts publics s'importent anonymement
+        const token = resolveGitHubToken(bot.connectedApps) ?? '';
         const result = await importGitHubRepoAsVault(token, {
           id: folder.vault.repoId || 0,
           full_name: folder.vault.repoFullName,
           description: null,
           private: false,
           html_url: folder.vault.path || '',
-          default_branch: 'main',
+          default_branch: folder.vault.defaultBranch || 'main',
         });
         updateFolder(wid, folder.id, { vault: result.meta });
-        syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
-        showToast('Vault GitHub resynchronisé', { tone: 'success' });
+        // Import échoué : on NE touche PAS aux fichiers existants
+        if (!result.error) {
+          syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
+          showToast(result.meta.syncMessage || 'Vault GitHub resynchronisé', { tone: 'success' });
+        } else {
+          showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });
+        }
       }
     } catch (e: any) {
       showAlert('Erreur sync', e?.message ?? 'Échec');
@@ -387,11 +392,16 @@ export default function WorkspaceDatabaseScreen() {
           description: null,
           private: false,
           html_url: meta.path || '',
-          default_branch: 'main',
+          default_branch: meta.defaultBranch || 'main',
         });
         updateFolder(wsId, folder.id, { repo: result.meta });
-        syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
-        showToast('Dépôt GitHub resynchronisé', { tone: 'success' });
+        // Import échoué : on NE touche PAS aux fichiers existants
+        if (!result.error) {
+          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
+          showToast(result.meta.syncMessage || 'Dépôt GitHub resynchronisé', { tone: 'success' });
+        } else {
+          showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });
+        }
       }
     } catch (e: any) {
       showAlert('Erreur sync', e?.message ?? 'Échec');
