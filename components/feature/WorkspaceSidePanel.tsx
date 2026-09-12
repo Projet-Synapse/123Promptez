@@ -13,6 +13,7 @@ import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
 import { useToast } from '@/contexts/ToastContext';
 import { Draggable, DropZone, useDnDState } from '@/components/feature/dnd';
+import { ResizeHandle } from '@/components/feature/ResizeHandle';
 import {
   canMirrorToDisk, vaultWriteFile, vaultDeletePath, vaultMovePath, vaultOpenPath,
   resyncLocalVault, importGitHubRepoAsVault, resolveGitHubToken,
@@ -565,6 +566,12 @@ export function WorkspaceSidePanel({
 }) {
   const C = useThemeColors();
   const [tab, setTab] = useState<PanelTab>('files');
+  // Largeur ajustable à la souris (poignée sur le bord gauche), persistée
+  const [panelW, setPanelW] = useState(() => {
+    if (Platform.OS !== 'web' || typeof localStorage === 'undefined') return 420;
+    const v = parseInt(localStorage.getItem('promptez.panelWidth') ?? '', 10);
+    return Number.isFinite(v) ? Math.min(720, Math.max(300, v)) : 420;
+  });
   if (!visible) return null;
 
   const tabs: { id: PanelTab; label: string; icon: string }[] = [
@@ -575,10 +582,17 @@ export function WorkspaceSidePanel({
 
   return (
     <View style={{
-      position: 'absolute', top: 0, bottom: 0, right: 0, width: '100%', maxWidth: 420,
+      position: 'absolute', top: 0, bottom: 0, right: 0, width: '100%', maxWidth: panelW,
       backgroundColor: C.bgCard, borderLeftWidth: 1, borderLeftColor: C.border, zIndex: 110,
       shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 10,
     }}>
+      {/* Poignée de redimensionnement (bord gauche du panneau) */}
+      <ResizeHandle
+        edge="left"
+        width={panelW}
+        onResize={setPanelW}
+        onEnd={w => { if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem('promptez.panelWidth', String(w)); }}
+      />
       {/* En-tête */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border }}>
         <View style={{ width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: workspace.color + '22', alignItems: 'center', justifyContent: 'center' }}>

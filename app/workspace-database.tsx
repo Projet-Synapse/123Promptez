@@ -323,7 +323,8 @@ export default function WorkspaceDatabaseScreen() {
 
   // ── Dépôts connectés (séparés du vault) ────────────────────────────
   const repoFolders = useMemo(() => wsFolders.filter(f => f.repo), [wsFolders]);
-  const [showAddRepo, setShowAddRepo] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
+  const [connectTab, setConnectTab] = useState<'vault' | 'repo'>('vault');
   const [busyRepoId, setBusyRepoId] = useState<string | null>(null);
 
   const handleRepoSync = async (folder: DBFolder) => {
@@ -1032,6 +1033,13 @@ export default function WorkspaceDatabaseScreen() {
           backgroundColor={showInsert ? C.accent + '18' : undefined}
           borderColor={showInsert ? C.accent + '55' : undefined}
         />
+        {/* Connecter — coffre (vault) ou dépôt GitHub */}
+        <IconButton
+          icon="add-link"
+          label="Connecter un coffre ou un dépôt GitHub"
+          onPress={() => setShowConnect(true)}
+          color={C.primary}
+        />
         {/* Nouveau dossier — cible = insertTarget */}
         <IconButton
           icon="create-new-folder"
@@ -1050,34 +1058,16 @@ export default function WorkspaceDatabaseScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
 
         {vaultBar}
-        {/* Configuration du vault (uniquement s'il n'y en a pas encore) */}
-        {!rootVault ? (
-          <VaultFolderPanel
-            workspaceId={ws.id}
-            folders={wsFolders}
-            onOpenFolder={folder => { setOpenFolderIds(prev => new Set(prev).add(folder.id)); setInsertTarget(folder.id); }}
-            addVaultFolder={addVaultFolder}
-            updateFolder={updateFolder}
-            removeFolder={removeFolder}
-            syncFolderFromDisk={syncFolderFromDisk}
-          />
-        ) : null}
+        {/* Configuration du vault — via le bouton « Connecter » de la barre
+            du haut (modale) ; l'encart en ligne n'est plus nécessaire */}
 
         {/* Sources connectées — petites rangées empilées (vault + dépôts) */}
         <View style={{ gap: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 }}>
-            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+          {repoFolders.length > 0 || rootVault ? (
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, paddingHorizontal: 2 }}>
               Sources
             </Text>
-            <Pressable
-              onPress={() => setShowAddRepo(v => !v)}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55', backgroundColor: C.accent + '18' }, pressed && { opacity: 0.75 }]}
-            >
-              <MaterialIcons name={showAddRepo ? 'close' : 'add-link'} size={12} color={C.accent} />
-              <Text style={{ fontSize: 10, color: C.accent, fontWeight: '700' }}>{showAddRepo ? 'Fermer' : 'Connecter'}</Text>
-            </Pressable>
-          </View>
-          {showAddRepo ? <RepoPanel workspaceId={ws.id} onClose={() => setShowAddRepo(false)} /> : null}
+          ) : null}
           {repoFolders.map(folder => (
             <RepoCard
               key={folder.id}
@@ -1213,22 +1203,9 @@ export default function WorkspaceDatabaseScreen() {
                 />
               ))}
 
-              {/* 1) Dossiers vault */}
-              {wsFolders.filter(f => f.vault).map(folder => renderRootFolder(folder))}
-
-              {/* 2) Dossiers applicatifs (ni vault ni dépôt) */}
-              {wsFolders.filter(f => !f.vault && !f.repo).map(folder => renderRootFolder(folder))}
-
-              {/* 3) Séparateur visuel, puis les dépôts */}
-              {wsFolders.some(f => f.repo && !f.vault) ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginVertical: Spacing.sm }}>
-                  <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
-                  <MaterialIcons name="code" size={12} color={C.textMuted} />
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>Dépôts</Text>
-                  <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
-                </View>
-              ) : null}
-              {wsFolders.filter(f => f.repo && !f.vault).map(folder => renderRootFolder(folder))}
+              {/* Dossiers — tous exposés directement (pas de regroupement
+                  par source : le nom du dossier suffit à l'identifier) */}
+              {wsFolders.map(folder => renderRootFolder(folder))}
             </>
           )}
 
@@ -1263,6 +1240,54 @@ export default function WorkspaceDatabaseScreen() {
       ) : null}
 
       {/* ─── Menu contextuel (clic droit) ─────────────────────────── */}
+      {/* ─── Connecter une source (coffre ou dépôt GitHub) ────────── */}
+      <Modal visible={showConnect} transparent animationType="fade" onRequestClose={() => setShowConnect(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }}>
+          <View style={{ width: '100%', maxWidth: 560, backgroundColor: C.bg, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={{ width: 32, height: 32, borderRadius: Radius.sm, backgroundColor: C.accent + '22', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="add-link" size={16} color={C.accent} />
+              </View>
+              <Text style={{ flex: 1, fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Connecter une source</Text>
+              <Pressable onPress={() => setShowConnect(false)} hitSlop={8}>
+                <MaterialIcons name="close" size={22} color={C.textSecondary} />
+              </Pressable>
+            </View>
+            {/* Choix : coffre (vault) ou dépôt GitHub */}
+            <View style={{ flexDirection: 'row', gap: Spacing.xs, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, padding: 3 }}>
+              {([
+                { id: 'vault', label: 'Coffre (vault)', icon: 'lock' },
+                { id: 'repo', label: 'Dépôt GitHub', icon: 'code' },
+              ] as const).map(t => (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setConnectTab(t.id)}
+                  style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: Radius.sm, backgroundColor: connectTab === t.id ? C.bgCard : 'transparent', borderWidth: 1, borderColor: connectTab === t.id ? C.border : 'transparent' }, pressed && { opacity: 0.75 }]}
+                >
+                  <MaterialIcons name={t.icon as any} size={14} color={connectTab === t.id ? C.accent : C.textMuted} />
+                  <Text style={{ fontSize: FontSize.xs, color: connectTab === t.id ? C.textPrimary : C.textMuted, fontWeight: '700' }}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <ScrollView style={{ flexGrow: 0, maxHeight: 420 }} nestedScrollEnabled>
+              {connectTab === 'vault' ? (
+                <VaultFolderPanel
+                  workspaceId={ws.id}
+                  folders={wsFolders}
+                  onOpenFolder={folder => { setOpenFolderIds(prev => new Set(prev).add(folder.id)); setInsertTarget(folder.id); setShowConnect(false); }}
+                  addVaultFolder={addVaultFolder}
+                  updateFolder={updateFolder}
+                  removeFolder={removeFolder}
+                  syncFolderFromDisk={syncFolderFromDisk}
+                />
+              ) : (
+                <RepoPanel workspaceId={ws.id} onClose={() => setShowConnect(false)} />
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {menu ? (
         <View style={{ position: 'absolute', inset: 0, zIndex: 400 }} pointerEvents="box-none">
           <Pressable style={{ flex: 1 }} onPress={() => setMenu(null)} />

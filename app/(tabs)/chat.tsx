@@ -28,6 +28,7 @@ import { useAppData } from '@/contexts/AppDataContext';
 import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
+import { ResizeHandle } from '@/components/feature/ResizeHandle';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
 import {
   parseToolCalls, stripToolCalls, executeClientTool, formatToolResults,
@@ -301,6 +302,14 @@ function SideDrawer({
 }) {
   const C = useThemeColors();
   const insets = useSafeAreaInsets();
+  // Largeur ajustable à la souris (poignée sur le bord droit), persistée
+  const [drawerW, setDrawerW] = useState<number>(() => {
+    if (Platform.OS !== 'web' || typeof localStorage === 'undefined') return DRAWER_WIDTH;
+    const v = parseInt(localStorage.getItem('promptez.drawerWidth') ?? '', 10);
+    return Number.isFinite(v) ? Math.min(720, Math.max(260, v)) : DRAWER_WIDTH;
+  });
+  const drawerWRef = useRef(drawerW);
+  drawerWRef.current = drawerW;
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const { showAlert } = useAlert();
 
@@ -343,7 +352,7 @@ function SideDrawer({
 
   useEffect(() => {
     Animated.timing(slideAnim, {
-      toValue: open ? 0 : -DRAWER_WIDTH,
+      toValue: open ? 0 : -drawerWRef.current,
       duration: 280,
       useNativeDriver: true,
     }).start();
@@ -389,7 +398,7 @@ function SideDrawer({
       <Animated.View style={{
         position: 'absolute',
         top: 0, bottom: 0, left: 0,
-        width: DRAWER_WIDTH,
+        width: drawerW,
         backgroundColor: C.bgCard,
         borderRightWidth: 1,
         borderRightColor: C.border,
@@ -397,6 +406,13 @@ function SideDrawer({
         elevation: 24,
         transform: [{ translateX: slideAnim }],
       }}>
+        {/* Poignée de redimensionnement (bord droit du tiroir) */}
+        <ResizeHandle
+          edge="right"
+          width={drawerW}
+          onResize={setDrawerW}
+          onEnd={w => { if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem('promptez.drawerWidth', String(w)); }}
+        />
         <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
           {/* Drawer header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -716,7 +732,9 @@ export default function ChatScreen() {
       llmConfig: {
         ...bot.llmConfig,
         temperature: Math.max(0, Math.min(2, bot.llmConfig.temperature + modeInfo.tempMod)),
-        maxTokens: Math.max(256, Math.min(8192, bot.llmConfig.maxTokens + modeInfo.tokensMod)),
+        // Le thinking adaptatif puise DANS max_tokens : un plafond trop bas
+        // (8192) étouffe la 2e génération (contexte déjà chargé) → réponse vide.
+        maxTokens: Math.max(8192, Math.min(32000, bot.llmConfig.maxTokens + modeInfo.tokensMod)),
       },
     };
     const modeInjection = responseMode !== 'auto' && responseMode !== 'normal'
