@@ -1215,7 +1215,7 @@ export default function WorkspaceDatabaseScreen() {
           ))}
 
           {/* Dossiers (vault inclus, dépôts, dossiers applicatifs) */}
-          {wsFolders.map(folder => (folder.repo ? null : renderRootFolder(folder)))}
+          {wsFolders.map(folder => renderRootFolder(folder))}
 
           {totalFiles === 0 && wsFolders.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md }}>
