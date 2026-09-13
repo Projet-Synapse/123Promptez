@@ -450,6 +450,28 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
         dirs: [],
       };
     }
+    // Permission perdue après un rechargement ? « Resynchroniser » vient d'un
+    // CLIC : le geste utilisateur permet à Chrome d'afficher sa boîte
+    // d'autorisation ici — plus besoin de re-sélectionner le dossier.
+    try {
+      if ((await handle.queryPermission?.({ mode: 'readwrite' })) !== 'granted') {
+        const granted = await handle.requestPermission?.({ mode: 'readwrite' });
+        if (granted !== 'granted') {
+          return {
+            meta: {
+              ...meta,
+              syncStatus: 'unsupported',
+              syncMessage: 'Autorisation refusée — reclique « Resynchroniser » et accepte la permission du navigateur.',
+              liveSync: false,
+            },
+            files: [],
+            dirs: [],
+          };
+        }
+      }
+    } catch {
+      // pas de geste ou API limitée : le walk échouera avec un message clair
+    }
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
     async function walk(dir: any, prefix: string) {
