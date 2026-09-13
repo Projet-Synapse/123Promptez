@@ -11,7 +11,11 @@ Deno.serve(async (req: Request) => {
     const { messages, model, maxTokens, apiKey } = await req.json();
     // Clé utilisée : celle PERSONNELLE de l'utilisatrice (Builder ▸ Paramètres,
     // paiement à l'usage) si elle est fournie, sinon la clé du projet.
-    const personal = typeof apiKey === 'string' && apiKey.startsWith('sk-') ? apiKey.trim() : null;
+    // Pas de filtre de format : un garde trop strict rejetait des clés
+    // valables et basculait en silence sur la clé du projet (erreur
+    // « crédits épuisés » incompréhensible). Anthropic répond clairement 401
+    // si la clé est réellement invalide.
+    const personal = typeof apiKey === 'string' && apiKey.trim().length >= 10 ? apiKey.trim() : null;
     const apiKeyFinal = personal ?? Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKeyFinal) {
       throw new Error('Aucune clé API — colle ta clé Anthropic dans Builder ▸ Paramètres ▸ Clé API');
