@@ -65,6 +65,8 @@ export interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
+  /** Épinglée en tête de l'historique — persistée avec le workspace */
+  pinned?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -168,6 +170,8 @@ interface WorkspaceContextType {
   removeConversation: (workspaceId: string, conversationId: string) => void;
   renameConversation: (workspaceId: string, conversationId: string, title: string) => void;
   setActiveConversation: (workspaceId: string, conversationId: string) => void;
+  /** Épingle (ou désépingle) une conversation — persistant et synchronisé */
+  setConversationPinned: (workspaceId: string, conversationId: string, pinned: boolean) => void;
   addMessageToConversation: (workspaceId: string, conversationId: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearConversation: (workspaceId: string, conversationId: string) => void;
   /** Keep messages strictly before messageId (drops that message and everything after). */
@@ -345,6 +349,9 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   const [workspaces, setWorkspacesRaw] = useState<Workspace[]>(DEFAULT_WORKSPACES);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('ws-default');
   const isHydrating = useRef(false);
+  // Dernier état rendu, lisible depuis les callbacks mémoïsés (deps stables)
+  const latestRef = useRef({ workspaces, activeWorkspaceId });
+  latestRef.current = { workspaces, activeWorkspaceId };
 
   const setWorkspaces = useCallback((updater: Workspace[] | ((prev: Workspace[]) => Workspace[])) => {
     setWorkspacesRaw(prev => {
@@ -360,9 +367,21 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       isHydrating.current = true;
       const parsed = reviveDates(data) as Workspace[];
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const normalized = parsed.map(normalizeWorkspace);
+        // Préserve la position locale : un rechargement du cloud (ex. écriture
+        // serveur de l'IA) ne doit pas éjecter l'utilisateur de son workspace
+        // actif ni de la conversation ouverte — tant qu'ils existent encore.
+        const prev = latestRef.current;
+        const keepActiveWs = parsed.some(w => w.id === prev.activeWorkspaceId) ? prev.activeWorkspaceId : null;
+        const normalized = parsed.map(ws => {
+          const prevWs = prev.workspaces.find(p => p.id === ws.id);
+          const keepConv =
+            prevWs && ws.conversations.some(c => c.id === prevWs.activeConversationId)
+              ? prevWs.activeConversationId
+              : ws.activeConversationId;
+          return { ...normalizeWorkspace(ws), activeConversationId: keepConv };
+        });
         setWorkspacesRaw(normalized);
-        setActiveWorkspaceId(normalized[0].id);
+        setActiveWorkspaceId(keepActiveWs ?? normalized[0].id);
       }
     } catch (e) {
       console.warn('[WorkspaceContext] hydrateFromCloud failed:', e);
@@ -456,6 +475,8 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, title, updatedAt: new Date() } : c) } : w));
   const setActiveConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, activeConversationId: cid } : w));
+  const setConversationPinned = (wid: string, cid: string, pinned: boolean) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : { ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, pinned } : c) }));
   const addMessageToConversation = (wid: string, cid: string, msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     // ID unique : deux messages ajoutés dans la même milliseconde (assistant
     // puis résultats d'outils) partageaient le même id → clés React dupliquées
@@ -756,7 +777,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addMode, updateMode, removeMode, toggleMode, getActiveModes,
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
-      addConversation, removeConversation, renameConversation, setActiveConversation,
+      addConversation, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
       addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,

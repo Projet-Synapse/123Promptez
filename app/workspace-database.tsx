@@ -3,10 +3,10 @@
 // défilement), sous-dossiers imbriqués à toute profondeur, glisser-déposer
 // (déposer dans un dossier / réordonner), clic droit contextuel, miroir
 // disque bidirectionnel pour les vaults et dépôts locaux.
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator, Dimensions,
+  Modal, KeyboardAvoidingView, Platform, TextInput, ActivityIndicator, Dimensions, Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,6 +28,7 @@ import { useAlert } from '@/template';
 import { useToast } from '@/contexts/ToastContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 import type { DBFile, DBFolder, DBSubFolder, FileLocation } from '@/contexts/WorkspaceContext';
 import { findSubIn } from '@/contexts/WorkspaceContext';
 
@@ -37,6 +38,16 @@ type SortOrder = 'asc' | 'desc';
 
 type MenuItem = { label: string; icon: string; danger?: boolean; onPress: () => void };
 type MenuState = { x: number; y: number; items: MenuItem[] } | null;
+
+/** Ouvre une URL externe sans crasher sur natif (window n'existe pas hors web) */
+function openExternal(url?: string) {
+  if (!url) return;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener');
+  } else {
+    Linking.openURL(url).catch(() => {});
+  }
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const FILE_TYPES: { id: DBFile['type']; label: string; icon: string; color: string }[] = [
@@ -164,7 +175,7 @@ function RepoCard({ folder, onPress, onSync, onDelete, busy }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function WorkspaceDatabaseScreen() {
   const insets = useSafeAreaInsets();
-  const { wsId } = useLocalSearchParams<{ wsId: string }>();
+  const { wsId, fileId } = useLocalSearchParams<{ wsId: string; fileId?: string }>();
   const {
     workspaces, addFolder, addVaultFolder, updateFolder, removeFolder,
     addSubFolder, updateSubFolder, removeSubFolder,
@@ -437,6 +448,32 @@ export default function WorkspaceDatabaseScreen() {
   // ── Recherche de fichiers (filtre plat quand une requête est saisie) ──
   const [search, setSearch] = useState('');
 
+  // Ouverture directe d'un fichier (recherche globale → bibliothèque) : le
+  // paramètre fileId désigne un fichier n'importe où dans l'arbre. Une seule
+  // fois par navigation (une synchro cloud ne doit pas rouvrir le viewer).
+  const openedFileIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fileId || !ws || openedFileIdRef.current === fileId) return;
+    const findIn = (files: DBFile[]): DBFile | null => files.find(f => f.id === fileId) ?? null;
+    let found: DBFile | null = findIn(ws.database.rootFiles);
+    for (const folder of wsFolders) {
+      if (found) break;
+      found = findIn(folder.files);
+      const walkSubs = (subs?: DBSubFolder[]) => {
+        for (const s of subs ?? []) {
+          if (found) return;
+          found = findIn(s.files);
+          walkSubs(s.subFolders);
+        }
+      };
+      if (!found) walkSubs(folder.subFolders);
+    }
+    if (found) {
+      openedFileIdRef.current = fileId;
+      setViewingFile(found);
+    }
+  }, [fileId, ws, wsFolders]);
+
   const totalFiles = ws
     ? ws.database.rootFiles.length + wsFolders.reduce((acc, f) => acc + f.files.length + (f.subFolders ?? []).reduce((sa, s) => sa + s.files.length, 0), 0)
     : 0;
@@ -470,7 +507,12 @@ export default function WorkspaceDatabaseScreen() {
       };
       walk(f.subFolders, f.name);
     }
-    return out.filter(x => x.file.name.toLowerCase().includes(q)).slice(0, 200);
+    // Recherche élargie : nom, contenu ET tags (comme la recherche globale)
+    return out.filter(x =>
+      x.file.name.toLowerCase().includes(q) ||
+      x.file.content.toLowerCase().includes(q) ||
+      x.file.tags.some(t => t.toLowerCase().includes(q))
+    ).slice(0, 200);
   }, [search, ws, rootFilesRaw, wsFolders, fileLocationOf]);
 
   // ── Move modal destinations (arbre complet, récursif) ───────────────
@@ -1386,7 +1428,7 @@ export default function WorkspaceDatabaseScreen() {
       </Modal>
 
       {/* ─── Add Folder Modal (sans description) ──────────────────── */}
-      <Modal visible={showAddFolder} transparent animationType="slide">
+      <Modal visible={showAddFolder} transparent animationType="slide" onRequestClose={() => { setShowAddFolder(false); setFolderCreateTarget(null); }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1429,7 +1471,7 @@ export default function WorkspaceDatabaseScreen() {
       </Modal>
 
       {/* ─── Add Text/Note File Modal ───────────────────────────────── */}
-      <Modal visible={showAddFile} transparent animationType="slide">
+      <Modal visible={showAddFile} transparent animationType="slide" onRequestClose={() => setShowAddFile(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1474,7 +1516,7 @@ export default function WorkspaceDatabaseScreen() {
       </Modal>
 
       {/* ─── Add Link Modal ─────────────────────────────────────────── */}
-      <Modal visible={showAddLink} transparent animationType="slide">
+      <Modal visible={showAddLink} transparent animationType="slide" onRequestClose={() => setShowAddLink(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1517,6 +1559,26 @@ export default function WorkspaceDatabaseScreen() {
                 <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700', flex: 1 }} numberOfLines={1}>{viewingFile?.name}</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexShrink: 0 }}>
+                {viewingFile?.type === 'url' ? (
+                  <>
+                    <Pressable
+                      onPress={() => viewingFile && openExternal(viewingFile.content)}
+                      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accent + '22', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.accent + '55' }, pressed && { opacity: 0.7 }]}
+                      accessibilityLabel="Ouvrir le lien"
+                    >
+                      <MaterialIcons name="open-in-new" size={14} color={C.accent} />
+                      <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '600' }}>Ouvrir</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => { if (viewingFile) { void Clipboard.setStringAsync(viewingFile.content); showToast('URL copiée', { tone: 'success' }); } }}
+                      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.bgCardAlt, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.7 }]}
+                      accessibilityLabel="Copier l'URL"
+                    >
+                      <MaterialIcons name="content-copy" size={14} color={C.textSecondary} />
+                      <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>Copier</Text>
+                    </Pressable>
+                  </>
+                ) : null}
                 <Pressable
                   onPress={() => viewingFile && handleOpenFileEditor(viewingFile, fileLocationOf(viewingFile))}
                   style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary + '22', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.primary + '55' }, pressed && { opacity: 0.7 }]}
@@ -1541,7 +1603,7 @@ export default function WorkspaceDatabaseScreen() {
       </Modal>
 
       {/* ─── File Editor Modal ──────────────────────────────────────── */}
-      <Modal visible={editingFile !== null} transparent animationType="slide">
+      <Modal visible={editingFile !== null} transparent animationType="slide" onRequestClose={() => setEditingFile(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '92%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

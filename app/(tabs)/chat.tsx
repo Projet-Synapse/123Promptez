@@ -37,6 +37,7 @@ import {
 import { recordDiag } from '@/services/diagnostics';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
+import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -288,6 +289,7 @@ function SideDrawer({
   addConversation,
   removeConversation,
   renameConversation,
+  toggleConversationPinned,
   onNavigate,
 }: {
   open: boolean;
@@ -299,6 +301,7 @@ function SideDrawer({
   addConversation: (wsId: string) => void;
   removeConversation: (wsId: string, convId: string) => void;
   renameConversation: (wsId: string, convId: string, name: string) => void;
+  toggleConversationPinned: (wsId: string, convId: string, pinned: boolean) => void;
   onNavigate: (wsId: string, convId?: string) => void;
 }) {
   const C = useThemeColors();
@@ -323,8 +326,16 @@ function SideDrawer({
   const [renamingConvKey, setRenamingConvKey] = useState<{ wsId: string; convId: string } | null>(null);
   const [renameVal, setRenameVal] = useState('');
 
-  // Pinned conversation ids
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  // Filtre de l'historique (titre + contenu des messages)
+  const [drawerQuery, setDrawerQuery] = useState('');
+  const q = drawerQuery.trim().toLowerCase();
+  const totalSearchHits = q.length > 0
+    ? workspaces.reduce((acc, ws) => acc + ws.conversations.filter((conv: any) =>
+        conv.title.toLowerCase().includes(q) ||
+        conv.messages.some((m: any) => m.content.toLowerCase().includes(q))
+      ).length, 0)
+    : 0;
+
   // Multi-select
   const [selectMode, setSelectMode] = useState(false);
   const [selectedConvKeys, setSelectedConvKeys] = useState<Set<string>>(new Set());
@@ -373,13 +384,10 @@ function SideDrawer({
     }).start();
   }, [open]);
 
-  const togglePin = (convId: string) => {
-    setPinnedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(convId)) next.delete(convId);
-      else next.add(convId);
-      return next;
-    });
+  // L'épinglage est porté par la conversation elle-même : persistant (cloud)
+  // et visible depuis n'importe quel appareil.
+  const togglePin = (wsId: string, convId: string, currently: boolean) => {
+    toggleConversationPinned(wsId, convId, !currently);
   };
 
   const toggleExpandWs = (wsId: string) => {
@@ -461,12 +469,46 @@ function SideDrawer({
           ) : null}
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
+            {/* Recherche dans l'historique : filtre les conversations par
+                titre ou contenu des messages, tous workspaces confondus */}
+            <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.sm }}>
+                <MaterialIcons name="search" size={15} color={C.textMuted} />
+                <TextInput
+                  style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, paddingVertical: 8 }}
+                  value={drawerQuery}
+                  onChangeText={setDrawerQuery}
+                  placeholder="Filtrer les conversations…"
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {drawerQuery ? (
+                  <Pressable onPress={() => setDrawerQuery('')} hitSlop={6}>
+                    <MaterialIcons name="close" size={15} color={C.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
             {workspaces.map(ws => {
               const isCurrentWs = ws.id === activeWorkspace.id;
-              const isExpanded = expandedWsIds.has(ws.id);
-              const pinned = ws.conversations.filter((c: any) => pinnedIds.has(c.id));
-              const unpinned = ws.conversations.filter((c: any) => !pinnedIds.has(c.id));
-              const sortedConvs = [...pinned, ...unpinned].reverse();
+              // Conversations récentes d'abord ; les épinglées passent en tête
+              // (par ordre de récence à l'intérieur de chaque groupe).
+              const byRecency = [...ws.conversations]
+                .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+              const sortedConvs = [
+                ...byRecency.filter((c: any) => c.pinned),
+                ...byRecency.filter((c: any) => !c.pinned),
+              ].filter((conv: any) =>
+                !q ||
+                conv.title.toLowerCase().includes(q) ||
+                conv.messages.some((m: any) => m.content.toLowerCase().includes(q))
+              );
+              // Recherche active : on ne garde que les workspaces avec des
+              // résultats, tous dépliés pour voir les correspondances.
+              const searchMode = q.length > 0;
+              if (searchMode && sortedConvs.length === 0) return null;
+              const isExpanded = searchMode || expandedWsIds.has(ws.id);
 
               return (
                 <View key={ws.id}>
@@ -507,7 +549,7 @@ function SideDrawer({
                       ) : null}
                       {sortedConvs.map((conv: any) => {
                         const isActiveConv = conv.id === ws.activeConversationId && isCurrentWs;
-                        const isPinned = pinnedIds.has(conv.id);
+                        const isPinned = !!conv.pinned;
                         const isRenaming = renamingConvKey?.wsId === ws.id && renamingConvKey?.convId === conv.id;
                         const lastMsg = conv.messages[conv.messages.length - 1];
                         return (
@@ -570,7 +612,7 @@ function SideDrawer({
                             {/* Actions */}
                             {!isRenaming && !selectMode ? (
                               <View style={{ flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                                <Pressable onPress={() => togglePin(conv.id)} hitSlop={8} style={{ padding: 3 }} accessibilityLabel={isPinned ? 'Désépingler' : 'Épingler'}>
+                                <Pressable onPress={() => togglePin(ws.id, conv.id, isPinned)} hitSlop={8} style={{ padding: 3 }} accessibilityLabel={isPinned ? 'Désépingler' : 'Épingler'}>
                                   <MaterialIcons name="push-pin" size={13} color={isPinned ? ws.color : C.textMuted} style={{ transform: [{ rotate: isPinned ? '0deg' : '45deg' }] }} />
                                 </Pressable>
                                 <Pressable onPress={() => { setRenamingConvKey({ wsId: ws.id, convId: conv.id }); setRenameVal(conv.title); }} hitSlop={8} style={{ padding: 3 }}>
@@ -593,6 +635,11 @@ function SideDrawer({
                 </View>
               );
             })}
+            {q.length > 0 && totalSearchHits === 0 ? (
+              <Text style={{ textAlign: 'center', color: C.textMuted, fontSize: FontSize.sm, paddingVertical: Spacing.lg }}>
+                Aucune conversation ne correspond à « {drawerQuery.trim()} »
+              </Text>
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
@@ -607,9 +654,9 @@ export default function ChatScreen() {
   const { bot, toggleAgentTool, updateConnectedApp } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
-    renameConversation, setActiveConversation, setActiveWorkspace,
+    renameConversation, setActiveConversation, setActiveWorkspace, setConversationPinned,
     addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
-    getDueTasks, completeTask,
+    getDueTasks, completeTask, getActiveAutomations, recordAutomationRun,
     updateFile, addFile, addSubFolder,
   } = useWorkspace();
   const { profile } = useProfile();
@@ -736,7 +783,7 @@ export default function ChatScreen() {
     });
   };
 
-  const runGeneration = async (msg: string, history: { role: string; content: string }[], toolRound = 0) => {
+  const runGeneration = async (msg: string, history: { role: string; content: string }[], toolRound = 0, autoInjections: string[] = []) => {
     if (!activeConversation) return;
     setIsLoading(true); setStreamingText('');
     lastUserMsgRef.current = msg;
@@ -758,9 +805,11 @@ export default function ChatScreen() {
 
     // Check-list partagée : l'agent peut cocher les tâches du workspace en
     // écrivant leur marqueur [x:<id>] en fin de réponse (dépouillé à l'affichage).
+    // Les instructions rédigées dans la fiche tâche (promptInjection) sont
+    // injectées avec : c'est elles qui disent À L'AGENT quoi faire.
     const pendingTasks = activeWorkspace.tasks.filter((t: any) => t.enabled);
     const tasksInjection = pendingTasks.length > 0
-      ? `\n\n## TÂCHES DU WORKSPACE (check-list partagée avec l'utilisateur)\n${pendingTasks.map((t: any) => `- ${t.title} → marqueur : [x:${t.id}]`).join('\n')}\nSi tu viens réellement d'accomplir l'une de ces tâches durant cet échange, ajoute EXACTEMENT son marqueur (ex. [x:${pendingTasks[0].id}]) sur une ligne séparée à la toute fin de ta réponse. Ne l'ajoute jamais si la tâche n'est pas faite, et n'invente pas d'autre format.`
+      ? `\n\n## TÂCHES DU WORKSPACE (check-list partagée avec l'utilisateur)\n${pendingTasks.map((t: any) => `- ${t.title}${t.promptInjection ? ` — instructions : ${String(t.promptInjection).slice(0, 300)}` : ''} → marqueur : [x:${t.id}]`).join('\n')}\nSi tu viens réellement d'accomplir l'une de ces tâches durant cet échange, ajoute EXACTEMENT son marqueur (ex. [x:${pendingTasks[0].id}]) sur une ligne séparée à la toute fin de ta réponse. Ne l'ajoute jamais si la tâche n'est pas faite, et n'invente pas d'autre format.`
       : '';
 
     // Séquence d'activités défilantes avant/durant la réponse
@@ -800,7 +849,8 @@ export default function ChatScreen() {
         },
         profile,
         getDueTasks(activeWorkspace.id),
-        (systemInjection ?? '') + modeInjection + tasksInjection,
+        (systemInjection ?? '') + modeInjection + tasksInjection
+          + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : ''),
         controller.signal,
         {
           // Outils serveur réels : l'IA peut lire les dépôts GitHub connectés
@@ -969,8 +1019,35 @@ export default function ChatScreen() {
 
     setInput('');
     addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: msg });
+
+    // ── Automatisations : déclencheurs réellement évalués à chaque message ──
+    // (message_received / keyword / conversation_start → inject_prompt,
+    // notify, set_mode ; l'exécution est tracée via recordAutomationRun.)
+    const autoInjections: string[] = [];
+    for (const auto of getActiveAutomations(activeWorkspace.id)) {
+      const keywords = (auto.triggerKeyword ?? '')
+        .split(/[|,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      const fired =
+        auto.trigger === 'message_received' ||
+        (auto.trigger === 'keyword' && keywords.length > 0 && keywords.some(k => msg.toLowerCase().includes(k))) ||
+        (auto.trigger === 'conversation_start' && activeConversation.messages.length === 0);
+      if (!fired) continue;
+      recordAutomationRun(activeWorkspace.id, auto.id);
+      if (auto.action === 'inject_prompt' && auto.actionPayload?.trim()) {
+        autoInjections.push(`[AUTOMATISATION « ${auto.name} »] ${auto.actionPayload}`);
+      } else if (auto.action === 'notify' && auto.actionPayload?.trim()) {
+        showToast(auto.actionPayload, { tone: 'info' });
+      } else if (auto.action === 'set_mode' && auto.actionPayload) {
+        const mode = activeWorkspace.modes.find((m: any) => m.id === auto.actionPayload);
+        if (mode && !mode.enabled) {
+          toggleMode(activeWorkspace.id, mode.id);
+          showToast(`Mode « ${mode.label} » activé par « ${auto.name} »`, { tone: 'info' });
+        }
+      }
+    }
+
     const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
-    await runGeneration(msg, history);
+    await runGeneration(msg, history, 0, autoInjections);
   };
 
   const handleNavigate = (wsId: string, convId?: string) => {
@@ -987,6 +1064,27 @@ export default function ChatScreen() {
   const openWorkspaceSettings = () => {
     setShowSidePanel(false);
     router.push({ pathname: '/workspace-settings', params: { wsId: activeWorkspace.id } });
+  };
+
+  // Export de la conversation active en Markdown (téléchargement web ;
+  // presse-papiers sur natif, où le téléchargement n'existe pas).
+  const handleExportConversation = async () => {
+    if (!activeConversation || chatMessages.length === 0) {
+      showToast('Conversation vide — rien à exporter', { tone: 'warning' });
+      return;
+    }
+    const md = buildConversationMarkdown(activeConversation, activeWorkspace.name, bot.name);
+    const safeName = (activeConversation.title || 'conversation').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60) || 'conversation';
+    if (downloadText(`${safeName}.md`, md)) {
+      showToast('Conversation exportée en Markdown', { tone: 'success' });
+    } else {
+      try {
+        await Clipboard.setStringAsync(md);
+        showToast('Export fichier indisponible ici — conversation copiée dans le presse-papiers', { tone: 'info' });
+      } catch {
+        showToast('Export impossible', { tone: 'error' });
+      }
+    }
   };
 
   return (
@@ -1020,6 +1118,16 @@ export default function ChatScreen() {
               icon="search"
               label="Recherche globale (Ctrl+K)"
               onPress={openPalette}
+              boxSize={36}
+              backgroundColor={C.bgCardAlt}
+              color={C.textMuted}
+            />
+
+            {/* Export de la conversation active en Markdown */}
+            <IconButton
+              icon="download"
+              label="Exporter la conversation (.md)"
+              onPress={() => void handleExportConversation()}
               boxSize={36}
               backgroundColor={C.bgCardAlt}
               color={C.textMuted}
@@ -1319,6 +1427,7 @@ export default function ChatScreen() {
         addConversation={addConversation}
         removeConversation={removeConversation}
         renameConversation={renameConversation}
+        toggleConversationPinned={setConversationPinned}
         onNavigate={handleNavigate}
       />
     </View>

@@ -639,7 +639,7 @@ export default function BuilderScreen() {
       </ScrollView>
 
       {/* ─── Add KB Modal ─────────────────────────────────────────────── */}
-      <Modal visible={showAddKB} transparent animationType="slide">
+      <Modal visible={showAddKB} transparent animationType="slide" onRequestClose={() => setShowAddKB(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -666,7 +666,7 @@ export default function BuilderScreen() {
       </Modal>
 
       {/* ─── Add App Modal ─────────────────────────────────────────────── */}
-      <Modal visible={showAddApp} transparent animationType="slide">
+      <Modal visible={showAddApp} transparent animationType="slide" onRequestClose={() => setShowAddApp(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -684,7 +684,7 @@ export default function BuilderScreen() {
       </Modal>
 
       {/* ─── Custom Agent Modal ──────────────────────────────────────── */}
-      <Modal visible={showAgentModal} transparent animationType="slide">
+      <Modal visible={showAgentModal} transparent animationType="slide" onRequestClose={() => { setShowAgentModal(false); resetAgentForm(); }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, maxHeight: '95%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

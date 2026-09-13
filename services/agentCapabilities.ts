@@ -270,7 +270,8 @@ export function buildWorkspaceContextPrompt(ws: Workspace): string {
   if (activeTasks.length > 0) {
     out += `## TÂCHES DU WORKSPACE (check-list partagée)\n\n`;
     activeTasks.forEach(t => {
-      out += `- ${t.title} → marqueur de cochage : [x:${t.id}]\n`;
+      const instr = t.promptInjection ? ` — instructions : ${String(t.promptInjection).slice(0, 300)}` : '';
+      out += `- ${t.title}${instr} → marqueur de cochage : [x:${t.id}]\n`;
     });
     out += `Coche une tâche uniquement si tu viens réellement de l'accomplir dans cet échange.\n\n`;
   }

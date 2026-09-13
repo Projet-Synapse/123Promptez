@@ -11,7 +11,7 @@ import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { FontSize, Radius, Spacing } from '@/constants/theme';
-import type { DBFile, Workspace } from '@/contexts/WorkspaceContext';
+import type { DBFile, DBSubFolder, Workspace } from '@/contexts/WorkspaceContext';
 
 type ResultKind = 'workspace' | 'conversation' | 'file' | 'kb' | 'tag' | 'action';
 
@@ -28,11 +28,18 @@ interface SearchResult {
 function collectFiles(ws: Workspace): { file: DBFile; path: string }[] {
   const out: { file: DBFile; path: string }[] = [];
   for (const f of ws.database.rootFiles) out.push({ file: f, path: 'Racine' });
+  // Sous-dossiers imbriqués à toute profondeur : l'index global doit voir
+  // les fichiers profonds (même récursivité que la bibliothèque).
+  const walk = (subs: DBSubFolder[] | undefined, base: string) => {
+    for (const sub of subs ?? []) {
+      const p = `${base} / ${sub.name}`;
+      for (const f of sub.files) out.push({ file: f, path: p });
+      walk(sub.subFolders, p);
+    }
+  };
   for (const folder of ws.database.folders) {
     for (const f of folder.files) out.push({ file: f, path: folder.name });
-    for (const sub of folder.subFolders ?? []) {
-      for (const f of sub.files) out.push({ file: f, path: `${folder.name} / ${sub.name}` });
-    }
+    walk(folder.subFolders, folder.name);
   }
   return out;
 }
@@ -130,7 +137,10 @@ export function CommandPalette() {
             color: C.primary,
             run: () => {
               setActiveWorkspace(ws.id);
-              router.push({ pathname: '/workspace-database', params: { id: ws.id } });
+              // wsId + fileId : la bibliothèque ouvre directement le viewer
+              // sur le fichier trouvé (le paramètre « id » ne correspondait
+              // à rien et affichait « Workspace introuvable »).
+              router.push({ pathname: '/workspace-database', params: { wsId: ws.id, fileId: file.id } });
             },
           });
         }
@@ -145,7 +155,7 @@ export function CommandPalette() {
               color: C.warning,
               run: () => {
                 setActiveWorkspace(ws.id);
-                router.push({ pathname: '/workspace-database', params: { id: ws.id } });
+                router.push({ pathname: '/workspace-database', params: { wsId: ws.id, fileId: file.id } });
               },
             });
           }
