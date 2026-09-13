@@ -474,13 +474,13 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
     }
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
-    async function walk(dir: any, prefix: string) {
+    async function walk2(dir: any, prefix: string) {
       for await (const [name, entry] of dir.entries()) {
         if (entry.kind === 'directory') {
           if (name === 'node_modules' || name === '.git') continue;
           dirs.push(prefix ? `${prefix}/${name}` : name);
-          await walk(entry, prefix ? `${prefix}/${name}` : name);
-        } else if (entry.kind === 'file') {
+          await walk2(entry, prefix ? `${prefix}/${name}` : name);
+        } else {
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
           if (!TEXT_EXT.has(ext)) continue;
           const file = await entry.getFile();
@@ -495,7 +495,23 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
         }
       }
     }
-    await walk(handle, '');
+    try {
+      await walk2(handle, '');
+    } catch (e: any) {
+      const moved = e?.name === 'NotFoundError';
+      return {
+        meta: {
+          ...meta,
+          syncStatus: 'error',
+          syncMessage: moved
+            ? 'Dossier introuvable à son emplacement d’origine (déplacé ou renommé ?) — reclique ⛓ « Relier le dossier » pour le re-désigner.'
+            : `Échec de lecture du dossier : ${e?.message ?? 'inconnue'}`,
+          liveSync: false,
+        },
+        files: [],
+        dirs: [],
+      };
+    }
     return {
       meta: {
         ...meta,
