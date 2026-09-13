@@ -1,9 +1,13 @@
 // Models available to the chat edge function (supabase/functions/chat).
 // IDs must match real Anthropic Claude model IDs — see ANTHROPIC_API_KEY setup in README.
+// Gemini models are called DIRECTLY from the client (no Edge, no credits):
+// a free Google AI Studio key (aistudio.google.com) pasted in Settings is enough.
 export const LLM_MODELS = [
   { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'Anthropic', tokens: 1000000 },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'Anthropic', tokens: 1000000 },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'Anthropic', tokens: 200000 },
+  { id: 'gemini-2.5-flash', label: 'Gemini Flash (gratuit · limites)', provider: 'Google', tokens: 1000000 },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini Flash-Lite (gratuit)', provider: 'Google', tokens: 1000000 },
 ];
 
 export const AGENT_TOOLS = [

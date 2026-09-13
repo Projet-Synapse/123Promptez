@@ -143,6 +143,44 @@ export default function SettingsScreen() {
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [editMemContent, setEditMemContent] = useState('');
 
+  // Test immédiat de la clé API (appel réel au fournisseur du modèle choisi)
+  const [keyTest, setKeyTest] = useState<{ state: 'testing' | 'ok' | 'error'; message: string } | null>(null);
+  const testApiKey = async () => {
+    const key = (bot.apiKey ?? '').trim();
+    const model = bot.llmConfig.model || 'claude-sonnet-5';
+    if (key.length < 10) {
+      showToast('Colle d’abord une clé API', { tone: 'error' });
+      return;
+    }
+    setKeyTest({ state: 'testing', message: 'Test en cours…' });
+    try {
+      let res: Response;
+      if (model.startsWith('gemini')) {
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Dis: ok' }] }], generationConfig: { maxOutputTokens: 8 } }),
+        });
+      } else {
+        res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 8, messages: [{ role: 'user', content: 'Dis: ok' }] }),
+        });
+      }
+      const body: any = await res.json().catch(() => ({}));
+      if (res.ok) setKeyTest({ state: 'ok', message: `Clé valide et utilisable avec ${model} ✓` });
+      else setKeyTest({ state: 'error', message: `Échec (${res.status}) : ${body?.error?.message ?? 'inconnue'}` });
+    } catch (e: any) {
+      setKeyTest({ state: 'error', message: e?.message ?? 'Réseau indisponible' });
+    }
+  };
+
   // Persisted on the web_search agent tool config so it survives reloads
   // and cloud sync, instead of living only in local component state.
   const webSearchTool = bot.agentTools.find(tool => tool.id === 'web_search');
@@ -409,16 +447,36 @@ export default function SettingsScreen() {
                   onPress={() => setApiKeyVisible(v => !v)}
                   backgroundColor={C.bgCardAlt}
                 />
+                <IconButton
+                  icon={keyTest?.state === 'testing' ? 'hourglass-empty' : 'play-circle'}
+                  label="Tester la clé"
+                  onPress={() => void testApiKey()}
+                  backgroundColor={C.bgCardAlt}
+                />
               </View>
+              {keyTest ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: keyTest.state === 'ok' ? C.accentGlow : C.error + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: keyTest.state === 'ok' ? C.accent + '33' : C.error + '33' }}>
+                  <MaterialIcons name={keyTest.state === 'ok' ? 'check-circle' : keyTest.state === 'testing' ? 'hourglass-empty' : 'error-outline'} size={14} color={keyTest.state === 'ok' ? C.accent : keyTest.state === 'testing' ? C.textMuted : C.error} />
+                  <Text style={{ fontSize: FontSize.xs, color: keyTest.state === 'ok' ? C.accent : keyTest.state === 'testing' ? C.textMuted : C.error, flex: 1 }}>{keyTest.message}</Text>
+                </View>
+              ) : null}
               {!bot.apiKey ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
                   <MaterialIcons name="info-outline" size={14} color={C.warning} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>Sans clé : c’est la clé du projet qui est utilisée (crédits partagés, limités).</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>
+                    {(bot.llmConfig.model || '').startsWith('gemini')
+                      ? 'Pour Gemini (gratuit) : crée ta clé sur aistudio.google.com — aucune carte bancaire requise.'
+                      : 'Sans clé : c’est la clé du projet qui est utilisée (crédits partagés, limités).'}
+                  </Text>
                 </View>
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
                   <MaterialIcons name="check-circle" size={14} color={C.accent} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>Ta clé personnelle est utilisée en priorité : paiement à l’usage, indépendant des crédits du projet. Clé Anthropic : console.anthropic.com ▸ API Keys (recharge à partir de 5&nbsp;$).</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>
+                    {(bot.llmConfig.model || '').startsWith('gemini')
+                      ? 'Ta clé Google AI Studio est utilisée pour Gemini (gratuit, limites quotidiennes). Utilise le bouton Tester pour vérifier.'
+                      : 'Ta clé personnelle est utilisée en priorité : paiement à l’usage, indépendant des crédits du projet. Clé Anthropic : console.anthropic.com ▸ API Keys (recharge à partir de 5&nbsp;$).'}
+                  </Text>
                 </View>
               )}
             </View>
