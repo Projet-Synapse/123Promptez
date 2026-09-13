@@ -176,7 +176,7 @@
     "expo-store-review": "~8.1.5",
     "expo-symbols": "~0.4.5",
     "expo-system-ui": "~5.0.8",
-    "expo-task-manager": "~13.1.5",
+    "expo-task-manager": "~57.0.16",
     "expo-video": "~2.2.2",
     "expo-web-browser": "~14.1.6",
     "graphql": "^15.3.0",
