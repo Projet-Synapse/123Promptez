@@ -137,7 +137,9 @@ export default function WorkspacesScreen() {
         <Pressable onPress={openPalette} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 10 }, pressed && { opacity: 0.8 }]}>
           <MaterialIcons name="search" size={18} color={C.textMuted} />
           <Text style={{ flex: 1, color: C.textMuted, fontSize: FontSize.sm }}>Rechercher…</Text>
-          <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>⌘K</Text>
+          {Platform.OS === 'web' ? (
+            <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>⌘K</Text>
+          ) : null}
         </Pressable>
         <SyncIndicator compact />
       </View>

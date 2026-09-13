@@ -62,8 +62,18 @@ export function buildExportBundle(opts: {
 export function downloadJson(filename: string, data: unknown): boolean {
   try {
     const json = JSON.stringify(data, null, 2);
+    return downloadText(filename, json, 'application/json');
+  } catch {
+    return false;
+  }
+}
+
+/** Télécharge un fichier texte (web) ; retourne false hors web — l'appelant
+ *  bascule alors sur le presse-papiers. */
+export function downloadText(filename: string, text: string, mime = 'text/markdown;charset=utf-8'): boolean {
+  try {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const blob = new Blob([json], { type: 'application/json' });
+      const blob = new Blob([text], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -74,12 +84,29 @@ export function downloadJson(filename: string, data: unknown): boolean {
       URL.revokeObjectURL(url);
       return true;
     }
-    // Native fallback: copy to clipboard via expo-clipboard if available
-    // Caller can also show the JSON in a modal.
     return false;
   } catch {
     return false;
   }
+}
+
+/** Conversation → document Markdown lisible (titre, métadonnées, messages). */
+export function buildConversationMarkdown(
+  conv: { title: string; messages: { role: string; content: string }[] },
+  workspaceName: string,
+  botName: string,
+): string {
+  const lines: string[] = [
+    `# ${conv.title}`,
+    '',
+    `> Workspace : ${workspaceName} · Assistant : ${botName} · Exporté le ${new Date().toLocaleString('fr-FR')}`,
+    '',
+  ];
+  for (const m of conv.messages) {
+    const who = m.role === 'user' ? '👤 **Vous**' : `🤖 **${botName}**`;
+    lines.push(`### ${who}`, '', m.content, '', '---', '');
+  }
+  return lines.join('\n');
 }
 
 export function parseImportBundle(raw: string): { ok: true; bundle: ExportBundle } | { ok: false; error: string } {

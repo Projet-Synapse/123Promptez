@@ -21,16 +21,17 @@ const TRIGGERS: { id: AutomationTrigger; label: string; icon: string; color: str
   { id: 'message_received', label: 'Message reçu', icon: 'chat-bubble', color: '#3D7EFF', desc: 'Chaque fois que l\'utilisateur envoie un message' },
   { id: 'conversation_start', label: 'Démarrage conversation', icon: 'play-circle', color: '#00CC6A', desc: 'Quand une nouvelle conversation commence' },
   { id: 'keyword', label: 'Mot-clé détecté', icon: 'search', color: '#FFB800', desc: 'Quand un mot-clé est trouvé dans le message', hasKeyword: true },
-  { id: 'scheduled', label: 'Planifié', icon: 'schedule', color: '#9B59B6', desc: 'Déclenché selon une fréquence', hasFrequency: true },
-  { id: 'file_added', label: 'Fichier ajouté', icon: 'upload-file', color: '#FF6B35', desc: 'Quand un fichier est ajouté à la bibliothèque' },
-  { id: 'mode_activated', label: 'Mode activé', icon: 'bolt', color: '#FF4455', desc: 'Quand un mode est activé dans ce workspace' },
+  // Déclencheurs pas encore exécutés par l'application : marqués honnêtement.
+  { id: 'scheduled', label: 'Planifié (bientôt)', icon: 'schedule', color: '#9B59B6', desc: 'Déclenché selon une fréquence — bientôt disponible', hasFrequency: true },
+  { id: 'file_added', label: 'Fichier ajouté (bientôt)', icon: 'upload-file', color: '#FF6B35', desc: 'Quand un fichier est ajouté à la bibliothèque — bientôt disponible' },
+  { id: 'mode_activated', label: 'Mode activé (bientôt)', icon: 'bolt', color: '#FF4455', desc: 'Quand un mode est activé dans ce workspace — bientôt disponible' },
 ];
 
 const ACTIONS: { id: AutomationAction; label: string; icon: string; color: string; desc: string; placeholder: string }[] = [
   { id: 'inject_prompt', label: 'Injecter prompt', icon: 'code', color: '#3D7EFF', desc: 'Ajoute des instructions dans le contexte IA', placeholder: 'Instructions à injecter dans le contexte...' },
-  { id: 'send_message', label: 'Envoyer message', icon: 'send', color: '#00CC6A', desc: 'Envoie automatiquement un message au chatbot', placeholder: 'Message à envoyer automatiquement...' },
+  { id: 'send_message', label: 'Envoyer message (bientôt)', icon: 'send', color: '#00CC6A', desc: 'Envoie automatiquement un message au chatbot — bientôt disponible', placeholder: 'Message à envoyer automatiquement...' },
   { id: 'notify', label: 'Notification', icon: 'notifications', color: '#FFB800', desc: 'Affiche une bannière de notification dans le chat', placeholder: 'Texte de la notification...' },
-  { id: 'change_model', label: 'Changer de modèle', icon: 'smart-toy', color: '#9B59B6', desc: 'Bascule automatiquement vers un autre modèle IA', placeholder: 'Ex: google/gemini-3-flash-preview' },
+  { id: 'change_model', label: 'Changer de modèle (bientôt)', icon: 'smart-toy', color: '#9B59B6', desc: 'Bascule automatiquement vers un autre modèle IA — bientôt disponible', placeholder: 'Ex: google/gemini-3-flash-preview' },
   { id: 'set_mode', label: 'Activer un mode', icon: 'bolt', color: '#FF6B35', desc: 'Active un mode prédéfini du workspace', placeholder: 'ID du mode à activer...' },
 ];
 
@@ -312,7 +313,7 @@ export default function WorkspaceAutomationsScreen({ embedded }: { embedded?: bo
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: FontSize.sm, color: '#FFB800', fontWeight: '600', marginBottom: 4 }}>Comment fonctionnent les automatisations ?</Text>
               <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 18 }}>
-                Les automatisations actives sont évaluées à chaque message. Quand un déclencheur correspond, l’action est exécutée automatiquement sans intervention de votre part.
+                Les automatisations actives sont évaluées à chaque message envoyé : quand un déclencheur « Message reçu », « Mot-clé détecté » ou « Démarrage conversation » correspond, l’action est exécutée immédiatement (instructions injectées à l’IA, notification, activation d’un mode). Les autres déclencheurs et actions arrivent prochainement.
               </Text>
             </View>
           </View>
@@ -320,7 +321,7 @@ export default function WorkspaceAutomationsScreen({ embedded }: { embedded?: bo
       </ScrollView>
 
       {/* ─── Add/Edit Modal ──────────────────────────────────────── */}
-      <Modal visible={showModal} transparent animationType="slide">
+      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => { resetForm(); setShowModal(false); }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.bgCard, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: C.border, padding: Spacing.lg, gap: Spacing.md, paddingBottom: insets.bottom + Spacing.lg, maxHeight: '95%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

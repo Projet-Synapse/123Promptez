@@ -12,6 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons } from '@expo/vector-icons';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useAlert } from '@/template';
+import { useToast } from '@/contexts/ToastContext';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
@@ -50,6 +51,7 @@ export default function WorkspaceTasksScreen() {
   const { wsId } = useLocalSearchParams<{ wsId: string }>();
   const { workspaces, addTask, updateTask, removeTask, toggleTask, completeTask } = useWorkspace();
   const { showAlert } = useAlert();
+  const { showToast } = useToast();
   const router = useRouter();
 
   const ws = workspaces.find(w => w.id === wsId);
@@ -143,7 +145,7 @@ export default function WorkspaceTasksScreen() {
 
   const handleComplete = (task: WorkspaceTask) => {
     completeTask(ws.id, task.id);
-    showAlert('Tâche accomplie !', `"${task.title}" marquée comme complétée. Prochaine échéance calculée.`);
+    showToast(`« ${task.title} » accomplie — prochaine échéance planifiée`, { tone: 'success' });
   };
 
   const enabledTasks = ws.tasks.filter(t => t.enabled);
@@ -297,6 +299,7 @@ export default function WorkspaceTasksScreen() {
 
             {group.tasks.map(task => {
               const isDue = task.enabled && (!task.nextDue || new Date(task.nextDue) <= new Date());
+              const recentlyDone = !!task.lastCompleted && !isDue;
               const freqInfo = getFrequencyInfo(task.frequency);
               return (
                 <View
@@ -309,17 +312,19 @@ export default function WorkspaceTasksScreen() {
                 >
                   {/* Top row */}
                   <View style={styles.taskTopRow}>
-                    {/* Case à cocher : marque la tâche comme accomplie */}
+                    {/* Case à cocher : cochée = accomplie (dernière occurrence,
+                        en attente de replanification) ; vide = à faire. Un clic
+                        sur une case vide marque la tâche comme accomplie. */}
                     <Pressable
-                      onPress={() => completeTask(ws.id, task.id)}
+                      onPress={() => { if (!recentlyDone) handleComplete(task); }}
                       hitSlop={6}
-                      accessibilityLabel={isDue ? `Marquer ${task.title} comme faite` : `${task.title} — à venir`}
+                      accessibilityLabel={recentlyDone ? `${task.title} — accomplie` : `Marquer ${task.title} comme faite`}
                       style={{ padding: 2 }}
                     >
                       <MaterialIcons
-                        name={isDue ? 'check-box' : 'check-box-outline-blank'}
+                        name={recentlyDone ? 'check-box' : 'check-box-outline-blank'}
                         size={24}
-                        color={isDue ? '#00CC6A' : C.textMuted}
+                        color={recentlyDone ? '#00CC6A' : C.textMuted}
                       />
                     </Pressable>
                     <View style={[styles.taskIconWrap, { backgroundColor: task.color + '22' }]}>
@@ -420,7 +425,7 @@ export default function WorkspaceTasksScreen() {
       )}
 
       {/* ─── Add/Edit Modal ──────────────────────────────────────────── */}
-      <Modal visible={showModal} transparent animationType="slide">
+      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => { resetForm(); setShowModal(false); }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={[styles.modalCard, { paddingBottom: insets.bottom + Spacing.lg }]}>
             <View style={styles.modalHeader}>
