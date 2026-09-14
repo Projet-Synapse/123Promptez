@@ -33,7 +33,9 @@ Deno.serve(async (req: Request) => {
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              buf += dec.decode(value, { stream: true });
+              // Google sépare ses événements par \r\n\r\n : normaliser en \n
+              // sinon le découpage ne se fait jamais et tout est jeté.
+              buf += dec.decode(value, { stream: true }).replace(/\r\n/g, '\n');
               const parts = buf.split('\n\n');
               buf = parts.pop() ?? '';
               for (const part of parts) {
