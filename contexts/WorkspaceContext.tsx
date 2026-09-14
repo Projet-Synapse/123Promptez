@@ -184,7 +184,7 @@ interface WorkspaceContextType {
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
   /** Fusionne le contenu disque d'un vault/dépôt dans le dossier (IDs préservés, sous-dossiers matérialisés) */
-  syncFolderFromDisk: (workspaceId: string, folderId: string, files: DiskFileInput[], dirs?: string[]) => void;
+  syncFolderFromDisk: (workspaceId: string, folderId: string, files: DiskFileInput[], dirs?: string[], presentPaths?: string[]) => void;
   /** Déplace un dossier racine dans un autre dossier (devient sous-dossier) */
   moveFolderIntoFolder: (workspaceId: string, folderId: string, targetFolderId: string) => void;
   /** Promote un sous-dossier en dossier racine */
@@ -571,7 +571,10 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   // complet des sous-dossiers depuis les chemins relatifs (imbriqués à toute
   // profondeur), conserve les IDs des fichiers/sous-dossiers connus, stocke
   // le chemin disque dans `path` et n'affiche que le nom court dans `name`.
-  const syncFolderFromDisk = (wid: string, fid: string, diskFiles: DiskFileInput[], diskDirs: string[] = []) =>
+  // Synchro MIROIR disque → app : le disque fait foi pour les fichiers suivis
+  // (avec chemin) — mises à jour, créations ET suppressions. Les fichiers
+  // virtuels (créés dans l'app, sans chemin) sont conservés à leur place.
+  const syncFolderFromDisk = (wid: string, fid: string, diskFiles: DiskFileInput[], diskDirs: string[] = [], presentPaths: string[] = []) =>
     setWorkspaces(prev => prev.map(w => {
       if (w.id !== wid) return w;
       const folder = w.database.folders.find(f => f.id === fid);
@@ -579,12 +582,13 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       const now = new Date();
 
       // Index des fichiers existants par chemin disque (les anciens versions
-      // stockaient le chemin dans `name`) — sur tout l'arbre.
+      // stockaient le chemin dans `name`) — sur tout l'arbre, avec leur emplacement.
       const existingByPath = new Map<string, DBFile>();
-      const indexFiles = (files: DBFile[]) => { for (const f of files) existingByPath.set(f.path ?? f.name, f); };
-      indexFiles(folder.files);
-      const indexSubsFiles = (subs: DBSubFolder[]) => subs.forEach(s => { indexFiles(s.files); indexSubsFiles(s.subFolders ?? []); });
-      indexSubsFiles(folder.subFolders ?? []);
+      const oldLocation = new Map<DBFile, string>(); // fichier → chemin du sous-dossier ('' = racine)
+      const indexFiles = (files: DBFile[], loc: string) => { for (const f of files) { const k = f.path ?? f.name; existingByPath.set(k, f); oldLocation.set(f, loc); } };
+      indexFiles(folder.files, '');
+      const indexSubsFiles = (subs: DBSubFolder[], prefix: string) => subs.forEach(s => { const p = prefix ? `${prefix}/${s.name}` : s.name; indexFiles(s.files, p); indexSubsFiles(s.subFolders ?? [], p); });
+      indexSubsFiles(folder.subFolders ?? [], '');
 
       // Index des sous-dossiers existants par chaîne de noms ("a/b/c")
       const existingSubsByPath = new Map<string, DBSubFolder>();
@@ -622,9 +626,27 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       // Dossiers vides du disque : matérialisés aussi
       for (const dir of diskDirs) nodeAt(dir.split('/'));
 
-      // Fichiers non adossés au disque (liens, notes virtuelles) : conservés à la racine
-      const diskPaths = new Set(diskFiles.map(f => f.name));
-      const virtualFiles = [...existingByPath.entries()].filter(([p]) => !diskPaths.has(p)).map(([, f]) => f);
+      // ── Miroir : fichiers existants non fournis par le disque ──
+      const presentSet = new Set(presentPaths.length > 0 ? presentPaths : diskFiles.map(f => f.name));
+      const diskSet = new Set(diskFiles.map(f => f.name));
+      for (const [k, f] of existingByPath) {
+        if (diskSet.has(k)) continue;      // déjà (ré)incorporé depuis le disque
+        if (presentSet.has(k)) {
+          // Existe toujours sur le disque mais non importable (trop gros,
+          // format non textuel) : conservé tel quel à son emplacement.
+          nodeAt(k.split('/').slice(0, -1)).files.push(f);
+          continue;
+        }
+        if (!f.path) {
+          // Fichier VIRTUEL (créé dans l'app, jamais synchronisé) : conservé
+          // à son emplacement — à la racine du dossier si son sous-dossier a
+          // disparu du disque.
+          const loc = oldLocation.get(f) ?? '';
+          nodeAt(loc ? loc.split('/') : []).files.push(f);
+          continue;
+        }
+        // Fichier suivi supprimé du disque → SUPPRIMÉ de l'app (miroir).
+      }
 
       const toSubFolders = (node: Node): DBSubFolder[] =>
         [...node.subs.values()]
@@ -643,7 +665,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
             };
           });
 
-      const rootFiles = [...nodeAt([]).files, ...virtualFiles].sort((a, b) => a.name.localeCompare(b.name));
+      const rootFiles = [...nodeAt([]).files].sort((a, b) => a.name.localeCompare(b.name));
       return { ...w, database: { ...w.database, folders: w.database.folders.map(f => f.id !== fid ? f : { ...f, files: rootFiles, subFolders: toSubFolders(root) }) } };
     }));
 

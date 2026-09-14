@@ -36,7 +36,7 @@ export function VaultLiveSync() {
     for (const w2 of wsNow) {
       const fld = w2.database.folders.find(f => f.id === folderId || (f.vault ?? f.repo)?.path === meta.path);
       if (!fld) continue;
-      sync(w2.id, fld.id, res.files, res.dirs);
+      sync(w2.id, fld.id, res.files, res.dirs, res.presentPaths ?? []);
       if (fld.vault) upd(w2.id, fld.id, { vault: res.meta });
       else if (fld.repo) upd(w2.id, fld.id, { repo: res.meta });
     }

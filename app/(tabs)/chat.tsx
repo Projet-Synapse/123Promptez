@@ -977,6 +977,9 @@ export default function ChatScreen() {
     } finally {
       activityTimers.forEach(clearTimeout);
       if (abortRef.current === controller) abortRef.current = null;
+      // Indispensable : sans remise à faux, la roue reste affichée et le
+      // composeur est bloqué (impossible d'envoyer le message suivant).
+      setIsLoading(false);
     }
   };
 
