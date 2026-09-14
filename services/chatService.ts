@@ -367,6 +367,15 @@ async function streamGemini(opts: GeminiOpts): Promise<string> {
       const j = JSON.parse(errText);
       msg = j?.error?.message ?? msg;
     } catch { /* texte brut */ }
+    // Pièges fréquents : jeton OAuth au lieu d'une clé AI Studio (les clés
+    // Gemini commencent par AIza), ou projet basculé sur la facturation.
+    if (response.status === 401 || response.status === 403) {
+      if (!opts.apiKey.startsWith('AIza')) {
+        msg = 'La valeur collée n’est pas une clé AI Studio — une clé Gemini commence par « AIza ». Paramètres ▸ Clé API ▸ recopie la bonne clé (aistudio.google.com ▸ Obtenir une clé API), puis « Tester la clé ».';
+      } else {
+        msg += ' — si Google demande des crédits : crée la clé dans un NOUVEAU projet (aistudio.google.com ▸ Obtenir une clé API ▸ nouveau projet), sans compte de facturation.';
+      }
+    }
     throw new Error(`Erreur Gemini: ${msg}`);
   }
 
