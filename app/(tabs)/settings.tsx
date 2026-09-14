@@ -156,10 +156,10 @@ export default function SettingsScreen() {
     try {
       let res: Response;
       if (model.startsWith('gemini')) {
-        // Une clé AI Studio commence TOUJOURS par AIza — un jeton collé par
-        // erreur (AQ.… = jeton temporaire) est détecté avant l'appel.
-        if (!key.startsWith('AIza')) {
-          setKeyTest({ state: 'error', message: 'Ce n’est pas une clé AI Studio : une clé Gemini commence par « AIza ». Sur aistudio.google.com ▸ Obtenir une clé API ▸ copie la valeur AIza… complète.' });
+        // Deux formats de clés AI Studio existent : AIza… (ancien) et AQ.…
+        // (nouveau). On ne rejette que ce qui n'est clairement ni l'un ni l'autre.
+        if (!/^(AIza|AQ\.)/.test(key)) {
+          setKeyTest({ state: 'error', message: 'Ce n’est pas une clé AI Studio : une clé Gemini commence par « AIza… » ou « AQ.… ». Copie la valeur complète depuis aistudio.google.com ▸ Obtenir une clé API.' });
           return;
         }
         res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {

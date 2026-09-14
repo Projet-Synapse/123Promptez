@@ -177,31 +177,16 @@ export async function sendChatMessage(
   // LLM_MODELS); fall back to Sonnet if it's ever unset or stale.
   const model = bot.llmConfig.model || 'claude-sonnet-5';
 
-  // ── Chemin GEMINI (gratuit) : appel DIRECT depuis l'app, sans Edge ni
-  // crédits. Clé Google AI Studio collée dans Paramètres ▸ Clé API. Les outils
-  // clients ([OUTIL:…]) sont du texte : ils fonctionnent à l'identique.
+  // ── GEMINI (gratuit) : passe par le proxy Supabase comme Claude. L'appel
+  // direct depuis le navigateur est impossible : l'endpoint STREAMING de
+  // Google ne renvoie pas les en-têtes CORS (l'endpoint non-streaming les
+  // renvoie — d'où un test qui réussit mais un chat qui reste suspendu).
+  // La clé personnelle Google AI Studio transite dans le body, l'Edge
+  // l'utilise avec l'en-tête x-goog-api-key.
   if (model.startsWith('gemini')) {
     const geminiKey = String((bot as any).apiKey ?? '').trim();
     if (!geminiKey) {
       throw new Error('Aucune clé Gemini — colle ta clé Google AI Studio (gratuite, aistudio.google.com) dans Builder ▸ Paramètres ▸ Clé API');
-    }
-    try {
-      return await streamGemini({
-        messages: messages.filter(m => m.role !== 'system'),
-        systemPrompt,
-        model,
-        apiKey: geminiKey,
-        temperature: bot.llmConfig.temperature,
-        maxOutputTokens: Math.max(bot.llmConfig.maxTokens, 16384),
-        topP: bot.llmConfig.topP,
-        onToken,
-        signal,
-      });
-    } catch (error: any) {
-      if (error?.name === 'AbortError' || signal?.aborted) {
-        throw new Error('Génération interrompue');
-      }
-      throw error;
     }
   }
 
@@ -319,104 +304,4 @@ export async function sendChatMessage(
     console.error('[chatService] Error:', error.message);
     throw error;
   }
-}
-
-// ─── Gemini (Google AI Studio) — chemin GRATUIT, appel direct sans Edge ──────
-// Streaming SSE (`streamGenerateContent?alt=sse`). Même interface que le chemin
-// Anthropic : onToken reçoit le texte accumulé, AbortError respecté.
-
-interface GeminiOpts {
-  messages: ChatMessage[];
-  systemPrompt: string;
-  model: string;
-  apiKey: string;
-  temperature: number;
-  maxOutputTokens: number;
-  topP?: number;
-  onToken?: (fullText: string) => void;
-  signal?: AbortSignal;
-}
-
-async function streamGemini(opts: GeminiOpts): Promise<string> {
-  const contents = opts.messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
-  const generationConfig: Record<string, unknown> = {
-    temperature: opts.temperature,
-    maxOutputTokens: opts.maxOutputTokens,
-  };
-  if (typeof opts.topP === 'number') generationConfig.topP = opts.topP;
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(opts.apiKey)}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      systemInstruction: { parts: [{ text: opts.systemPrompt }] },
-      generationConfig,
-    }),
-    signal: opts.signal,
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    let msg = errText.slice(0, 300);
-    try {
-      const j = JSON.parse(errText);
-      msg = j?.error?.message ?? msg;
-    } catch { /* texte brut */ }
-    // Pièges fréquents : jeton OAuth au lieu d'une clé AI Studio (les clés
-    // Gemini commencent par AIza), ou projet basculé sur la facturation.
-    if (response.status === 401 || response.status === 403) {
-      if (!opts.apiKey.startsWith('AIza')) {
-        msg = 'La valeur collée n’est pas une clé AI Studio — une clé Gemini commence par « AIza ». Paramètres ▸ Clé API ▸ recopie la bonne clé (aistudio.google.com ▸ Obtenir une clé API), puis « Tester la clé ».';
-      } else {
-        msg += ' — si Google demande des crédits : crée la clé dans un NOUVEAU projet (aistudio.google.com ▸ Obtenir une clé API ▸ nouveau projet), sans compte de facturation.';
-      }
-    }
-    throw new Error(`Erreur Gemini: ${msg}`);
-  }
-
-  let fullText = '';
-  let streamError: string | null = null;
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('Flux Gemini indisponible');
-  const decoder = new TextDecoder();
-  let buffer = '';
-  while (true) {
-    if (opts.signal?.aborted) {
-      try { await reader.cancel(); } catch { /* ignore */ }
-      const err = new Error('Génération interrompue');
-      (err as any).name = 'AbortError';
-      throw err;
-    }
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() ?? '';
-    for (const part of parts) {
-      for (const line of part.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const ev = JSON.parse(line.slice(6));
-          if (ev.error) { streamError = ev.error.message ?? 'Erreur Gemini'; continue; }
-          const delta: string = (ev.candidates?.[0]?.content?.parts ?? [])
-            .map((p: any) => p.text ?? '')
-            .join('');
-          if (delta) {
-            fullText += delta;
-            if (opts.onToken) opts.onToken(fullText);
-          }
-        } catch { /* événement partiel : suivant */ }
-      }
-    }
-  }
-
-  if (!fullText.trim() && streamError) {
-    throw new Error(`Erreur Gemini: ${streamError}`);
-  }
-  return fullText;
 }
