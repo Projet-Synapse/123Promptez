@@ -372,7 +372,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
         const result = await resyncLocalVault(meta);
         if (result) {
           updateFolder(workspace.id, activeRepo.id, { repo: result.meta });
-          syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs);
+          syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
         }
       } else if (meta.sourceKind === 'github' && meta.repoFullName) {
@@ -389,7 +389,7 @@ function SitesTab({ workspace }: { workspace: Workspace }) {
         updateFolder(workspace.id, activeRepo.id, { repo: result.meta });
         // Import échoué : on NE touche PAS aux fichiers existants
         if (!result.error) {
-          syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs);
+          syncFolderFromDisk(workspace.id, activeRepo.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
         } else {
           showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });

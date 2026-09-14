@@ -323,6 +323,10 @@ export interface VaultPickResult {
   files: VaultFileInput[];
   /** Chemins relatifs des dossiers présents sur le disque (dossiers vides inclus). */
   dirs: string[];
+  /** Chemins de TOUS les fichiers présents sur le disque, y compris ceux NON
+   *  importés (trop gros, format non textuel) — la synchro ne doit jamais les
+   *  considérer comme supprimés. */
+  presentPaths?: string[];
 }
 
 export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
@@ -359,6 +363,7 @@ export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
+    const present: string[] = [];
     // Handle conservé en session + IndexedDB (re-synchro et écritures disque)
     await saveFsHandle(handle);
 
@@ -369,13 +374,15 @@ export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
           dirs.push(prefix ? `${prefix}/${name}` : name);
           await walk(entry, prefix ? `${prefix}/${name}` : name);
         } else if (entry.kind === 'file') {
+          const rel = prefix ? `${prefix}/${name}` : name;
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
-          if (!TEXT_EXT.has(ext)) continue;
+          if (!TEXT_EXT.has(ext)) { present.push(rel); continue; }
           const file = await entry.getFile();
-          if (file.size > 512_000) continue; // skip large binaries/text
+          if (file.size > 512_000) { present.push(rel); continue; } // skip large binaries/text
           const content = await file.text();
+          present.push(rel);
           files.push({
-            name: prefix ? `${prefix}/${name}` : name,
+            name: rel,
             type: inferType(name),
             content,
             tags: ['vault', 'local'],
@@ -395,6 +402,7 @@ export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
       },
       files,
       dirs,
+      presentPaths: present,
     };
   }
 
@@ -474,6 +482,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
     }
     const files: VaultFileInput[] = [];
     const dirs: string[] = [];
+    const present: string[] = [];
     async function walk2(dir: any, prefix: string) {
       for await (const [name, entry] of dir.entries()) {
         if (entry.kind === 'directory') {
@@ -481,13 +490,15 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
           dirs.push(prefix ? `${prefix}/${name}` : name);
           await walk2(entry, prefix ? `${prefix}/${name}` : name);
         } else {
+          const rel = prefix ? `${prefix}/${name}` : name;
           const ext = name.split('.').pop()?.toLowerCase() ?? '';
-          if (!TEXT_EXT.has(ext)) continue;
+          if (!TEXT_EXT.has(ext)) { present.push(rel); continue; }
           const file = await entry.getFile();
-          if (file.size > 512_000) continue;
+          if (file.size > 512_000) { present.push(rel); continue; }
           const content = await file.text();
+          present.push(rel);
           files.push({
-            name: prefix ? `${prefix}/${name}` : name,
+            name: rel,
             type: inferType(name),
             content,
             tags: ['vault', 'local'],
@@ -522,6 +533,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
       },
       files,
       dirs,
+      presentPaths: present,
     };
   }
   return {
@@ -696,6 +708,7 @@ export async function importGitHubRepoAsVault(
   meta: VaultMeta;
   files: VaultFileInput[];
   dirs: string[];
+  presentPaths?: string[];
   error?: string;
 }> {
   const [owner, name] = repo.full_name.split('/');
@@ -766,6 +779,11 @@ export async function importGitHubRepoAsVault(
         (e.size ?? 0) <= 512_000,
       )
       .slice(0, 600);
+    // Tous les fichiers du dépôt (texte ou non, importés ou non) : la synchro
+    // miroir ne doit jamais supprimer un fichier qui existe toujours côté GitHub.
+    const presentPaths = (treeData.tree ?? [])
+      .filter((e: any) => e.type === 'blob')
+      .map((e: any) => String(e.path));
 
     // 3) Contenus via raw.githubusercontent SANS Authorization : c'est un CDN
     //    SANS limite de taux (l'API Contents en comptait 1 par fichier → 403
@@ -829,6 +847,7 @@ export async function importGitHubRepoAsVault(
       },
       files,
       dirs: [],
+      presentPaths,
     };
   } catch (e: any) {
     return {

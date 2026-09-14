@@ -26,7 +26,7 @@ type Props = {
   updateFolder: (workspaceId: string, folderId: string, updates: Partial<DBFolder>) => void;
   removeFolder: (workspaceId: string, folderId: string) => void;
   /** Fusion du contenu disque après synchronisation (IDs préservés, dossiers matérialisés) */
-  syncFolderFromDisk: (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[], dirs?: string[]) => void;
+  syncFolderFromDisk: (workspaceId: string, folderId: string, files: { name: string; type: any; content: string; tags: string[] }[], dirs?: string[], presentPaths?: string[]) => void;
 };
 
 export function VaultFolderPanel({
@@ -96,7 +96,7 @@ export function VaultFolderPanel({
         const result = await resyncLocalVault(folder.vault);
         if (!result) return;
         updateFolder(workspaceId, folder.id, { vault: result.meta });
-        syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
+        syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs, result.presentPaths ?? []);
         showAlert('Synchronisation', result.meta.syncMessage || 'Terminé');
       } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName && githubToken) {
         const fakeRepo: GitHubRepoHit = {
@@ -111,7 +111,7 @@ export function VaultFolderPanel({
         updateFolder(workspaceId, folder.id, { vault: result.meta });
         // Import échoué : on NE touche PAS aux fichiers existants
         if (!result.error) {
-          syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs);
+          syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs, result.presentPaths ?? []);
         }
         showAlert(result.error ? 'Échec sync' : 'Import GitHub', result.meta.syncMessage || 'Terminé');
       }

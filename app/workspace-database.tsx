@@ -207,7 +207,7 @@ export default function WorkspaceDatabaseScreen() {
         const result = await resyncLocalVault(folder.vault);
         if (result) {
           updateFolder(wid, folder.id, { vault: result.meta });
-          syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
+          syncFolderFromDisk(wid, folder.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Vault resynchronisé', { tone: 'success' });
         }
       } else if (folder.vault.sourceKind === 'github' && folder.vault.repoFullName) {
@@ -225,7 +225,7 @@ export default function WorkspaceDatabaseScreen() {
         updateFolder(wid, folder.id, { vault: result.meta });
         // Import échoué : on NE touche PAS aux fichiers existants
         if (!result.error) {
-          syncFolderFromDisk(wid, folder.id, result.files, result.dirs);
+          syncFolderFromDisk(wid, folder.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Vault GitHub resynchronisé', { tone: 'success' });
         } else {
           showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });
@@ -244,7 +244,7 @@ export default function WorkspaceDatabaseScreen() {
     const picked = await pickLocalVaultFolder();
     if (!picked) return;
     updateFolder(wsId, rootVault.id, { vault: picked.meta });
-    syncFolderFromDisk(wsId, rootVault.id, picked.files, picked.dirs);
+    syncFolderFromDisk(wsId, rootVault.id, picked.files, picked.dirs, picked.presentPaths ?? []);
     showToast('Chemin du vault enregistré', { tone: 'success' });
   };
 
@@ -347,7 +347,7 @@ export default function WorkspaceDatabaseScreen() {
         const result = await resyncLocalVault(meta);
         if (result) {
           updateFolder(wsId, folder.id, { repo: result.meta });
-          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
+          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Dépôt resynchronisé', { tone: 'success' });
         }
       } else if (meta.sourceKind === 'github' && meta.repoFullName) {
@@ -365,7 +365,7 @@ export default function WorkspaceDatabaseScreen() {
         updateFolder(wsId, folder.id, { repo: result.meta });
         // Import échoué : on NE touche PAS aux fichiers existants
         if (!result.error) {
-          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs);
+          syncFolderFromDisk(wsId, folder.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Dépôt GitHub resynchronisé', { tone: 'success' });
         } else {
           showToast(result.meta.syncMessage || 'Resynchronisation impossible', { tone: 'error' });
