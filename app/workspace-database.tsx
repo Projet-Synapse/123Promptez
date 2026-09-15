@@ -206,6 +206,12 @@ export default function WorkspaceDatabaseScreen() {
       if (folder.vault.sourceKind === 'local') {
         const result = await resyncLocalVault(folder.vault);
         if (result) {
+          // Échec de resynchronisation : files est vide — ne pas synchroniser
+          // (cela détruirait le contenu), afficher l'erreur à la place.
+          if (result.error) {
+            showToast(`Synchronisation impossible : ${result.error}`, { tone: 'error' });
+            return;
+          }
           updateFolder(wid, folder.id, { vault: result.meta });
           syncFolderFromDisk(wid, folder.id, result.files, result.dirs, result.presentPaths ?? []);
           showToast(result.meta.syncMessage || 'Vault resynchronisé', { tone: 'success' });

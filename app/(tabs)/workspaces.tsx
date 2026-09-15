@@ -138,7 +138,7 @@ export default function WorkspacesScreen() {
           <MaterialIcons name="search" size={18} color={C.textMuted} />
           <Text style={{ flex: 1, color: C.textMuted, fontSize: FontSize.sm }}>Rechercher…</Text>
           {Platform.OS === 'web' ? (
-            <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>⌘K</Text>
+            <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>{typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</Text>
           ) : null}
         </Pressable>
         <SyncIndicator compact />

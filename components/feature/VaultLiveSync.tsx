@@ -32,6 +32,9 @@ export function VaultLiveSync() {
   const mergeResync = async (folderId: string, meta: VaultMeta) => {
     const res = await resyncLocalVault(meta);
     if (!res) return;
+    // Resynchronisation ÉCHOUÉE : res.files est vide — synchroniser quand
+    // même détruirait tout le contenu du dossier dans la base. On s'arrête.
+    if (res.error) return;
     const { workspaces: wsNow, syncFolderFromDisk: sync, updateFolder: upd } = latest.current;
     for (const w2 of wsNow) {
       const fld = w2.database.folders.find(f => f.id === folderId || (f.vault ?? f.repo)?.path === meta.path);

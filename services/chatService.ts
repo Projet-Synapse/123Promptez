@@ -157,9 +157,15 @@ export async function sendChatMessage(
   const resolvedDueTasks = dueTasks ?? [];
 
   const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks, langInjection);
+  // Contexte limité aux 12 derniers messages : au-delà, on prévient le modèle
+  // explicitement pour qu'il ne prétende pas se souvenir de l'ancien fil.
+  const trimmedHistory = history.slice(-12);
+  const overflowCount = history.length - trimmedHistory.length;
   const raw: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...history.slice(-12), // keep last 12 messages for context
+    { role: 'system', content: overflowCount > 0
+      ? `${systemPrompt}\n\n[CONTEXTE TRONQUÉ : ${overflowCount} message(s) plus ancien(s) de cette conversation ne te sont plus transmis — ne prétends pas t'en souvenir.]`
+      : systemPrompt },
+    ...trimmedHistory,
     { role: 'user', content: userMessage },
   ];
   // L'API Anthropic EXIGE des rôles alternés : deux messages consécutifs du

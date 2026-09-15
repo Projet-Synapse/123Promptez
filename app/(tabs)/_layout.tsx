@@ -130,7 +130,7 @@ export default function TabLayout() {
         >
           <MaterialIcons name="search" size={16} color={Colors.textMuted} />
           <Text style={{ flex: 1, fontSize: FontSize.sm, color: Colors.textMuted }}>Rechercher…</Text>
-          <Text style={{ fontSize: 10, color: Colors.textMuted, fontFamily: 'monospace' }}>⌘K</Text>
+          <Text style={{ fontSize: 10, color: Colors.textMuted, fontFamily: 'monospace' }}>{typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</Text>
         </Pressable>
 
         {TAB_ITEMS.map(item => {

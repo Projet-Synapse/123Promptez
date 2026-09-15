@@ -14,9 +14,11 @@ interface AgentToolRowProps {
   description: string;
   enabled: boolean;
   onToggle: () => void;
+  /** Outil annoncé mais pas encore branché côté application : badge « À venir ». */
+  soon?: boolean;
 }
 
-export function AgentToolRow({ label, icon, description, enabled, onToggle }: AgentToolRowProps) {
+export function AgentToolRow({ label, icon, description, enabled, onToggle, soon }: AgentToolRowProps) {
   const C = useThemeColors();
   return (
     <View style={{
@@ -41,7 +43,14 @@ export function AgentToolRow({ label, icon, description, enabled, onToggle }: Ag
         <MaterialIcons name={icon as any} size={20} color={enabled ? C.accent : C.textMuted} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: FontSize.body, color: enabled ? C.textPrimary : C.textSecondary, fontWeight: '600', marginBottom: 2 }}>{label}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 2 }}>
+          <Text style={{ fontSize: FontSize.body, color: enabled ? C.textPrimary : C.textSecondary, fontWeight: '600' }}>{label}</Text>
+          {soon ? (
+            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55' }}>
+              <Text style={{ fontSize: 9, color: C.warning, fontWeight: '700' }}>À VENIR</Text>
+            </View>
+          ) : null}
+        </View>
         <Text style={{ fontSize: FontSize.sm, color: C.textMuted, lineHeight: 18 }}>{description}</Text>
       </View>
       <Toggle value={enabled} onToggle={onToggle} />

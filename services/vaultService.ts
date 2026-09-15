@@ -327,6 +327,9 @@ export interface VaultPickResult {
    *  importés (trop gros, format non textuel) — la synchro ne doit jamais les
    *  considérer comme supprimés. */
   presentPaths?: string[];
+  /** Présent quand la resynchronisation a ÉCHOUÉ : les appelants ne doivent
+   *  alors PAS synchroniser (files est vide — un sync détruirait le dossier). */
+  error?: string;
 }
 
 export async function pickLocalVaultFolder(): Promise<VaultPickResult | null> {
@@ -441,6 +444,7 @@ export async function resyncLocalVault(meta: VaultMeta): Promise<VaultPickResult
         },
         files: [],
         dirs: [],
+        error: e?.message ?? 'Échec de synchronisation',
       };
     }
   }

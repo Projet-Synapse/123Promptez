@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { FontSize, Radius, Spacing } from '@/constants/theme';
 import type { DBFile, DBSubFolder, Workspace } from '@/contexts/WorkspaceContext';
@@ -51,6 +52,7 @@ export function CommandPalette() {
   const { open, closePalette } = useCommandPalette();
   const { workspaces, activeWorkspace, setActiveWorkspace, setActiveConversation, addConversation } = useWorkspace();
   const { bot } = useBot();
+  const { mode: themeMode, toggleTheme } = useTheme();
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -67,12 +69,12 @@ export function CommandPalette() {
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list: SearchResult[] = [];
+    const matchAction = (title: string) => !q || title.toLowerCase().includes(q);
 
-    // Quick actions always available
-    if (!q || 'nouvelle conversation'.includes(q) || 'new'.includes(q)) {
-      list.push({
+    // ── Actions rapides : navigation, création, thème ──
+    const actions: { id: string; title: string; subtitle: string; icon: string; color: string; run: () => void }[] = [
+      {
         id: 'action-new-conv',
-        kind: 'action',
         title: 'Nouvelle conversation',
         subtitle: activeWorkspace ? `Dans « ${activeWorkspace.name} »` : 'Workspace actif',
         icon: 'add-comment',
@@ -85,7 +87,58 @@ export function CommandPalette() {
           setActiveConversation(target.id, id);
           router.push('/(tabs)/chat' as any);
         },
-      });
+      },
+      {
+        id: 'action-builder',
+        title: 'Ouvrir le Builder (KB, outils, agents)',
+        subtitle: 'Configuration de l’assistant',
+        icon: 'tune',
+        color: C.primary,
+        run: () => router.push('/(tabs)/index' as any),
+      },
+      {
+        id: 'action-tasks',
+        title: 'Ouvrir les Tâches',
+        subtitle: activeWorkspace?.name ?? 'Workspace actif',
+        icon: 'checklist',
+        color: '#00CC6A',
+        run: () => {
+          if (!activeWorkspace) return;
+          router.push({ pathname: '/workspace-tasks', params: { wsId: activeWorkspace.id } });
+        },
+      },
+      {
+        id: 'action-automations',
+        title: 'Ouvrir les Automatisations',
+        subtitle: activeWorkspace?.name ?? 'Workspace actif',
+        icon: 'bolt',
+        color: '#FFB800',
+        run: () => {
+          if (!activeWorkspace) return;
+          router.push({ pathname: '/workspace-automations', params: { wsId: activeWorkspace.id } });
+        },
+      },
+      {
+        id: 'action-settings',
+        title: 'Ouvrir les Paramètres',
+        subtitle: 'Modèle, clé API, thème…',
+        icon: 'settings',
+        color: C.textSecondary,
+        run: () => router.push('/(tabs)/settings' as any),
+      },
+      {
+        id: 'action-theme',
+        title: themeMode === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre',
+        subtitle: 'Apparence de l’application',
+        icon: themeMode === 'dark' ? 'light-mode' : 'dark-mode',
+        color: '#9B59B6',
+        run: toggleTheme,
+      },
+    ];
+    for (const a of actions) {
+      if (matchAction(a.title)) {
+        list.push({ ...a, kind: 'action' as const });
+      }
     }
 
     for (const ws of workspaces) {
@@ -105,8 +158,13 @@ export function CommandPalette() {
         });
       }
 
-      for (const conv of ws.conversations) {
-        const hay = `${conv.title} ${conv.messages.slice(-2).map(m => m.content).join(' ')}`.toLowerCase();
+      // Conversations récentes d'abord, recherche sur TOUT l'historique des
+      // messages (alignée sur le tiroir du chat, pas seulement les 2 derniers).
+      const sortedConvs = [...ws.conversations].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+      for (const conv of sortedConvs) {
+        const hay = `${conv.title} ${conv.messages.map(m => m.content).join(' ')}`.toLowerCase();
         if (!q || hay.includes(q)) {
           list.push({
             id: `conv-${ws.id}-${conv.id}`,
@@ -185,7 +243,7 @@ export function CommandPalette() {
       seen.add(r.id);
       return true;
     }).slice(0, 40);
-  }, [query, workspaces, activeWorkspace, bot.kbSources, C, addConversation, setActiveWorkspace, setActiveConversation, router]);
+  }, [query, workspaces, activeWorkspace, bot.kbSources, C, themeMode, toggleTheme, addConversation, setActiveWorkspace, setActiveConversation, router]);
 
   useEffect(() => { setActiveIdx(0); }, [query]);
 

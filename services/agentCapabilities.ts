@@ -136,7 +136,20 @@ function connectorCapabilities(bot: BotConfig): AgentCapability[] {
 
 /** Liste honnête des capacités actives, pour l'UI comme pour le prompt. */
 export function getActiveCapabilities(ws: Workspace, bot: BotConfig): AgentCapability[] {
-  const caps = [...AGENT_CAPABILITIES.filter(c => c.enabled(ws, bot)), ...connectorCapabilities(bot)];
+  // Alignement bascule ↔ capacité : « Lecture de fichiers » désactivée ⇒ la
+  // bibliothèque n'est plus utilisable (l'exécution côté client refuse aussi).
+  // Comme pour GitHub, on l'explique au lieu de la taire.
+  const fileReadOn = bot.agentTools.some(t => t.id === 'file_read' && t.enabled);
+  const caps = AGENT_CAPABILITIES.filter(c => c.enabled(ws, bot)).map(c =>
+    c.id === 'workspace_files' && !fileReadOn
+      ? {
+          ...c,
+          description: 'Active l’outil « Lecture de fichiers » pour lire/écrire la bibliothèque',
+          truth: 'L\'outil « Lecture de fichiers » est désactivé : tu ne peux PAS lire ni modifier la bibliothèque du workspace. Si c\'est nécessaire, demande à l\'utilisateur de l\'activer (bouton « + » du chat → Outils IA).',
+        }
+      : c,
+  );
+  caps.push(...connectorCapabilities(bot));
 
   // Supabase = backend de l'application (pas un connecteur externe) :
   // activé, il garantit que la base du workspace est synchronisée et à jour.

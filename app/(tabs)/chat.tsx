@@ -1,6 +1,6 @@
 // Powered by OnSpace.AI
 // Chat screen — side drawer history + attachment button + response mode selector
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
@@ -41,6 +41,18 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
+
+/** Brouillon conservé par conversation (web/desktop) — survive à un refresh. */
+const draftKey = (wsId: string, convId: string) => `promptez.draft.${wsId}.${convId}`;
+
+/** Bascule « Outils IA » requise pour chaque outil client : un outil désactivé
+ *  ne s'exécute PAS (l'IA reçoit l'explication au lieu d'un résultat). */
+const TOOL_TOGGLES: Record<string, string> = {
+  lire_fichier: 'file_read',
+  ecrire_fichier: 'file_read',
+  executer_js: 'code_exec',
+  lire_fichier_github: 'file_read',
+};
 
 /** Ouvre une URL externe sans crasher sur natif (window n'existe pas hors web) */
 function openExternal(url?: string) {
@@ -261,7 +273,14 @@ function PlusPopover({
                     <MaterialIcons name={t.icon as any} size={14} color={enabled ? C.accent : C.textMuted} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.sm, color: enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{t.label}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <Text style={{ fontSize: FontSize.sm, color: enabled ? C.textPrimary : C.textMuted, fontWeight: '600' }}>{t.label}</Text>
+                      {(t as any).soon ? (
+                        <View style={{ paddingHorizontal: 5, paddingVertical: 1, borderRadius: Radius.pill, backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55' }}>
+                          <Text style={{ fontSize: 8, color: C.warning, fontWeight: '700' }}>À VENIR</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text style={{ fontSize: 10, color: C.textMuted }} numberOfLines={1}>{t.description}</Text>
                   </View>
                   <View style={{ width: 34, height: 19, borderRadius: 10, backgroundColor: enabled ? C.accent : C.bgCardAlt, borderWidth: 1, borderColor: enabled ? C.accent : C.border, justifyContent: 'center', paddingHorizontal: 2 }}>
@@ -674,7 +693,29 @@ export default function ChatScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
-  const [responseMode, setResponseMode] = useState<ResponseMode>('auto');
+  // Mode de réponse conservé d'une session à l'autre (web/desktop)
+  const [responseMode, setResponseMode] = useState<ResponseMode>(() => {
+    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+      try {
+        const v = localStorage.getItem('promptez.responseMode');
+        if (v === 'normal' || v === 'quick' || v === 'deep') return v;
+      } catch {}
+    }
+    return 'auto' as ResponseMode;
+  });
+  const changeResponseMode = (m: ResponseMode) => {
+    setResponseMode(m);
+    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+      try { localStorage.setItem('promptez.responseMode', m); } catch {}
+    }
+  };
+
+  // Messages tapés pendant une génération : mis en file d'attente et envoyés
+  // automatiquement dès qu'elle se termine (au lieu d'un no-op silencieux).
+  const [queuedMsgs, setQueuedMsgs] = useState<string[]>([]);
+  // Édition NON destructive d'un message utilisateur : la troncature de la
+  // conversation n'intervient qu'à l'envoi du message corrigé.
+  const [editingMsg, setEditingMsg] = useState<{ id: string; prevInput: string } | null>(null);
 
   // Attachment context: appended to the next message
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; content: string } | null>(null);
@@ -682,12 +723,15 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastUserMsgRef = useRef<string>('');
+  // Conversation CIBLE de la génération en cours (figée au démarrage) :
+  // changer de conversation pendant un streaming ne doit pas déplacer la
+  // réponse partielle vers la mauvaise conversation au moment de « Arrêter ».
+  const generationTargetRef = useRef<{ wsId: string; convId: string } | null>(null);
 
   const activeConversation = getActiveConversation(activeWorkspace.id);
   const chatMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
 
-  // Dernier message utilisateur (éditable) + texte de streaming throttlé
-  const lastUserMsgId = [...chatMessages].reverse().find((m: any) => m.role === 'user')?.id;
+  // Texte de streaming throttlé
   const throttledStream = useThrottledText(streamingText);
   const inputRef = useRef<TextInput>(null);
 
@@ -718,6 +762,45 @@ export default function ChatScreen() {
     });
     return typeof unsub === 'function' ? unsub : undefined;
   }, [activeWorkspace.id, addConversation, setActiveConversation]);
+
+  // ── Brouillon par conversation (web/desktop) ────────────────────
+  const persistDraft = (wsId: string, convId: string, text: string) => {
+    if (Platform.OS !== 'web' || typeof localStorage === 'undefined') return;
+    try {
+      if (text) localStorage.setItem(draftKey(wsId, convId), text);
+      else localStorage.removeItem(draftKey(wsId, convId));
+    } catch {}
+  };
+  // Au changement de conversation : recharge le brouillon de celle-ci
+  // (sauf édition en cours — ne pas écraser le texte en cours de modification).
+  const draftConvId = activeConversation?.id;
+  useEffect(() => {
+    if (!draftConvId || editingMsg) return;
+    if (Platform.OS !== 'web' || typeof localStorage === 'undefined') return;
+    let saved = '';
+    try { saved = localStorage.getItem(draftKey(activeWorkspace.id, draftConvId)) ?? ''; } catch {}
+    setInput(saved);
+  }, [draftConvId, activeWorkspace.id, editingMsg]);
+
+  // ── Échap (web/desktop) : ferme les couches ouvertes, de la plus haute
+  // à la plus basse (tiroir → popover « + » → panneau latéral → annule l'édition)
+  const cancelEdit = useCallback(() => {
+    if (!editingMsg) return;
+    setInput(editingMsg.prevInput);
+    setEditingMsg(null);
+  }, [editingMsg]);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (drawerOpen) setDrawerOpen(false);
+      else if (showPlusPopover) setShowPlusPopover(false);
+      else if (showSidePanel) setShowSidePanel(false);
+      else if (editingMsg) cancelEdit();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerOpen, showPlusPopover, showSidePanel, editingMsg, cancelEdit]);
 
   const activeModes = activeWorkspace.modes.filter((m: any) => m.enabled);
   const currentModeInfo = RESPONSE_MODES.find(m => m.id === responseMode) ?? RESPONSE_MODES[0];
@@ -756,13 +839,21 @@ export default function ChatScreen() {
     abortRef.current = null;
     setIsLoading(false);
     setActivities([]);
-    if (streamingText) {
-      // Keep partial response if any
-      if (activeConversation && streamingText.trim()) {
-        addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_' });
+    const target = generationTargetRef.current ?? (activeConversation ? { wsId: activeWorkspace.id, convId: activeConversation.id } : null);
+    if (target) {
+      if (streamingText.trim()) {
+        // Keep partial response if any
+        addMessageToConversation(target.wsId, target.convId, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_' });
+      } else {
+        // Arrêt AVANT le premier token : une bulle explicite évite le message
+        // utilisateur orphelin (et garde l'affordance « régénérer » visible).
+        addMessageToConversation(target.wsId, target.convId, {
+          role: 'assistant',
+          content: '_(Génération interrompue avant toute réponse — relance-moi ou reformule ta demande.)_',
+        });
       }
-      setStreamingText('');
     }
+    setStreamingText('');
     showToast('Génération arrêtée', { tone: 'warning' });
   };
 
@@ -785,6 +876,7 @@ export default function ChatScreen() {
 
   const runGeneration = async (msg: string, history: { role: string; content: string }[], toolRound = 0, autoInjections: string[] = []) => {
     if (!activeConversation) return;
+    generationTargetRef.current = { wsId: activeWorkspace.id, convId: activeConversation.id };
     setIsLoading(true); setStreamingText('');
     lastUserMsgRef.current = msg;
 
@@ -903,6 +995,21 @@ export default function ChatScreen() {
         try {
           const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
           for (const call of toolCalls) {
+            // Respect des bascules « Outils IA » : un outil désactivé ne
+            // s'exécute pas — l'IA reçoit l'explication et peut s'adapter.
+            const toggleId = TOOL_TOGGLES[call.name];
+            if (toggleId && !bot.agentTools.some((t: any) => t.id === toggleId && t.enabled)) {
+              outcomes.push({
+                call,
+                outcome: {
+                  ok: false,
+                  summary: `${call.name} : outil désactivé`,
+                  detail: `L'outil « ${call.name} » est désactivé dans les réglages du chat (bouton « + » → Outils IA). Demande à l'utilisateur de l'activer, ou conclus avec ce que tu sais déjà.`,
+                },
+              });
+              pushActivity(`outil-${call.name}-${outcomes.length}`, `${call.name} désactivé (réglage)`, 'block');
+              continue;
+            }
             pushActivity(`outil-${call.name}-${outcomes.length}`, `Outil ${call.name}…`, 'precision-manufacturing');
             if (call.name === 'lire_fichier_github') {
               call.args = { ...call.args, token: resolveGitHubToken(bot.connectedApps) ?? undefined };
@@ -972,7 +1079,15 @@ export default function ChatScreen() {
         // handled by handleStop / abort
       } else {
         recordDiag('chat.generation.erreur', `tour ${toolRound} — ${err?.message ?? 'inconnue'}`);
-        showAlert('Erreur', err.message || 'Erreur lors de la génération');
+        // Une bulle visible (et pas seulement une alerte) : la conversation
+        // garde une affordance « régénérer » au lieu d'un message orphelin.
+        if (activeConversation) {
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+            role: 'assistant',
+            content: `_(Erreur pendant la génération : ${err?.message ?? 'inconnue'} — tu peux me relancer.)_`,
+          });
+        }
+        showToast('Erreur de génération', { tone: 'error' });
       }
     } finally {
       activityTimers.forEach(clearTimeout);
@@ -997,11 +1112,13 @@ export default function ChatScreen() {
     await runGeneration(userMsg, history);
   };
 
-  // Éditer un message utilisateur : retire ce message et tout ce qui suit,
-  // puis pré-remplit le champ de saisie (le renvoi est explicite).
+  // Éditer un message utilisateur : NON destructif au clic. Le texte est
+  // chargé dans le composeur avec un bandeau d'édition ; la troncature de la
+  // suite de la conversation n'intervient QU'à l'envoi du message corrigé
+  // (annuler ne perd donc rien, contrairement à l'ancien comportement).
   const handleEditUserMessage = (msgId: string, content: string) => {
     if (isLoading || !activeConversation) return;
-    truncateMessagesAfter(activeWorkspace.id, activeConversation.id, msgId);
+    setEditingMsg({ id: msgId, prevInput: input });
     setInput(content);
     setTimeout(() => inputRef.current?.focus(), 60);
   };
@@ -1009,9 +1126,57 @@ export default function ChatScreen() {
   const handleSend = async (override?: string) => {
     // NB : onPress={handleSend} passe l'événement de clic en 1er argument —
     // on n'accepte qu'une vraie chaîne comme override.
-    const source = typeof override === 'string' ? override : input;
-    let msg = source.trim();
-    if ((!msg && !pendingAttachment) || isLoading || !activeConversation) return;
+    const fromInput = typeof override !== 'string';
+    let msg = (fromInput ? input : override).trim();
+    if (!activeConversation) return;
+
+    // ── Génération en cours : mise en file d'attente (au lieu d'ignorer
+    // silencieusement la frappe sur Entrée). ──
+    if (isLoading) {
+      if (pendingAttachment) {
+        msg = msg
+          ? `${msg}\n\n[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`
+          : `[PIÈCE JOINTE: ${pendingAttachment.name}]\n${pendingAttachment.content}`;
+        setPendingAttachment(null);
+      }
+      if (!msg) return;
+      setQueuedMsgs(q => [...q, msg]);
+      if (fromInput) {
+        setInput('');
+        persistDraft(activeWorkspace.id, activeConversation.id, '');
+      }
+      showToast('Génération en cours — message mis en file d\'attente', { tone: 'info' });
+      return;
+    }
+    if (!msg && !pendingAttachment) return;
+
+    // ── Raccourcis « /commande » des modes du workspace (/court, /debug…) :
+    // active le mode correspondant et envoie le reste du texte. ──
+    if (msg.startsWith('/')) {
+      const [token, ...rest] = msg.split(/\s+/);
+      const mode = activeWorkspace.modes.find((m: any) =>
+        (m.shortcut ?? '').toLowerCase() === token.toLowerCase());
+      if (mode) {
+        if (!mode.enabled) {
+          toggleMode(activeWorkspace.id, mode.id);
+          showToast(`Mode « ${mode.label} » activé`, { tone: 'success' });
+        }
+        msg = rest.join(' ').trim();
+        if (!msg && !pendingAttachment) {
+          if (fromInput) {
+            setInput('');
+            persistDraft(activeWorkspace.id, activeConversation.id, '');
+          }
+          return;
+        }
+      }
+    }
+
+    // ── Édition d'un message antérieur : la troncature n'a lieu QU'ICI ──
+    if (editingMsg) {
+      truncateMessagesAfter(activeWorkspace.id, activeConversation.id, editingMsg.id);
+      setEditingMsg(null);
+    }
 
     if (pendingAttachment) {
       msg = msg
@@ -1021,6 +1186,7 @@ export default function ChatScreen() {
     }
 
     setInput('');
+    persistDraft(activeWorkspace.id, activeConversation.id, '');
     addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'user', content: msg });
 
     // ── Automatisations : déclencheurs réellement évalués à chaque message ──
@@ -1049,9 +1215,28 @@ export default function ChatScreen() {
       }
     }
 
-    const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
+    // Historique : tout ce qui PRÉCÈDE le message envoyé. En mode édition,
+    // ce sont les messages antérieurs au message corrigé (la troncature vient
+    // de retirer le reste dans le contexte ; la closure locale, elle, garde
+    // l'instantané d'avant troncature — d'où le slice explicite).
+    const editBaseIdx = editingMsg
+      ? chatMessages.findIndex((m: any) => m.id === editingMsg.id)
+      : -1;
+    const history = (editBaseIdx >= 0 ? chatMessages.slice(0, editBaseIdx) : chatMessages)
+      .map((m: any) => ({ role: m.role, content: m.content }));
     await runGeneration(msg, history, 0, autoInjections);
   };
+
+  // ── Draine la file d'attente dès que la génération se termine ──
+  // (passe par une ref pour toujours appeler la version à jour de handleSend)
+  const sendRef = useRef(handleSend);
+  sendRef.current = handleSend;
+  useEffect(() => {
+    if (isLoading || queuedMsgs.length === 0) return;
+    const [next, ...rest] = queuedMsgs;
+    setQueuedMsgs(rest);
+    void sendRef.current(next);
+  }, [isLoading, queuedMsgs]);
 
   const handleNavigate = (wsId: string, convId?: string) => {
     setActiveWorkspace(wsId);
@@ -1217,7 +1402,7 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            {chatMessages.map((msg: any, idx: number) => (
+            {chatMessages.map((msg: any) => (
               <ChatBubble
                 key={msg.id}
                 message={msg}
@@ -1225,12 +1410,14 @@ export default function ChatScreen() {
                 botColor={bot.avatarColor}
                 onCopy={() => handleCopyMessage(msg.content)}
                 onEdit={
-                  msg.role === 'user' && msg.id === lastUserMsgId && !isLoading
+                  msg.role === 'user' && !isLoading
                     ? () => handleEditUserMessage(msg.id, msg.content)
                     : undefined
                 }
                 onRegenerate={
-                  msg.role === 'assistant' && idx === chatMessages.length - 1 && !isLoading
+                  // Régénérer n'importe quelle réponse de l'IA (fourche la
+                  // conversation à partir d'elle), pas seulement la dernière.
+                  msg.role === 'assistant' && !isLoading
                     ? () => handleRegenerate(msg.id)
                     : undefined
                 }
@@ -1314,10 +1501,40 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
+          {/* Bandeau d'édition d'un message antérieur (annulable sans perte) */}
+          {editingMsg ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, backgroundColor: C.warning + '18', borderTopWidth: 1, borderTopColor: C.warning + '44' }}>
+              <MaterialIcons name="edit" size={14} color={C.warning} />
+              <Text style={{ flex: 1, fontSize: FontSize.xs, color: C.warning, fontWeight: '600' }} numberOfLines={1}>
+                Modification du message — la suite sera remplacée à l’envoi
+              </Text>
+              <Pressable onPress={cancelEdit} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <MaterialIcons name="close" size={14} color={C.warning} />
+                <Text style={{ fontSize: FontSize.xs, color: C.warning, fontWeight: '700' }}>Annuler</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {/* File d'attente : messages envoyés dès la fin de la génération */}
+          {queuedMsgs.length > 0 ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap', paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border }}>
+              <MaterialIcons name="low-priority" size={14} color={C.warning} />
+              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700' }}>En attente :</Text>
+              {queuedMsgs.map((m, i) => (
+                <View key={`${i}-${m.slice(0, 16)}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.bgCardAlt, borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, paddingHorizontal: 8, paddingVertical: 3, maxWidth: 260 }}>
+                  <Text style={{ fontSize: 10, color: C.textSecondary, flexShrink: 1 }} numberOfLines={1}>{m}</Text>
+                  <Pressable onPress={() => setQueuedMsgs(q => q.filter((_, j) => j !== i))} hitSlop={6} accessibilityLabel="Retirer de la file d'attente">
+                    <MaterialIcons name="close" size={12} color={C.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {/* Astuce raccourci clavier (web/desktop uniquement) */}
           {Platform.OS === 'web' ? (
             <View style={{ paddingHorizontal: Spacing.md, paddingTop: 2, backgroundColor: C.bg }}>
-              <Text style={{ fontSize: 10, color: C.textMuted }}>↵ Envoyer · Maj + ↵ Nouvelle ligne</Text>
+              <Text style={{ fontSize: 10, color: C.textMuted }}>↵ Envoyer · Maj + ↵ Nouvelle ligne · Échap ferme les panneaux</Text>
             </View>
           ) : null}
 
@@ -1347,8 +1564,12 @@ export default function ChatScreen() {
 
             <TextInput
               ref={inputRef}
-              style={{ flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
-              value={input} onChangeText={setInput}
+              style={{ flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: editingMsg ? C.warning : C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
+              value={input}
+              onChangeText={(v) => {
+                setInput(v);
+                if (activeConversation) persistDraft(activeWorkspace.id, activeConversation.id, v);
+              }}
               placeholder={pendingAttachment ? `Message + "${pendingAttachment.name}"` : t('typeMessage')}
               placeholderTextColor={C.textMuted}
               multiline maxLength={4000}
@@ -1397,7 +1618,7 @@ export default function ChatScreen() {
         onPickFile={handlePickFile}
         onPickImage={handlePickImage}
         responseMode={responseMode}
-        onChangeMode={setResponseMode}
+        onChangeMode={changeResponseMode}
         capabilities={getActiveCapabilities(activeWorkspace, bot)}
         connectedApps={bot.connectedApps}
         onToggleConnectedApp={(id, enabled) => updateConnectedApp(id, { enabled })}

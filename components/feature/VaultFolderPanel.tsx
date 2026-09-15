@@ -95,6 +95,9 @@ export function VaultFolderPanel({
       if (folder.vault.sourceKind === 'local') {
         const result = await resyncLocalVault(folder.vault);
         if (!result) return;
+        // Échec de resynchronisation : files est vide, synchroniser détruirait
+        // le contenu du dossier — même garde que la branche GitHub ci-dessous.
+        if (result.error) { showAlert('Synchronisation impossible', result.error); return; }
         updateFolder(workspaceId, folder.id, { vault: result.meta });
         syncFolderFromDisk(workspaceId, folder.id, result.files, result.dirs, result.presentPaths ?? []);
         showAlert('Synchronisation', result.meta.syncMessage || 'Terminé');

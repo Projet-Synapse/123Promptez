@@ -437,7 +437,32 @@ export default function WorkspaceAutomationsScreen({ embedded }: { embedded?: bo
                   </View>
                 </View>
 
-                {/* Payload */}
+                {/* Payload — champ libre, SAUF set_mode : picker de modes du
+                    workspace (l'ancien champ UUID à taper à la main était
+                    impossible à remplir correctement depuis l'interface) */}
+                {autoAction === 'set_mode' ? (
+                  <View style={{ gap: Spacing.xs }}>
+                    <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Mode à activer *</Text>
+                    {ws.modes.length === 0 ? (
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                        Aucun mode dans ce workspace — créez-en un dans Paramètres du workspace ▸ Compétences.
+                      </Text>
+                    ) : (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+                        {ws.modes.map(m => {
+                          const active = autoPayload === m.id;
+                          return (
+                            <Pressable key={m.id} onPress={() => setAutoPayload(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, borderRadius: Radius.pill, borderWidth: 1, borderColor: active ? m.color + '88' : C.border, backgroundColor: active ? m.color + '18' : C.bgCardAlt }}>
+                              <MaterialIcons name={m.icon as any} size={13} color={active ? m.color : C.textMuted} />
+                              <Text style={{ fontSize: FontSize.xs, color: active ? m.color : C.textSecondary, fontWeight: '600' }}>{m.label}</Text>
+                              {active ? <MaterialIcons name="check" size={13} color={m.color} /> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                ) : (
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Contenu de l’action *</Text>
                   <TextInput
@@ -450,6 +475,7 @@ export default function WorkspaceAutomationsScreen({ embedded }: { embedded?: bo
                     textAlignVertical="top"
                   />
                 </View>
+                )}
 
                 {/* Flow preview */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: C.border }}>
