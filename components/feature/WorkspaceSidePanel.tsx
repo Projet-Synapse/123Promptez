@@ -3,15 +3,17 @@
 // instructions, aux dépôts de code connectés et à des sites web / sandbox.
 import React, { useMemo, useState } from 'react';
 import {
-  View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Platform,
+  View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Platform, Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { IconButton } from '@/components/ui/IconButton';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useBot } from '@/hooks/useBot';
 import { useToast } from '@/contexts/ToastContext';
+import { useAlert } from '@/template';
 import { Draggable, DropZone, useDnDState } from '@/components/feature/dnd';
 import { ResizeHandle } from '@/components/feature/ResizeHandle';
 import {
@@ -78,11 +80,13 @@ function FileChip({ file, depth, active, fromLoc, onPress }: {
 
 function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull: () => void }) {
   const C = useThemeColors();
-  const { moveFile, updateFile } = useWorkspace();
+  const { moveFile, updateFile, removeFile } = useWorkspace();
   const { showToast } = useToast();
+  const { showAlert } = useAlert();
   const dragState = useDnDState();
   const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set());
-  const [selectedFile, setSelectedFile] = useState<DBFile | null>(null);
+  // Fichier sélectionné + sa localisation (nécessaire pour supprimer/déplacer)
+  const [selected, setSelected] = useState<{ file: DBFile; loc: FileLocation } | null>(null);
 
   const toggleFolder = (id: string) => setOpenFolderIds(prev => {
     const next = new Set(prev);
@@ -142,6 +146,42 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
     moveFile(workspace.id, file.id, fromLoc, toLoc);
   };
 
+  // ── Actions sur le fichier sélectionné (aperçu) ──────────────────
+  const openExternalUrl = (url: string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') window.open(url, '_blank', 'noopener');
+    else Linking.openURL(url).catch(() => {});
+  };
+  const handleCopyFile = async () => {
+    if (!selected) return;
+    try {
+      await Clipboard.setStringAsync(selected.file.content);
+      showToast('Contenu copié', { tone: 'success' });
+    } catch {
+      showToast('Impossible de copier', { tone: 'error' });
+    }
+  };
+  const confirmDeleteFile = () => {
+    if (!selected) return;
+    const meta = metaAt(selected.loc);
+    const mirrors = selected.file.type !== 'url' && canMirrorToDisk(meta);
+    showAlert(
+      `Supprimer « ${selected.file.name.split('/').pop()} » ?`,
+      mirrors ? 'Le fichier sera retiré de la bibliothèque ET du dossier local relié.' : 'Le fichier sera retiré de la bibliothèque.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Supprimer', style: 'destructive', onPress: () => { void (async () => {
+          if (mirrors && meta) {
+            const r = await vaultDeletePath(meta, selected.file.name, false);
+            if (!r.ok) { showToast(`Disque : ${r.error ?? 'suppression impossible'}`, { tone: 'error' }); return; }
+          }
+          removeFile(workspace.id, selected.loc, selected.file.id);
+          setSelected(null);
+          showToast('Fichier supprimé', { tone: 'success' });
+        })(); } },
+      ],
+    );
+  };
+
   // Lignes dépliables : dossiers racine + sous-dossiers IMBRIQUÉS à toute
   // profondeur (vault et dépôts inclus). `loc` = localisation exacte de la ligne.
   const rows: { key: string; folder: DBFolder; depth: number; loc: FileLocation }[] = [];
@@ -186,9 +226,9 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
             key={f.id}
             file={f}
             depth={0}
-            active={selectedFile?.id === f.id}
+            active={selected?.file.id === f.id}
             fromLoc={null}
-            onPress={() => setSelectedFile(f)}
+            onPress={() => setSelected({ file: f, loc: null })}
           />
         ))}
 
@@ -239,9 +279,9 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
                   key={f.id}
                   file={f}
                   depth={depth + 1}
-                  active={selectedFile?.id === f.id}
+                  active={selected?.file.id === f.id}
                   fromLoc={loc}
-                  onPress={() => setSelectedFile(f)}
+                  onPress={() => setSelected({ file: f, loc })}
                 />
               )) : null}
             </DropZone>
@@ -255,19 +295,36 @@ function FilesTab({ workspace, onOpenFull }: { workspace: Workspace; onOpenFull:
         ) : null}
       </ScrollView>
 
-      {/* Aperçu du fichier sélectionné */}
-      {selectedFile ? (
+      {/* Aperçu du fichier sélectionné — avec actions rapides */}
+      {selected ? (
         <View style={{ maxHeight: '55%', borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bgCard, padding: Spacing.md, gap: Spacing.xs }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-            <MaterialIcons name={fileTypeInfo(selectedFile.type).icon as any} size={16} color={fileTypeInfo(selectedFile.type).color} />
-            <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{selectedFile.name}</Text>
-            <IconButton icon="close" label="Fermer l aperçu" bare size={16} color={C.textSecondary} onPress={() => setSelectedFile(null)} />
+            <MaterialIcons name={fileTypeInfo(selected.file.type).icon as any} size={16} color={fileTypeInfo(selected.file.type).color} />
+            <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{selected.file.name}</Text>
+            <IconButton icon="close" label="Fermer l aperçu" bare size={16} color={C.textSecondary} onPress={() => setSelected(null)} />
           </View>
           <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
-            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17, fontFamily: selectedFile.type === 'code' || selectedFile.type === 'json' ? 'monospace' : undefined }}>
-              {selectedFile.content || '(Contenu vide)'}
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 17, fontFamily: selected.file.type === 'code' || selected.file.type === 'json' ? 'monospace' : undefined }}>
+              {selected.file.content || '(Contenu vide)'}
             </Text>
           </ScrollView>
+          {/* Actions rapides : copier / ouvrir (lien) / supprimer */}
+          <View style={{ flexDirection: 'row', gap: Spacing.xs }}>
+            <Pressable onPress={() => void handleCopyFile()} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: Spacing.xs + 2, borderRadius: Radius.md, backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border }, pressed && { opacity: 0.75 }]}>
+              <MaterialIcons name="content-copy" size={13} color={C.textSecondary} />
+              <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '700' }}>Copier</Text>
+            </Pressable>
+            {selected.file.type === 'url' ? (
+              <Pressable onPress={() => openExternalUrl(selected.file.content.trim())} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: Spacing.xs + 2, borderRadius: Radius.md, backgroundColor: '#00CC6A' + '15', borderWidth: 1, borderColor: '#00CC6A' + '55' }, pressed && { opacity: 0.75 }]}>
+                <MaterialIcons name="open-in-new" size={13} color="#00CC6A" />
+                <Text style={{ fontSize: FontSize.xs, color: '#00CC6A', fontWeight: '700' }}>Ouvrir</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={confirmDeleteFile} style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: Spacing.xs + 2, borderRadius: Radius.md, backgroundColor: C.error + '12', borderWidth: 1, borderColor: C.error + '55' }, pressed && { opacity: 0.75 }]}>
+              <MaterialIcons name="delete-outline" size={13} color={C.error} />
+              <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Supprimer</Text>
+            </Pressable>
+          </View>
           <Pressable onPress={onOpenFull} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: Spacing.xs + 2, borderRadius: Radius.md, backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '44' }, pressed && { opacity: 0.75 }]}>
             <MaterialIcons name="open-in-new" size={13} color={C.accent} />
             <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700' }}>Gérer dans la bibliothèque</Text>

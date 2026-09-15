@@ -555,10 +555,15 @@ export default function SettingsScreen() {
                 </View>
               </View>
 
-              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
-                <SliderRow label="Max Tokens" value={bot.llmConfig.maxTokens} min={256} max={8192} step={256}
-                  onChange={v => updateLLMConfig({ maxTokens: Math.round(v / 256) * 256 })}
+              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.xs }}>
+                {/* Plancher réel imposé par le serveur (thinking adaptatif) :
+                    toute valeur sous 16384 était silencieusement écrasée. */}
+                <SliderRow label="Max Tokens" value={Math.max(16384, bot.llmConfig.maxTokens)} min={16384} max={32000} step={1024}
+                  onChange={v => updateLLMConfig({ maxTokens: Math.round(v / 1024) * 1024 })}
                   format={v => `${Math.round(v).toLocaleString('fr-FR')}`} />
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 16 }}>
+                  Plancher de 16 384 imposé par le « thinking » adaptatif des modèles (il puise dans ce budget) · plafond 32 000.
+                </Text>
               </View>
 
               <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md }}>
@@ -569,8 +574,16 @@ export default function SettingsScreen() {
 
             {/* ── Web Search Engine ──────────────────────────────────── */}
             <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
-              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Moteur de recherche web
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Moteur de recherche web
+                </Text>
+                <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.pill, backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55' }}>
+                  <Text style={{ fontSize: 9, color: C.warning, fontWeight: '700' }}>À VENIR</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 16 }}>
+                La recherche web n’est pas encore branchée : ce choix est conservé pour la prochaine version.
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
                 {WEB_SEARCH_ENGINES.map(engine => (

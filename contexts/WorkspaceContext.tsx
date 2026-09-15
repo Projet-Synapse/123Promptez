@@ -347,7 +347,17 @@ interface Props { children: ReactNode; onDataChange?: (workspaces: Workspace[]) 
 
 export function WorkspaceProvider({ children, onDataChange }: Props) {
   const [workspaces, setWorkspacesRaw] = useState<Workspace[]>(DEFAULT_WORKSPACES);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('ws-default');
+  // Dernier espace actif conservé (web/desktop) : après un refresh, on
+  // retombe sur l'espace ouvert avant le rechargement, pas sur « ws-default ».
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('promptez.lastWorkspace');
+        if (saved && DEFAULT_WORKSPACES.some(w => w.id === saved)) return saved;
+      } catch {}
+    }
+    return 'ws-default';
+  });
   const isHydrating = useRef(false);
   // Dernier état rendu, lisible depuis les callbacks mémoïsés (deps stables)
   const latestRef = useRef({ workspaces, activeWorkspaceId });
@@ -391,7 +401,12 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   }, []);
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
-  const setActiveWorkspace = (id: string) => setActiveWorkspaceId(id);
+  const setActiveWorkspace = (id: string) => {
+    setActiveWorkspaceId(id);
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.setItem('promptez.lastWorkspace', id); } catch {}
+    }
+  };
 
   const addWorkspace = (ws: Omit<Workspace, 'id' | 'createdAt' | 'conversations' | 'activeConversationId' | 'tasks' | 'automations'>) => {
     const firstConv = makeConversation('Nouvelle conversation');
@@ -405,8 +420,13 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   const removeWorkspace = (id: string) => {
     if (workspaces.length <= 1) return;
     setWorkspaces(prev => prev.filter(w => w.id !== id));
-    if (activeWorkspaceId === id)
-      setActiveWorkspaceId(workspaces.find(w => w.id !== id)?.id || 'ws-default');
+    if (activeWorkspaceId === id) {
+      const nextId = workspaces.find(w => w.id !== id)?.id || 'ws-default';
+      setActiveWorkspaceId(nextId);
+      if (typeof localStorage !== 'undefined') {
+        try { localStorage.setItem('promptez.lastWorkspace', nextId); } catch {}
+      }
+    }
   };
 
   // ─── Modes ───────────────────────────────────────────────────────

@@ -275,19 +275,19 @@ export default function BuilderScreen() {
           </Pressable>
         ) : null}
 
-        {/* Stats */}
+        {/* Stats — cliquables : chaque compteur mène à sa section */}
         <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
           {[
-            { icon: 'library-books', label: 'Sources KB', value: bot.kbSources.length },
-            { icon: 'bolt', label: 'Outils actifs', value: enabledToolsCount },
-            { icon: 'psychology', label: 'Agents IA', value: enabledAgentsCount },
-            { icon: 'hub', label: 'Connecteurs', value: enabledAppsCount },
+            { icon: 'library-books', label: 'Sources KB', value: bot.kbSources.length, section: 'kb' as ActiveSection },
+            { icon: 'bolt', label: 'Outils actifs', value: enabledToolsCount, section: 'agents' as ActiveSection },
+            { icon: 'psychology', label: 'Agents IA', value: enabledAgentsCount, section: 'custom_agents' as ActiveSection },
+            { icon: 'hub', label: 'Connecteurs', value: enabledAppsCount, section: 'apps' as ActiveSection },
           ].map(stat => (
-            <View key={stat.label} style={{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, alignItems: 'center', gap: 4 }}>
+            <Pressable key={stat.label} onPress={() => setActiveSection(stat.section)} style={({ pressed }) => [{ flex: 1, backgroundColor: C.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm, alignItems: 'center', gap: 4 }, pressed && { opacity: 0.7 }]}>
               <MaterialIcons name={stat.icon as any} size={18} color={C.primary} />
               <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>{stat.value}</Text>
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center' }}>{stat.label}</Text>
-            </View>
+            </Pressable>
           ))}
         </View>
 
@@ -361,7 +361,7 @@ export default function BuilderScreen() {
             {AGENT_TOOLS.map(tool => {
               const state = bot.agentTools.find(t => t.id === tool.id);
               return (
-                <AgentToolRow key={tool.id} id={tool.id} label={tool.label} icon={tool.icon} description={tool.description} enabled={state?.enabled ?? false} onToggle={() => toggleAgentTool(tool.id)} />
+                <AgentToolRow key={tool.id} id={tool.id} label={tool.label} icon={tool.icon} description={tool.description} enabled={state?.enabled ?? false} onToggle={() => toggleAgentTool(tool.id)} soon={(tool as any).soon === true} />
               );
             })}
           </View>

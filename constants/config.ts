@@ -15,25 +15,29 @@ export const AGENT_TOOLS = [
     id: 'web_search',
     label: 'Recherche Web',
     icon: 'search',
-    description: 'Recherche en temps réel · Google, Brave, DuckDuckGo, Bing au choix',
+    description: 'Recherche en temps réel sur le web — bientôt disponible',
+    soon: true,
   },
   {
     id: 'image_analysis',
     label: "Analyse d'image",
     icon: 'image-search',
-    description: "Analyse et décrit le contenu d'images (vision IA via GPT-4V / Gemini Vision)",
+    description: "Analyse et décrit le contenu d'images — bientôt disponible",
+    soon: true,
   },
   {
     id: 'db_access',
     label: 'Accès Base de données',
     icon: 'storage',
-    description: 'Lire / écrire dans une base de données structurée',
+    description: 'Lire / écrire dans une base externe — bientôt disponible',
+    soon: true,
   },
   {
     id: 'automation',
     label: 'Automatisations',
     icon: 'bolt',
-    description: 'Déclencher des webhooks et intégrations externes',
+    description: 'Déclencher des webhooks externes — bientôt disponible',
+    soon: true,
   },
   {
     id: 'code_exec',
@@ -45,7 +49,7 @@ export const AGENT_TOOLS = [
     id: 'file_read',
     label: 'Lecture de fichiers',
     icon: 'folder-open',
-    description: 'Lire les fichiers de la bibliothèque et des dépôts GitHub publics',
+    description: 'Lire / modifier les fichiers de la bibliothèque et des dépôts GitHub publics',
   },
 ];
 
