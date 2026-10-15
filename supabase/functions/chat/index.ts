@@ -78,7 +78,10 @@ Deno.serve(async (req: Request) => {
       }
       // Raisonnement visible : Gemini 2.5 Flash expose ses « thoughts » via
       // includeThoughts (Flash-Lite ne le supporte pas → on n'active pas).
+      // Budget réflexion généreux (mais ≥4096 tokens réservés à la réponse) :
+      // un budget trop court donne une pensée survolée ET une réponse tassée.
       const supportsThinking = /2\.5-flash(?!.*lite)/.test(modelFinal);
+      const gThinkingBudget = Math.min(12288, Math.max(1024, maxTokensFinal - 4096));
       const contents = convo.map((m: any) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
@@ -90,11 +93,20 @@ Deno.serve(async (req: Request) => {
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': personal },
           body: JSON.stringify({
             contents,
-            systemInstruction: { parts: [{ text: systemMessage }] },
+            systemInstruction: {
+              parts: [{
+                // Gemini raisonne spontanément en anglais : on impose la langue
+                // de l'utilisateur + une réflexion développée (sinon pensée
+                // survolée en anglais ET réponse finale tassée).
+                text: thinking === true && supportsThinking
+                  ? `${systemMessage}\n\nIMPORTANT sur ton raisonnement interne : rédige-le dans la langue de l'utilisateur (le français par défaut), JAMAIS en anglais. Développe-le vraiment : analyse la demande, explore les pistes, vérifie tes conclusions — le raisonnement affiché doit être lisible et substantiel, pas un survol. Ta réponse FINALE reste complète et détaillée : le raisonnement ne la remplace pas, il la prépare.`
+                  : systemMessage,
+              }],
+            },
             generationConfig: {
               maxOutputTokens: maxTokensFinal,
               ...(typeof temperature === 'number' ? { temperature } : {}),
-              ...(thinking === true && supportsThinking ? { thinkingConfig: { includeThoughts: true } } : {}),
+              ...(thinking === true && supportsThinking ? { thinkingConfig: { includeThoughts: true, thinkingBudget: gThinkingBudget } } : {}),
             },
           }),
         },
@@ -127,11 +139,17 @@ Deno.serve(async (req: Request) => {
 
     // Raisonnement étendu (extended thinking) : activé à la demande du client
     // (mode « Réfléchie »). L'API exige budget_tokens >= 1024 et < max_tokens ;
-    // on réserve donc au moins 2048 tokens pour la réponse elle-même.
+    // on réserve au moins 4096 tokens pour la réponse elle-même (un budget de
+    // réflexion généreux, sinon la pensée est survolée et la réponse tassée).
+    // Les modèles raisonnent spontanément en anglais : on impose la langue de
+    // l'utilisateur dans le system, sinon la pensée affichée est illisible.
     const wantThinking = thinking === true && modelFinal.startsWith('claude');
     const thinkingBudget = wantThinking
-      ? Math.min(4000, Math.max(1024, maxTokensFinal - 2048))
+      ? Math.min(10000, Math.max(2048, maxTokensFinal - 4096))
       : undefined;
+    const thinkingSystemNote = wantThinking
+      ? `${systemMessage}\n\nIMPORTANT sur ton raisonnement interne : rédige-le dans la langue de l'utilisateur (le français par défaut), JAMAIS en anglais. Développe-le vraiment : analyse la demande, explore les pistes, vérifie tes conclusions — le raisonnement affiché doit être lisible et substantiel, pas un survol. Ta réponse FINALE reste complète et détaillée : le raisonnement ne la remplace pas, il la prépare.`
+      : systemMessage;
 
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -143,7 +161,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: modelFinal,
         max_tokens: maxTokensFinal,
-        system: systemMessage,
+        system: thinkingSystemNote,
         messages: convo,
         stream: true,
         ...(wantThinking ? { thinking: { type: 'enabled', budget_tokens: thinkingBudget } } : {}),
