@@ -2,7 +2,7 @@
   "expo": {
     "name": "123Promptez",
     "slug": "onspace-app",
-    "version": "1.7.1",
+    "version": "1.7.2",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "onspaceapp",
