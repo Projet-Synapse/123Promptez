@@ -12,7 +12,7 @@ const CORS = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   try {
-    const { messages, model, maxTokens, apiKey, temperature } = await req.json();
+    const { messages, model, maxTokens, apiKey, temperature, thinking } = await req.json();
     const personal = typeof apiKey === 'string' && apiKey.trim().length >= 10 ? apiKey.trim() : null;
     const systemMessage = (messages ?? []).find((m: any) => m.role === 'system')?.content ?? '';
     const convo = (messages ?? []).filter((m: any) => m.role !== 'system');
@@ -44,7 +44,15 @@ Deno.serve(async (req: Request) => {
                   try {
                     const ev = JSON.parse(line.slice(6));
                     const delta = extract(ev);
-                    if (delta) send({ delta });
+                    if (!delta) continue;
+                    // Deux canaux : texte de la réponse ({delta}) et
+                    // raisonnement étendu ({thinking}) — le client route
+                    // chacun vers sa bulle.
+                    if (typeof delta === 'object' && delta !== null && '__thinking' in delta) {
+                      send({ thinking: (delta as any).__thinking });
+                    } else {
+                      send({ delta });
+                    }
                   } catch { /* ignore */ }
                 }
               }
@@ -106,6 +114,15 @@ Deno.serve(async (req: Request) => {
     if (!apiKeyFinal) {
       throw new Error('Aucune clé API — colle ta clé Anthropic dans Builder ▸ Paramètres ▸ Clé API');
     }
+
+    // Raisonnement étendu (extended thinking) : activé à la demande du client
+    // (mode « Réfléchie »). L'API exige budget_tokens >= 1024 et < max_tokens ;
+    // on réserve donc au moins 2048 tokens pour la réponse elle-même.
+    const wantThinking = thinking === true && modelFinal.startsWith('claude');
+    const thinkingBudget = wantThinking
+      ? Math.min(4000, Math.max(1024, maxTokensFinal - 2048))
+      : undefined;
+
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -119,15 +136,23 @@ Deno.serve(async (req: Request) => {
         system: systemMessage,
         messages: convo,
         stream: true,
+        ...(wantThinking ? { thinking: { type: 'enabled', budget_tokens: thinkingBudget } } : {}),
       }),
     });
     if (!apiRes.ok || !apiRes.body) {
       const t = await apiRes.text().catch(() => '');
       throw new Error(`Anthropic ${apiRes.status}: ${t.slice(0, 300)}`);
     }
-    return relay(apiRes, (ev) =>
-      ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' ? ev.delta.text : null,
-    );
+    return relay(apiRes, (ev) => {
+      if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta') {
+        // Événement hétérogène : le client le route vers la bulle « Raisonnement ».
+        if (typeof ev.delta.thinking === 'string' && ev.delta.thinking.length > 0) {
+          return { __thinking: ev.delta.thinking } as any;
+        }
+        return null;
+      }
+      return ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' ? ev.delta.text : null;
+    });
   } catch (e: any) {
     return new Response(
       JSON.stringify({ error: e?.message ?? 'Erreur interne' }),
