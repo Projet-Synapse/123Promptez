@@ -6,6 +6,7 @@ import { Radius, Spacing, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { ChatMessage } from '@/contexts/BotContext';
 import { MarkdownView } from '@/components/feature/Markdown';
+import { ThinkingCard } from '@/components/feature/ThinkingCard';
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -85,7 +86,10 @@ export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, o
               {message.content}
             </Text>
           ) : (
-            <MarkdownView content={message.content} />
+            <>
+              {!isToolResults && message.thinking ? <ThinkingCard text={message.thinking} /> : null}
+              <MarkdownView content={message.content} />
+            </>
           )}
         </View>
 

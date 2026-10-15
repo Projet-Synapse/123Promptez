@@ -63,6 +63,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   toolsUsed?: string[];
+  /** Raisonnement étendu de l'IA (mode Réfléchie) — affiché repliable */
+  thinking?: string;
 }
 
 export interface BotConfig {

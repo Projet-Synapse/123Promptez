@@ -105,7 +105,12 @@ interface ChatMessage {
 // The edge function emits `data: {"delta": "..."}` chunks, terminated by
 // `data: [DONE]`. Les évènements `{"error": …}` sont remontés via onError,
 // les évènements `{"toolEvent": …}` (outils exécutés côté serveur) via onTool.
-function parseSSEChunk(raw: string, onError?: (message: string) => void, onTool?: (label: string) => void): string {
+function parseSSEChunk(
+  raw: string,
+  onError?: (message: string) => void,
+  onTool?: (label: string) => void,
+  onThinkingDelta?: (fragment: string) => void,
+): string {
   const lines = raw.split('\n');
   let result = '';
   for (const line of lines) {
@@ -120,6 +125,10 @@ function parseSSEChunk(raw: string, onError?: (message: string) => void, onTool?
       }
       if (json.toolEvent) {
         onTool?.(String(json.toolEvent));
+        continue;
+      }
+      if (typeof json.thinking === 'string' && json.thinking.length > 0) {
+        onThinkingDelta?.(json.thinking);
         continue;
       }
       result += json.delta ?? '';
@@ -139,6 +148,10 @@ export interface ChatToolExtras {
   enabledTools?: string[];
   /** Notifié quand la fonction Edge exécute un outil côté serveur */
   onToolEvent?: (label: string) => void;
+  /** Active le raisonnement étendu (mode Réfléchie) — modèles Claude uniquement */
+  thinking?: boolean;
+  /** Appelé à chaque fragment de raisonnement reçu (avec le total accumulé) */
+  onThinking?: (fullThinking: string) => void;
 }
 
 export async function sendChatMessage(
@@ -229,6 +242,8 @@ export async function sendChatMessage(
         githubToken: extra?.githubToken ?? null,
         enableSupabase: extra?.supabaseTools === true,
         enabledTools: extra?.enabledTools ?? [],
+        // Raisonnement étendu (mode Réfléchie) — ignoré par les modèles non-Claude
+        thinking: extra?.thinking === true,
       }),
       signal,
     });
@@ -239,7 +254,12 @@ export async function sendChatMessage(
     }
 
     let fullText = '';
+    let fullThinking = '';
     let streamError: string | null = null; // erreurs émises DANS le flux (HTTP 200)
+    const onThinkingDelta = (frag: string) => {
+      fullThinking += frag;
+      extra?.onThinking?.(fullThinking);
+    };
     const reader = response.body?.getReader();
 
     if (reader) {
@@ -259,7 +279,7 @@ export async function sendChatMessage(
         buffer = parts.pop() ?? '';
         for (const part of parts) {
           if (!part.trim()) continue;
-          const chunk = parseSSEChunk(part, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
+          const chunk = parseSSEChunk(part, err => { streamError = err; }, label => extra?.onToolEvent?.(label), onThinkingDelta);
           if (chunk) {
             fullText += chunk;
             if (onToken) onToken(fullText);
@@ -268,7 +288,7 @@ export async function sendChatMessage(
       }
       // Process remaining buffer
       if (buffer.trim()) {
-        const chunk = parseSSEChunk(buffer, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
+        const chunk = parseSSEChunk(buffer, err => { streamError = err; }, label => extra?.onToolEvent?.(label), onThinkingDelta);
         if (chunk) {
           fullText += chunk;
           if (onToken) onToken(fullText);
@@ -278,7 +298,7 @@ export async function sendChatMessage(
       // Non-streaming fallback
       const text = await response.text();
       // Try to parse as SSE
-      const chunk = parseSSEChunk(text, err => { streamError = err; }, label => extra?.onToolEvent?.(label));
+      const chunk = parseSSEChunk(text, err => { streamError = err; }, label => extra?.onToolEvent?.(label), onThinkingDelta);
       if (chunk) {
         fullText = chunk;
       } else {

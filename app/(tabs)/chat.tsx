@@ -29,6 +29,7 @@ import { SyncIndicator } from '@/components/feature/SyncIndicator';
 import { WorkspaceSidePanel } from '@/components/feature/WorkspaceSidePanel';
 import { DragLayer } from '@/components/feature/dnd';
 import { ResizeHandle } from '@/components/feature/ResizeHandle';
+import { ThinkingCard } from '@/components/feature/ThinkingCard';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
 import {
   parseToolCalls, stripToolCalls, executeClientTool, formatToolResults,
@@ -90,7 +91,7 @@ const RESPONSE_MODES: { id: ResponseMode; label: string; icon: string; desc: str
   { id: 'auto',   label: 'Auto',       icon: 'auto-awesome',   desc: 'Adapte la longueur au contexte',    color: '#3D7EFF', tempMod: 0,     tokensMod: 0 },
   { id: 'normal', label: 'Normal',     icon: 'chat-bubble',    desc: 'Réponse équilibrée',                color: '#00CC6A', tempMod: 0,     tokensMod: 0 },
   { id: 'quick',  label: 'Rapide',     icon: 'flash-on',       desc: 'Réponse courte et directe',         color: '#FFB800', tempMod: -0.2,  tokensMod: -1024 },
-  { id: 'deep',   label: 'Réfléchie',  icon: 'psychology',     desc: 'Analyse approfondie et détaillée',  color: '#9B59B6', tempMod: +0.15, tokensMod: +2048 },
+  { id: 'deep',   label: 'Réfléchie',  icon: 'psychology',     desc: 'Analyse approfondie, raisonnement visible',  color: '#9B59B6', tempMod: +0.15, tokensMod: +2048 },
 ];
 
 function formatRelativeTime(date: Date): string {
@@ -689,6 +690,8 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  // Raisonnement étendu (mode Réfléchie) : streamé en direct puis replié
+  const [thinkingText, setThinkingText] = useState('');
   const [activities, setActivities] = useState<ChatActivity[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
@@ -727,6 +730,8 @@ export default function ChatScreen() {
   // changer de conversation pendant un streaming ne doit pas déplacer la
   // réponse partielle vers la mauvaise conversation au moment de « Arrêter ».
   const generationTargetRef = useRef<{ wsId: string; convId: string } | null>(null);
+  // Raisonnement du run courant — conservé pour être persisté avec la bulle
+  const lastThinkingRef = useRef<string>('');
 
   const activeConversation = getActiveConversation(activeWorkspace.id);
   const chatMessages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
@@ -843,7 +848,7 @@ export default function ChatScreen() {
     if (target) {
       if (streamingText.trim()) {
         // Keep partial response if any
-        addMessageToConversation(target.wsId, target.convId, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_' });
+        addMessageToConversation(target.wsId, target.convId, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_', thinking: lastThinkingRef.current || undefined });
       } else {
         // Arrêt AVANT le premier token : une bulle explicite évite le message
         // utilisateur orphelin (et garde l'affordance « régénérer » visible).
@@ -854,6 +859,8 @@ export default function ChatScreen() {
       }
     }
     setStreamingText('');
+    setThinkingText('');
+    lastThinkingRef.current = '';
     showToast('Génération arrêtée', { tone: 'warning' });
   };
 
@@ -878,6 +885,8 @@ export default function ChatScreen() {
     if (!activeConversation) return;
     generationTargetRef.current = { wsId: activeWorkspace.id, convId: activeConversation.id };
     setIsLoading(true); setStreamingText('');
+    setThinkingText('');
+    lastThinkingRef.current = '';
     lastUserMsgRef.current = msg;
 
     const modeInfo = RESPONSE_MODES.find(m => m.id === responseMode) ?? RESPONSE_MODES[0];
@@ -950,6 +959,12 @@ export default function ChatScreen() {
           githubToken: resolveGitHubToken(bot.connectedApps) ?? undefined,
           supabaseTools: bot.connectedApps.some(a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase')),
           enabledTools: bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id),
+          // Raisonnement étendu visible : activé par le mode Réfléchie
+          thinking: responseMode === 'deep',
+          onThinking: (full) => {
+            lastThinkingRef.current = full;
+            setThinkingText(full);
+          },
           onToolEvent: (label: string) => {
             pushActivity(`outil-${Date.now()}`, label, 'precision-manufacturing');
             // L'IA a écrit dans la bibliothèque côté serveur : on recharge
@@ -990,7 +1005,7 @@ export default function ChatScreen() {
       if (toolCalls.length > 0 && toolRound < 3) {
         const cleanContent = stripToolCalls(finalContent, toolCalls);
         if (cleanContent.trim()) {
-          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent });
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent, thinking: lastThinkingRef.current || undefined });
         }
         try {
           const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
@@ -1068,7 +1083,7 @@ export default function ChatScreen() {
         finalContent = `${stripToolCalls(finalContent, toolCalls)}\n\n_(Limite de 3 tours d'outils consécutifs atteinte — les actions restantes n'ont pas été exécutées.)_`;
       }
       setActivities([]);
-      addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent });
+      addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent, thinking: lastThinkingRef.current || undefined });
       // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
       // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
       // traitée par l'agent doit rester ouverte jusqu'à être réellement faite.
@@ -1095,6 +1110,8 @@ export default function ChatScreen() {
       // Indispensable : sans remise à faux, la roue reste affichée et le
       // composeur est bloqué (impossible d'envoyer le message suivant).
       setIsLoading(false);
+      setThinkingText('');
+      lastThinkingRef.current = '';
     }
   };
 
@@ -1431,6 +1448,7 @@ export default function ChatScreen() {
                 </View>
                 <View style={{ flex: 1, gap: Spacing.xs }}>
                   <ActivityFeed activities={activities} />
+                  {thinkingText ? <ThinkingCard text={thinkingText} live={isLoading} /> : null}
                   <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
                     <View style={{ flex: 1 }}>
                       <MarkdownView content={throttledStream} />
@@ -1448,6 +1466,7 @@ export default function ChatScreen() {
                 </View>
                 <View style={{ flex: 1, paddingTop: 8 }}>
                   <ActivityFeed activities={activities} />
+                  {thinkingText ? <ThinkingCard text={thinkingText} live /> : null}
                 </View>
               </View>
             ) : null}
