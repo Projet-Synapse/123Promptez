@@ -65,6 +65,8 @@ export interface ChatMessage {
   toolsUsed?: string[];
   /** Raisonnement étendu de l'IA (mode Réfléchie) — affiché repliable */
   thinking?: string;
+  /** Questionnaire interactif attaché à cette réponse (marqueur [QUESTIONNAIRE:…]) */
+  questionnaire?: { titre?: string; questions: { question: string; options?: string[]; libre?: boolean }[] };
 }
 
 export interface BotConfig {

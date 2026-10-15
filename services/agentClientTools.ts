@@ -135,6 +135,102 @@ export function stripToolCalls(text: string, calls: ClientToolCall[]): string {
   return out.replace(/\[OUTIL:[a-zA-Z_]+:\{[\s\S]*?\}\]/g, '').trim();
 }
 
+// ─── Questionnaire interactif ([QUESTIONNAIRE:{…}]) ──────────────────────────
+
+export interface QuestionnaireQuestion {
+  question: string;
+  /** Choix proposés (sélection unique). Combinable avec « libre ». */
+  options?: string[];
+  /** Ajoute un champ texte pour une réponse personnalisée. */
+  libre?: boolean;
+}
+
+export interface QuestionnaireData {
+  titre?: string;
+  questions: QuestionnaireQuestion[];
+}
+
+/** Parse le marqueur [QUESTIONNAIRE:{json}] d'une réponse (robuste : JSON
+ *  réparé si besoin, blocs de code masqués comme pour les outils). */
+export function parseQuestionnaire(text: string): QuestionnaireData | null {
+  const safe = maskCodeSpans(text);
+  const i = safe.indexOf('[QUESTIONNAIRE:');
+  if (i < 0) return null;
+  let j = i + '[QUESTIONNAIRE:'.length;
+  while (safe[j] === ' ') j++;
+  if (safe[j] !== '{') return null;
+  const start = j;
+  let depth = 0, inStr = false, esc = false;
+  for (; j < safe.length; j++) {
+    const ch = safe[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { j++; break; }
+    }
+  }
+  if (depth !== 0) return null; // JSON tronqué
+  let data: any = null;
+  try {
+    data = JSON.parse(safe.slice(start, j));
+  } catch {
+    data = tryParseRepaired(safe.slice(start, j));
+  }
+  if (!data || !Array.isArray(data.questions) || data.questions.length === 0) return null;
+  const questions: QuestionnaireQuestion[] = data.questions
+    .filter((q: any) => q && typeof q.question === 'string' && q.question.trim())
+    .map((q: any) => ({
+      question: String(q.question).trim(),
+      options: Array.isArray(q.options) ? q.options.map((o: any) => String(o)).filter(Boolean).slice(0, 4) : undefined,
+      libre: q.libre === true,
+    }))
+    .filter((q: QuestionnaireQuestion) => (q.options && q.options.length > 0) || q.libre)
+    .slice(0, 4);
+  if (questions.length === 0) return null;
+  return { titre: typeof data.titre === 'string' ? data.titre : undefined, questions };
+}
+
+/** Localise le marqueur [QUESTIONNAIRE:{…}] et renvoie {start, endIncl} avec
+ *  l'équilibrage des accolades (une regex naïve s'arrêterait au premier « }] »
+ *  INTERNE du JSON — ex. fin d'un objet question). */
+function locateQuestionnaire(text: string): { start: number; endIncl: number } | null {
+  const i = text.indexOf('[QUESTIONNAIRE:');
+  if (i < 0) return null;
+  let j = i + '[QUESTIONNAIRE:'.length;
+  while (text[j] === ' ') j++;
+  if (text[j] !== '{') return null;
+  const start = j;
+  let depth = 0, inStr = false, esc = false;
+  for (; j < text.length; j++) {
+    const ch = text[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { j++; break; }
+    }
+  }
+  if (depth !== 0) return null;
+  const endIncl = text[j] === ']' ? j + 1 : j;
+  return { start: i, endIncl };
+}
+
+/** Retire le marqueur [QUESTIONNAIRE:{…}] du texte affiché. */
+export function stripQuestionnaire(text: string): string {
+  const loc = locateQuestionnaire(text);
+  if (!loc) return text.trim();
+  return (text.slice(0, loc.start) + text.slice(loc.endIncl)).trim();
+}
+
 // ─── Sandbox JavaScript (Web Worker) ─────────────────────────────────────────
 
 export interface JsRunResult {

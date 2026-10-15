@@ -7,6 +7,7 @@ import { useThemeColors } from '@/hooks/useThemeColors';
 import { ChatMessage } from '@/contexts/BotContext';
 import { MarkdownView } from '@/components/feature/Markdown';
 import { ThinkingCard } from '@/components/feature/ThinkingCard';
+import { QuestionnaireCard, QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -17,27 +18,34 @@ interface ChatBubbleProps {
   /** Éditer ce message utilisateur (reprise de la conversation à partir de lui) */
   onEdit?: () => void;
   showActions?: boolean;
+  /** Questionnaire : déjà répondu (un message [RÉPONSES AU QUESTIONNAIRE] suit) */
+  questionnaireAnswered?: boolean;
+  /** Envoi des réponses du questionnaire interactif */
+  onAnswerQuestionnaire?: (answers: QuestionnaireAnswer[]) => void;
 }
 
-export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, onEdit, showActions }: ChatBubbleProps) {
+export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, onEdit, showActions, questionnaireAnswered, onAnswerQuestionnaire }: ChatBubbleProps) {
   const C = useThemeColors();
   const isUser = message.role === 'user';
   // Message synthétique [RÉSULTATS D'OUTILS] (boucle d'outils client) :
   // carte compacte centrée, pas une bulle utilisateur classique.
   const isToolResults = isUser && message.content.startsWith('[RÉSULTATS D\'OUTILS');
-  const actionsVisible = !isToolResults && showActions !== false && (!!onCopy || (!isUser && !!onRegenerate) || (isUser && !!onEdit));
+  // Message synthétique [RÉPONSES AU QUESTIONNAIRE] : même traitement compact.
+  const isQuestionnaireAnswers = isUser && message.content.startsWith('[RÉPONSES AU QUESTIONNAIRE]');
+  const isSyntheticCard = isToolResults || isQuestionnaireAnswers;
+  const actionsVisible = !isSyntheticCard && showActions !== false && (!!onCopy || (!isUser && !!onRegenerate) || (isUser && !!onEdit));
 
-  if (isToolResults) {
+  if (isSyntheticCard) {
     return (
-      <View style={{ alignSelf: 'center', width: '92%', marginVertical: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.sm }}>
+      <View style={{ alignSelf: 'center', width: '92%', marginVertical: Spacing.sm, backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: isQuestionnaireAnswers ? '#00CC6A' + '55' : C.border, padding: Spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-          <MaterialIcons name="precision-manufacturing" size={13} color={C.accent} />
-          <Text style={{ fontSize: FontSize.xs, color: C.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Résultats d’outils — transmis à l’IA
+          <MaterialIcons name={isQuestionnaireAnswers ? 'task-alt' : 'precision-manufacturing'} size={13} color={isQuestionnaireAnswers ? '#00CC6A' : C.accent} />
+          <Text style={{ fontSize: FontSize.xs, color: isQuestionnaireAnswers ? '#00CC6A' : C.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            {isQuestionnaireAnswers ? 'Réponses au questionnaire' : 'Résultats d’outils — transmis à l’IA'}
           </Text>
         </View>
         <Text style={{ fontSize: 11, lineHeight: 16, color: C.textSecondary, fontFamily: 'monospace' }} numberOfLines={8}>
-          {message.content}
+          {message.content.replace('[RÉPONSES AU QUESTIONNAIRE]\n', '').replace('[RÉSULTATS D\'OUTILS', '—')}
         </Text>
       </View>
     );
@@ -89,6 +97,13 @@ export function ChatBubble({ message, botName, botColor, onCopy, onRegenerate, o
             <>
               {!isToolResults && message.thinking ? <ThinkingCard text={message.thinking} /> : null}
               <MarkdownView content={message.content} />
+              {!isToolResults && message.questionnaire ? (
+                <QuestionnaireCard
+                  data={message.questionnaire}
+                  answered={questionnaireAnswered}
+                  onSubmit={onAnswerQuestionnaire}
+                />
+              ) : null}
             </>
           )}
         </View>
