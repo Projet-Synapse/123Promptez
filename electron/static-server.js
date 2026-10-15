@@ -78,11 +78,39 @@ function listenOn(root, port) {
         return;
       }
 
+      const serveShell = (res) => {
+        // SPA fallback — même logique que le 404.html du déploiement GitHub
+        // Pages : toute URL inconnue (ex. /login?code=… au retour OAuth)
+        // doit servir l'app pour que le routeur et l'échange du code PKCE
+        // puissent s'exécuter.
+        fs.readFile(path.join(root, 'index.html'), (shellErr, shell) => {
+          if (shellErr) {
+            res.writeHead(404).end('Not found');
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': MIME_TYPES['.html'] });
+          res.end(shell);
+        });
+      };
+
       fs.readFile(resolved, (err, data) => {
         if (err) {
-          // expo-router's static export produces one .html file per route
-          // (no client-side history fallback needed) — a genuine 404.
-          res.writeHead(404).end('Not found');
+          // L'export expo-router produit un fichier .html par route
+          // (login.html, chat.html…) mais les URL réelles n'ont pas
+          // d'extension : on essaie `<pathname>.html` avant le fallback.
+          const withHtml = path.normalize(path.join(root, `${pathname}.html`));
+          if (withHtml.startsWith(root)) {
+            fs.readFile(withHtml, (htmlErr, html) => {
+              if (htmlErr) {
+                serveShell(res);
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': MIME_TYPES['.html'] });
+              res.end(html);
+            });
+            return;
+          }
+          serveShell(res);
           return;
         }
         const ext = path.extname(resolved).toLowerCase();

@@ -137,12 +137,22 @@ function createWindow(startUrl) {
     minHeight: 480,
     backgroundColor: '#ffffff',
     icon: path.join(__dirname, '..', 'assets', 'images', 'logo.png'),
+    // Titre stable : le document web (Expo) l'écraserait sinon.
+    title: '123Promptez',
+    // Barre de menus masquée (Fichier/Édition/Affichage…) — Alt l'affiche ;
+    // les accélérateurs (Ctrl+K palette, Ctrl+N nouvelle conversation)
+    // restent actifs.
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   mainWindow.loadURL(startUrl);
