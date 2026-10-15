@@ -76,6 +76,9 @@ Deno.serve(async (req: Request) => {
       if (!personal) {
         throw new Error('Aucune clé Gemini — colle ta clé Google AI Studio (gratuite, aistudio.google.com) dans Builder ▸ Paramètres ▸ Clé API');
       }
+      // Raisonnement visible : Gemini 2.5 Flash expose ses « thoughts » via
+      // includeThoughts (Flash-Lite ne le supporte pas → on n'active pas).
+      const supportsThinking = /2\.5-flash(?!.*lite)/.test(modelFinal);
       const contents = convo.map((m: any) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
@@ -91,6 +94,7 @@ Deno.serve(async (req: Request) => {
             generationConfig: {
               maxOutputTokens: maxTokensFinal,
               ...(typeof temperature === 'number' ? { temperature } : {}),
+              ...(thinking === true && supportsThinking ? { thinkingConfig: { includeThoughts: true } } : {}),
             },
           }),
         },
@@ -103,9 +107,15 @@ Deno.serve(async (req: Request) => {
       }
       return relay(gRes, (ev) => {
         if (ev.error) throw new Error(ev.error.message ?? 'Erreur Gemini');
-        return (ev.candidates?.[0]?.content?.parts ?? [])
-          .map((p: any) => p.text ?? '')
-          .join('') || null;
+        const parts = ev.candidates?.[0]?.content?.parts ?? [];
+        let text = '';
+        let thought = '';
+        for (const p of parts) {
+          if (p.thought === true && typeof p.text === 'string') thought += p.text;
+          else if (typeof p.text === 'string') text += p.text;
+        }
+        if (thought) return { __thinking: thought } as any;
+        return text || null;
       });
     }
 
