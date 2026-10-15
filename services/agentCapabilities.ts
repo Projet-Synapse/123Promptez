@@ -92,6 +92,14 @@ export const AGENT_CAPABILITIES: AgentCapability[] = [
     truth: 'Suivre le prompt système, les modes actifs et les instructions du workspace.',
     enabled: () => true,
   },
+  {
+    id: 'questionnaire',
+    label: 'Questionnaire interactif',
+    description: 'Poser plusieurs questions à choix à l\'utilisateur',
+    icon: 'quiz',
+    truth: 'Poser un QUESTIONNAIRE interactif à l\'utilisateur avec le marqueur [QUESTIONNAIRE:{…}] — l\'application affiche des boutons de choix (et un champ libre) et ses réponses te reviennent dans un message « [RÉPONSES AU QUESTIONNAIRE] ». Utilise-le dès que tu as besoin de plusieurs précisions pour bien répondre.',
+    enabled: () => true,
+  },
 ];
 
 // ─── Connecteurs : décrits honnêtement, avec leurs prérequis ─────────────────
@@ -197,6 +205,21 @@ L'application exécute le marqueur PUIS t'envoie un message « [RÉSULTATS D'OUT
 
 `;
   }
+
+  // Protocole du questionnaire interactif : toujours disponible.
+  out += `
+### PROTOCOLE DU QUESTIONNAIRE (questions à choix)
+
+Si tu as besoin de PLUSIEURS précisions avant de répondre, écris un marqueur EXACT de cette forme, en toute fin de réponse :
+[QUESTIONNAIRE:{"titre":"Titre court","questions":[{"question":"Ta question ?","options":["Choix A","Choix B","Choix C"]},{"question":"Autre précision ?","libre":true}]}]
+
+Règles :
+- 1 à 4 questions maximum. Chaque question a soit « options » (2 à 4 choix courts), soit « libre":true » (champ texte), ou les deux.
+- Écris AVANT le marqueur une phrase courte expliquant pourquoi tu poses ces questions. Le marqueur doit être du JSON VALIDE (échappe les guillemets, pas de retour à la ligne dans le JSON).
+- L'utilisateur répondra via un message « [RÉPONSES AU QUESTIONNAIRE] » listant ses choix : poursuis ta réponse à partir de ces réponses.
+- N'utilise PAS le questionnaire pour une seule question triviale : pose-la directement.
+
+`;
   return `${out}\n`;
 }
 

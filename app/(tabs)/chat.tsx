@@ -33,8 +33,11 @@ import { ThinkingCard } from '@/components/feature/ThinkingCard';
 import { getActiveCapabilities, type AgentCapability } from '@/services/agentCapabilities';
 import {
   parseToolCalls, stripToolCalls, executeClientTool, formatToolResults,
+  parseQuestionnaire, stripQuestionnaire,
   type ClientToolCall, type ToolOutcome,
 } from '@/services/agentClientTools';
+import type { QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
+import { QuestionnaireCard } from '@/components/feature/QuestionnaireCard';
 import { recordDiag } from '@/services/diagnostics';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
@@ -1003,7 +1006,9 @@ export default function ChatScreen() {
       // puis relance l'IA avec les résultats (3 tours maximum).
       const toolCalls = parseToolCalls(finalContent);
       if (toolCalls.length > 0 && toolRound < 3) {
-        const cleanContent = stripToolCalls(finalContent, toolCalls);
+        // Un éventuel marqueur [QUESTIONNAIRE] dans ce tour est retiré : l'IA
+        // le réémettra au tour suivant, après avoir vu les résultats d'outils.
+        const cleanContent = stripQuestionnaire(stripToolCalls(finalContent, toolCalls));
         if (cleanContent.trim()) {
           addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent, thinking: lastThinkingRef.current || undefined });
         }
@@ -1082,8 +1087,21 @@ export default function ChatScreen() {
         // 3 tours déjà atteints : on retire les marqueurs et on conclut
         finalContent = `${stripToolCalls(finalContent, toolCalls)}\n\n_(Limite de 3 tours d'outils consécutifs atteinte — les actions restantes n'ont pas été exécutées.)_`;
       }
+      // ── Questionnaire interactif : [QUESTIONNAIRE:{…}] ──
+      // L'IA demande des précisions à choix : on retire le marqueur du texte,
+      // on attache la structure parsée à la bulle et on NE relance PAS l'IA —
+      // elle reprendra quand l'utilisateur aura envoyé ses réponses.
+      const questionnaireData = parseQuestionnaire(finalContent);
+      if (questionnaireData) {
+        finalContent = stripQuestionnaire(finalContent);
+      }
       setActivities([]);
-      addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: finalContent, thinking: lastThinkingRef.current || undefined });
+      addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+        role: 'assistant',
+        content: finalContent,
+        thinking: lastThinkingRef.current || undefined,
+        questionnaire: questionnaireData ?? undefined,
+      });
       // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
       // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
       // traitée par l'agent doit rester ouverte jusqu'à être réellement faite.
@@ -1138,6 +1156,13 @@ export default function ChatScreen() {
     setEditingMsg({ id: msgId, prevInput: input });
     setInput(content);
     setTimeout(() => inputRef.current?.focus(), 60);
+  };
+
+  // Réponses du questionnaire interactif : formatées comme un message
+  // utilisateur explicite — l'IA poursuit avec ces choix en main.
+  const handleQuestionnaireSubmit = (answers: QuestionnaireAnswer[]) => {
+    const lines = answers.map((a, i) => `${i + 1}. ${a.question} → ${a.answer}`);
+    void handleSend(`[RÉPONSES AU QUESTIONNAIRE]\n${lines.join('\n')}`);
   };
 
   const handleSend = async (override?: string) => {
@@ -1419,7 +1444,7 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            {chatMessages.map((msg: any) => (
+            {chatMessages.map((msg: any, mi: number) => (
               <ChatBubble
                 key={msg.id}
                 message={msg}
@@ -1436,6 +1461,16 @@ export default function ChatScreen() {
                   // conversation à partir d'elle), pas seulement la dernière.
                   msg.role === 'assistant' && !isLoading
                     ? () => handleRegenerate(msg.id)
+                    : undefined
+                }
+                questionnaireAnswered={
+                  msg.questionnaire
+                    ? chatMessages.slice(mi + 1).some((m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[RÉPONSES AU QUESTIONNAIRE]'))
+                    : undefined
+                }
+                onAnswerQuestionnaire={
+                  msg.questionnaire && !isLoading
+                    ? (answers) => handleQuestionnaireSubmit(answers)
                     : undefined
                 }
               />
