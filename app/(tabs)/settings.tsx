@@ -5,6 +5,7 @@
 // Compte was removed — auth lives on Profil. Mémoire IA lives under Assistant.
 // Keep new settings inside these sections, or add a new section rather than a flat list.
 import React, { useState, useEffect } from 'react';
+import { secretStorageKind } from '@/services/secretStore';
 import { View, Text, ScrollView, Pressable, Linking, TextInput, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -466,6 +467,11 @@ export default function SettingsScreen() {
                   <Text style={{ fontSize: FontSize.xs, color: keyTest.state === 'ok' ? C.accent : keyTest.state === 'testing' ? C.textMuted : C.error, flex: 1 }}>{keyTest.message}</Text>
                 </View>
               ) : null}
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                {secretStorageKind() === 'session'
+                  ? '🔒 Navigateur : la clé reste sur cet onglet seulement (effacée à la fermeture), jamais envoyée au cloud.'
+                  : '🔒 La clé est gardée chiffrée sur cet appareil, jamais synchronisée dans le cloud.'}
+              </Text>
               {!bot.apiKey ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
                   <MaterialIcons name="info-outline" size={14} color={C.warning} />

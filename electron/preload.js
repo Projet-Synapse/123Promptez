@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('electronVault', {
   },
 });
 
+contextBridge.exposeInMainWorld('promptezSecrets', {
+  get: (name) => ipcRenderer.invoke('secrets:get', name),
+  set: (name, value) => ipcRenderer.invoke('secrets:set', name, value),
+  remove: (name) => ipcRenderer.invoke('secrets:remove', name),
+});
+
 contextBridge.exposeInMainWorld('electronApp', {
   onShortcut: (callback) => {
     const handler = (_evt, action) => callback(action);

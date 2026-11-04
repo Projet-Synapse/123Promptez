@@ -2,7 +2,7 @@
 // Electron main process — wraps the Expo web build (React Native Web) as a
 // desktop app for Windows/macOS/Linux. No native RN code runs here; the
 // window simply loads the same static bundle produced by `expo export --platform web`.
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
@@ -272,6 +272,39 @@ const SKIP_DIRS = new Set([
 ]);
 
 const LIST_LIMITS = { maxDepth: 8, maxFiles: 500 };
+
+// ── Coffre de secrets (clé d'API, jeton GitHub) — chiffré par l'OS ─────────
+// Fichier userData/secrets.json : valeurs chiffrées via safeStorage (DPAPI sous
+// Windows). Jamais journalisé, jamais envoyé au cloud.
+const SECRET_NAMES = new Set(['apiKey', 'githubToken']);
+function secretsFile() { return path.join(app.getPath('userData'), 'secrets.json'); }
+function readSecrets() {
+  try { return JSON.parse(fs.readFileSync(secretsFile(), 'utf8')) || {}; } catch { return {}; }
+}
+function writeSecrets(obj) {
+  fs.writeFileSync(secretsFile(), JSON.stringify(obj), { mode: 0o600 });
+}
+ipcMain.handle('secrets:get', async (_evt, name) => {
+  if (!SECRET_NAMES.has(name)) return null;
+  const enc = readSecrets()[name];
+  if (!enc || !safeStorage.isEncryptionAvailable()) return null;
+  try { return safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch { return null; }
+});
+ipcMain.handle('secrets:set', async (_evt, name, value) => {
+  if (!SECRET_NAMES.has(name) || typeof value !== 'string') return false;
+  if (!safeStorage.isEncryptionAvailable()) return false; // pas de repli en clair
+  const all = readSecrets();
+  all[name] = safeStorage.encryptString(value).toString('base64');
+  writeSecrets(all);
+  return true;
+});
+ipcMain.handle('secrets:remove', async (_evt, name) => {
+  if (!SECRET_NAMES.has(name)) return false;
+  const all = readSecrets();
+  delete all[name];
+  writeSecrets(all);
+  return true;
+});
 
 ipcMain.handle('vault:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

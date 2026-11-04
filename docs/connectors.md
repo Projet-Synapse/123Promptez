@@ -19,7 +19,7 @@
 3. Coller le token dans le champ dédié (masqué).
 4. Dans un workspace → **Base de données** → panneau Vault → rechercher/importer un dépôt.
 
-Le token est synchronisé avec `bot_config` cloud (comme le reste de la config bot). L’export JSON de l’app **redacte** le PAT.
+Le token GitHub est gardé **uniquement sur l’appareil** (coffre chiffré : SecureStore sur mobile, safeStorage sur desktop, session seulement sur le web). Il n’est plus synchronisé dans `bot_config` cloud. L’export JSON de l’app **redacte** le PAT.
 
 ## Non inclus (volontairement)
 
