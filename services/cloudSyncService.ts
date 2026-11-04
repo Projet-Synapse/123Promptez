@@ -1,5 +1,6 @@
 // Cloud sync service — persists all app data to OnSpace Cloud for the logged-in user
 import { getSupabaseClient } from '@/template';
+import { stripSecrets } from '@/services/secretStore';
 
 type DataType = 'workspaces' | 'bot_config' | 'profile';
 
@@ -8,7 +9,7 @@ export async function saveToCloud(userId: string, dataType: DataType, data: unkn
   const { error } = await supabase
     .from('user_app_data')
     .upsert(
-      { user_id: userId, data_type: dataType, data, updated_at: new Date().toISOString() },
+      { user_id: userId, data_type: dataType, data: dataType === 'bot_config' ? stripSecrets(data) : data, updated_at: new Date().toISOString() },
       { onConflict: 'user_id,data_type' }
     );
   if (error) {

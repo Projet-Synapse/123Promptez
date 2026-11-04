@@ -1,4 +1,5 @@
-import React, { createContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
+import { getSecret, setSecret, extractSecrets, stripSecrets, applySecrets } from '@/services/secretStore';
 
 export interface KBSource {
   id: string;
@@ -153,9 +154,37 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
   const [bot, setBot] = useState<BotConfig>(DEFAULT_BOT);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
+  // Secrets connus (coffre local) — sert à détecter les changements à persister.
+  const secretsRef = useRef<{ apiKey?: string; githubToken?: string }>({});
+
+  // Au démarrage : recharge les secrets depuis le coffre local.
+  useEffect(() => {
+    (async () => {
+      const [apiKey, githubToken] = await Promise.all([getSecret('apiKey'), getSecret('githubToken')]);
+      // Ne pas écraser une clé migrée depuis le cloud entre-temps.
+      if (apiKey) secretsRef.current.apiKey = apiKey;
+      if (githubToken) secretsRef.current.githubToken = githubToken;
+      if (apiKey || githubToken) setBot(prev => applySecrets(prev, { ...secretsRef.current }));
+    })();
+  }, []);
+
+  const persistSecrets = useCallback((cfg: BotConfig) => {
+    const s = extractSecrets(cfg);
+    if ((s.apiKey ?? '') !== (secretsRef.current.apiKey ?? '')) {
+      secretsRef.current.apiKey = s.apiKey ?? '';
+      void setSecret('apiKey', s.apiKey ?? '');
+    }
+    if ((s.githubToken ?? '') !== (secretsRef.current.githubToken ?? '')) {
+      secretsRef.current.githubToken = s.githubToken ?? '';
+      void setSecret('githubToken', s.githubToken ?? '');
+    }
+  }, []);
+
+  // Toute modification : secrets → coffre local, reste → cloud (sans secrets).
   const notify = useCallback((newBot: BotConfig) => {
-    if (onDataChange) onDataChange(newBot);
-  }, [onDataChange]);
+    persistSecrets(newBot);
+    if (onDataChange) onDataChange(stripSecrets(newBot));
+  }, [onDataChange, persistSecrets]);
 
   const updateBot = (updates: Partial<BotConfig>) => {
     setBot(prev => {
@@ -368,7 +397,17 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
   // ── Cloud hydration ──────────────────────────────────────────────────────────
   const hydrateFromCloud = useCallback((data: Partial<BotConfig>) => {
     if (!data) return;
-    setBot(prev => ({
+    // Migration : une clé encore présente dans le cloud passe dans le coffre
+    // local (si aucune clé locale), puis est retirée des données entrantes.
+    const cloudSecrets = extractSecrets(data);
+    const hadCloudSecret = !!(cloudSecrets.apiKey || cloudSecrets.githubToken);
+    const migrate: { apiKey?: string; githubToken?: string } = {};
+    if (cloudSecrets.apiKey && !secretsRef.current.apiKey) migrate.apiKey = cloudSecrets.apiKey;
+    if (cloudSecrets.githubToken && !secretsRef.current.githubToken) migrate.githubToken = cloudSecrets.githubToken;
+    if (migrate.apiKey) { secretsRef.current.apiKey = migrate.apiKey; void setSecret('apiKey', migrate.apiKey); }
+    if (migrate.githubToken) { secretsRef.current.githubToken = migrate.githubToken; void setSecret('githubToken', migrate.githubToken); }
+    data = stripSecrets(data);
+    setBot(prev => applySecrets({
       ...prev,
       ...data,
       // Ensure nested objects are merged properly, not replaced with stale defaults
@@ -380,8 +419,12 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
         ?? (data as any).connectors
         ?? prev.connectedApps,
       faqItems: data.faqItems ?? prev.faqItems,
-    }));
-  }, []);
+    }, secretsRef.current));
+    // Ré-enregistre bot_config sans secret pour nettoyer la copie cloud.
+    if (hadCloudSecret && onDataChange) {
+      setBot(cur => { onDataChange(stripSecrets(cur)); return cur; });
+    }
+  }, [onDataChange]);
 
   const addChatMessage = (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const newMsg: ChatMessage = { ...msg, id: `msg-${Date.now()}`, timestamp: new Date() };
