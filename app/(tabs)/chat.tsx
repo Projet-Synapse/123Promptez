@@ -1513,45 +1513,6 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
 
-          {/* Switcher de persona (Simulation) */}
-          {isSimulation && simData?.setupComplete && (simData.personas?.length ?? 0) > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs }}>
-                <Text style={{ fontSize: 10, color: '#9B59B6', fontWeight: '800', marginRight: 4 }}>PERSONA</Text>
-                {simData!.personas.map((p) => {
-                  const active = p.id === simData!.activePersonaId;
-                  return (
-                    <Pressable
-                      key={p.id}
-                      onPress={() => updateSimulation(activeWorkspace.id, activeConversation!.id, { ...simData!, activePersonaId: p.id })}
-                      style={{
-                        flexDirection: 'row', alignItems: 'center', gap: 5,
-                        paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
-                        borderWidth: 1,
-                        borderColor: active ? '#9B59B6' : C.border,
-                        backgroundColor: active ? '#9B59B622' : C.bgCardAlt,
-                      }}
-                    >
-                      {p.avatarUri ? (
-                        <Image source={{ uri: p.avatarUri }} style={{ width: 16, height: 16, borderRadius: 8 }} />
-                      ) : (
-                        <MaterialIcons name="person" size={12} color={active ? '#9B59B6' : C.textMuted} />
-                      )}
-                      <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: active ? '#9B59B6' : C.textSecondary }}>{p.name || 'Persona'}</Text>
-                    </Pressable>
-                  );
-                })}
-                <Pressable
-                  onPress={() => setEditSimSetup(true)}
-                  hitSlop={6}
-                  style={{ padding: 6, borderRadius: Radius.pill, backgroundColor: C.bgCardAlt }}
-                >
-                  <MaterialIcons name="tune" size={14} color={C.textMuted} />
-                </Pressable>
-              </View>
-            </ScrollView>
-          ) : null}
-
           {/* Messages */}
           <ScrollView
             ref={scrollRef}
