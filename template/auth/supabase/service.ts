@@ -97,13 +97,11 @@ export class AuthService {
 
   async getCurrentUser(): Promise<AuthUser | null> {
     try {
+      // Lecture locale du stockage — pas de timeout court : un timeout ici
+      // était pris pour « déconnecté » et renvoyait l'utilisateur au login
+      // à chaque ouverture un peu lente (AsyncStorage / disque).
       const session = await safeSupabaseOperation(async (client) => {
-        const { data: { session }, error } = await withTimeout(
-          client.auth.getSession(),
-          TIMEOUT_CONFIG.DATA_QUERIES,
-          'GetSession'
-        );
-        
+        const { data: { session }, error } = await client.auth.getSession();
         if (error) throw error;
         return session;
       });
@@ -115,12 +113,16 @@ export class AuthService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown getCurrentUser error';
-      
+      console.warn('[Template:AuthService] getCurrentUser:', errorMessage);
+
+      // Erreur auth réelle (401/403) → session invalide. Sinon on remonte
+      // l'erreur pour que AuthProvider puisse réessayer au lieu d'afficher
+      // l'écran de login à tort.
       if (isAuthError(error)) {
         return null;
       }
-      
-      return null;
+
+      throw error instanceof Error ? error : new Error(errorMessage);
     }
   }
 
@@ -648,16 +650,22 @@ export class AuthService {
           if (shouldIgnoreAuthEvent(event)) {
             return;
           }
-          
+
           if (session?.user) {
             try {
               const authUser = this.mapSessionToAuthUser(session.user);
               callback(authUser);
             } catch (error) {
               console.warn('[Template:AuthService] Error in auth state change callback:', error);
-              callback(null);
+              // Ne pas effacer la session UI sur une erreur de mapping.
             }
-          } else {
+            return;
+          }
+
+          // Un session=null n'est une déconnexion que sur SIGNED_OUT (ou
+          // INITIAL_SESSION sans session). Évite de forcer le login pendant
+          // un refresh de jeton raté momentanément.
+          if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
             callback(null);
           }
         }

@@ -56,11 +56,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
             window.location.search.includes('error=') ||
             window.location.hash.includes('error='));
 
-        let currentUser = await authService.getCurrentUser();
+        let currentUser: Awaited<ReturnType<typeof authService.getCurrentUser>> = null;
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            currentUser = await authService.getCurrentUser();
+            lastError = null;
+            break;
+          } catch (err) {
+            lastError = err;
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+          }
+        }
+        if (lastError) {
+          console.warn('[Template:AuthProvider] getCurrentUser retries exhausted:', lastError);
+        }
+
         if (!currentUser && urlHasOAuthCode) {
           for (let i = 0; i < 3 && !currentUser; i++) {
             await new Promise((r) => setTimeout(r, 300));
-            currentUser = await authService.getCurrentUser();
+            try {
+              currentUser = await authService.getCurrentUser();
+            } catch {
+              /* échange PKCE encore en cours */
+            }
           }
         }
 
@@ -79,12 +98,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
       } catch (error) {
         console.warn('[Template:AuthProvider] Auth initialization failed:', error);
+        // Ne pas forcer user:null ici : onAuthStateChange (INITIAL_SESSION)
+        // tranchera. On marque juste initialized pour débloquer l'UI.
         if (isMounted) {
           updateState({
-            user: null,
             loading: false,
             initialized: true,
           });
+        }
+        try {
+          authSubscription = authService.onAuthStateChange((authUser) => {
+            if (isMounted) updateState({ user: authUser });
+          });
+        } catch {
+          /* client indisponible */
         }
       }
     };
