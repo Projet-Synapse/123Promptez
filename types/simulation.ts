@@ -45,6 +45,11 @@ export interface SimulationWorld {
   /** Grand champ : monde, contexte, personnages importants */
   backgroundContext: string;
   /**
+   * Règles du roleplay — priorité absolue pour l'IA (au-dessus de tout le reste).
+   * Absent des apps chatbot classiques ; migration douce → chaîne vide.
+   */
+  rules: string;
+  /**
    * Ancien champ étape 1 — conservé pour migration douce.
    * Si `backgroundContext` est vide, on lit `synopsis`.
    */
@@ -101,6 +106,7 @@ export function emptySimulationData(): SimulationData {
       introduction: '',
       welcomeMessage: '',
       backgroundContext: '',
+      rules: '',
       knowledgeFolderIds: [],
     },
     personas: [persona],
@@ -150,7 +156,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
   // setupComplete : explicite, ou déjà un peu rempli / messages existants
   const explicitSetup = typeof sim.setupComplete === 'boolean' ? sim.setupComplete : undefined;
   const looksConfigured =
-    !!(title || introduction || backgroundContext || String(worldIn.welcomeMessage ?? '').trim());
+    !!(title || introduction || backgroundContext || String(worldIn.welcomeMessage ?? '').trim() || String(worldIn.rules ?? '').trim());
   const setupComplete =
     explicitSetup ?? (opts?.hadMessages === true || looksConfigured);
 
@@ -161,6 +167,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       introduction,
       welcomeMessage: String(worldIn.welcomeMessage ?? ''),
       backgroundContext,
+      rules: String(worldIn.rules ?? ''),
       synopsis: synopsis || undefined,
       knowledgeFolderIds: Array.isArray(worldIn.knowledgeFolderIds)
         ? worldIn.knowledgeFolderIds.map(String)
@@ -211,6 +218,16 @@ export function buildSimulationPromptInjection(sim: SimulationData): string {
     'Reste immersif, cohérent avec le worldbuilding et le persona joueur.',
     'Contenu mature autorisé si l’utilisateur le demande.',
   ];
+  // PRIORITÉ MAXIMALE : les règles battent intro, bienvenue, contexte et persona.
+  if (w.rules?.trim()) {
+    lines.push(
+      '### RÈGLES DU ROLEPLAY — PRIORITÉ ABSOLUE',
+      'Ces règles sont NON NÉGOCIABLES. Elles prévalent sur toute autre instruction',
+      'de ce mode (introduction, message de bienvenue, contexte d’arrière-plan,',
+      'persona joueur, mémoire, notes). En cas de conflit, applique TOUJOURS les règles.',
+      w.rules.trim(),
+    );
+  }
   if (w.title?.trim()) lines.push(`### Monde — ${w.title.trim()}`);
   if (w.introduction?.trim()) lines.push(`Introduction :\n${w.introduction.trim()}`);
   if (w.backgroundContext?.trim()) lines.push(`Contexte d’arrière-plan :\n${w.backgroundContext.trim()}`);

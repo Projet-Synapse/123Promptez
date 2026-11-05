@@ -108,6 +108,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
   const [introduction, setIntroduction] = useState(seed.world.introduction);
   const [welcomeMessage, setWelcomeMessage] = useState(seed.world.welcomeMessage);
   const [backgroundContext, setBackgroundContext] = useState(seed.world.backgroundContext);
+  const [rules, setRules] = useState(seed.world.rules ?? '');
   const [title, setTitle] = useState(seed.world.title);
 
   const [personas, setPersonas] = useState<SimulationPersona[]>(seed.personas);
@@ -182,6 +183,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
         introduction,
         welcomeMessage,
         backgroundContext,
+        rules,
       },
       personas: personas.map((p) => ({
         ...p,
@@ -251,9 +253,17 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
           label="Contexte d’arrière-plan"
           value={backgroundContext}
           onChange={setBackgroundContext}
-          placeholder="Monde, lieux, personnages importants, règles du setting…"
+          placeholder="Monde, lieux, personnages importants…"
           multiline
           minHeight={160}
+        />
+        <Field
+          label="Règles du roleplay"
+          value={rules}
+          onChange={setRules}
+          placeholder="Ce que l’IA doit respecter absolument (ton, limites, style, interdits…) — priorité maximale."
+          multiline
+          minHeight={140}
         />
 
         {/* Personas */}
