@@ -19,11 +19,11 @@
     "lint": "expo lint",
     "export:web": "expo export --platform web --output-dir dist",
     "electron": "cross-env ELECTRON_START_URL=http://localhost:8081 electron ./electron/main.js",
-    "electron:preview": "npm run export:web && electron ./electron/main.js",
-    "electron:build": "npm run export:web && electron-builder",
-    "electron:build:mac": "npm run export:web && electron-builder --mac",
-    "electron:build:win": "npm run export:web && electron-builder --win",
-    "electron:build:linux": "npm run export:web && electron-builder --linux"
+    "electron:preview": "npm run export:web && node scripts/relocate-desktop-assets.js && electron ./electron/main.js",
+    "electron:build": "npm run export:web && node scripts/relocate-desktop-assets.js && electron-builder",
+    "electron:build:mac": "npm run export:web && node scripts/relocate-desktop-assets.js && electron-builder --mac",
+    "electron:build:win": "npm run export:web && node scripts/relocate-desktop-assets.js && electron-builder --win",
+    "electron:build:linux": "npm run export:web && node scripts/relocate-desktop-assets.js && electron-builder --linux"
   },
   "build": {
     "appId": "com.assistantia.desktop",
