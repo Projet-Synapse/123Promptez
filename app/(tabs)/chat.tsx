@@ -42,6 +42,8 @@ import { recordDiag } from '@/services/diagnostics';
 import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
+import NewConversationModal from '@/components/feature/NewConversationModal';
+import type { ConversationKind } from '@/types/simulation';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -309,7 +311,7 @@ function SideDrawer({
   workspaces,
   setActiveWorkspace,
   setActiveConversation,
-  addConversation,
+  onRequestNewConversation,
   removeConversation,
   renameConversation,
   toggleConversationPinned,
@@ -321,7 +323,7 @@ function SideDrawer({
   workspaces: any[];
   setActiveWorkspace: (id: string) => void;
   setActiveConversation: (wsId: string, convId: string) => void;
-  addConversation: (wsId: string) => void;
+  onRequestNewConversation: (wsId: string) => void;
   removeConversation: (wsId: string, convId: string) => void;
   renameConversation: (wsId: string, convId: string, name: string) => void;
   toggleConversationPinned: (wsId: string, convId: string, pinned: boolean) => void;
@@ -553,7 +555,7 @@ function SideDrawer({
                       <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{ws.conversations.length} conversation{ws.conversations.length !== 1 ? 's' : ''}</Text>
                     </View>
                     <Pressable
-                      onPress={() => { setActiveWorkspace(ws.id); addConversation(ws.id); onClose(); }}
+                      onPress={() => { setActiveWorkspace(ws.id); onRequestNewConversation(ws.id); }}
                       hitSlop={6}
                       style={{ padding: 4, borderRadius: Radius.sm, backgroundColor: ws.color + '22' }}
                     >
@@ -606,7 +608,7 @@ function SideDrawer({
                             <View style={{ width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCard, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                               {isPinned
                                 ? <MaterialIcons name="push-pin" size={13} color={ws.color} />
-                                : <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={13} color={isActiveConv ? ws.color : C.textMuted} />
+                                : <MaterialIcons name={conv.kind === 'simulation' ? 'theater-comedy' : (conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline')} size={13} color={isActiveConv ? ws.color : C.textMuted} />
                               }
                             </View>
                             <View style={{ flex: 1, gap: 1 }}>
@@ -697,6 +699,8 @@ export default function ChatScreen() {
   const [thinkingText, setThinkingText] = useState('');
   const [activities, setActivities] = useState<ChatActivity[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /** Workspace pour lequel on choisit Classique / Simulation (null = fermé). */
+  const [newConvModalWsId, setNewConvModalWsId] = useState<string | null>(null);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
@@ -764,12 +768,11 @@ export default function ChatScreen() {
     if (!api?.onShortcut) return;
     const unsub = api.onShortcut((action: string) => {
       if (action === 'new-conversation') {
-        const id = addConversation(activeWorkspace.id);
-        setActiveConversation(activeWorkspace.id, id);
+        setNewConvModalWsId(activeWorkspace.id);
       }
     });
     return typeof unsub === 'function' ? unsub : undefined;
-  }, [activeWorkspace.id, addConversation, setActiveConversation]);
+  }, [activeWorkspace.id]);
 
   // ── Brouillon par conversation (web/desktop) ────────────────────
   const persistDraft = (wsId: string, convId: string, text: string) => {
@@ -1334,7 +1337,12 @@ export default function ChatScreen() {
 
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
-                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700', maxWidth: 140 }} numberOfLines={1}>{activeConversation?.title || t('newConversation')}</Text>
+                <View style={{ maxWidth: 180 }}>
+                  <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{activeConversation?.title || t('newConversation')}</Text>
+                  {activeConversation?.kind === 'simulation' ? (
+                    <Text style={{ fontSize: 10, color: '#9B59B6', fontWeight: '700', letterSpacing: 0.4 }}>SIMULATION</Text>
+                  ) : null}
+                </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: activeWorkspace.color + '22' }}>
                   <MaterialIcons name={activeWorkspace.icon as any} size={11} color={activeWorkspace.color} />
                   <Text style={{ fontSize: 10, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
@@ -1415,6 +1423,43 @@ export default function ChatScreen() {
             scrollEventThrottle={120}
           >
             {chatMessages.length === 0 ? (
+              activeConversation?.kind === 'simulation' ? (
+                <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#9B59B6', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
+                    <MaterialIcons name="theater-comedy" size={32} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>Simulation</Text>
+                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center', lineHeight: 20, maxWidth: 300 }}>
+                    Espace roleplay pour{' '}
+                    <Text style={{ color: activeWorkspace.color, fontWeight: '600' }}>{activeWorkspace.name}</Text>
+                    . Monde, personnages et mémoire seront configurables bientôt — tu peux déjà écrire pour tester.
+                  </Text>
+                  <View style={{
+                    width: '100%', maxWidth: 320, gap: Spacing.sm, marginTop: Spacing.sm,
+                    backgroundColor: C.bgCard, borderRadius: Radius.md, padding: Spacing.md,
+                    borderWidth: 1, borderColor: '#9B59B655',
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                      <MaterialIcons name="public" size={16} color="#9B59B6" />
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
+                        Monde : {activeConversation.simulation?.world?.title?.trim() || 'non défini'}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                      <MaterialIcons name="groups" size={16} color="#9B59B6" />
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
+                        {(activeConversation.simulation?.characters?.length ?? 0)} personnage{(activeConversation.simulation?.characters?.length ?? 0) !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                      <MaterialIcons name="psychology" size={16} color="#9B59B6" />
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
+                        {(activeConversation.simulation?.memory?.entries?.length ?? 0)} souvenir{(activeConversation.simulation?.memory?.entries?.length ?? 0) !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
                 <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
                   <MaterialIcons name="smart-toy" size={32} color="#fff" />
@@ -1442,6 +1487,7 @@ export default function ChatScreen() {
                   ))}
                 </View>
               </View>
+              )
             ) : null}
 
             {chatMessages.map((msg: any, mi: number) => (
@@ -1702,11 +1748,26 @@ export default function ChatScreen() {
         workspaces={workspaces}
         setActiveWorkspace={setActiveWorkspace}
         setActiveConversation={setActiveConversation}
-        addConversation={addConversation}
+        onRequestNewConversation={(wsId) => {
+          setDrawerOpen(false);
+          setNewConvModalWsId(wsId);
+        }}
         removeConversation={removeConversation}
         renameConversation={renameConversation}
         toggleConversationPinned={setConversationPinned}
         onNavigate={handleNavigate}
+      />
+
+      <NewConversationModal
+        visible={newConvModalWsId !== null}
+        onClose={() => setNewConvModalWsId(null)}
+        onChoose={(kind: ConversationKind) => {
+          const wsId = newConvModalWsId ?? activeWorkspace.id;
+          const id = addConversation(wsId, { kind });
+          setActiveWorkspace(wsId);
+          setActiveConversation(wsId, id);
+          setNewConvModalWsId(null);
+        }}
       />
     </View>
   );
