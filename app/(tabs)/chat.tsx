@@ -45,6 +45,7 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
+import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScreen';
 import { Toggle } from '@/components/ui/Toggle';
 import type { ConversationKind, SimulationFeatureId, SimulationFeatures } from '@/types/simulation';
 import {
@@ -52,7 +53,17 @@ import {
   getActivePersona,
   SIMULATION_FEATURE_META,
   emptySimulationFeatures,
+  resolveMemoryWikilink,
+  shouldAutoUpdateMemory,
+  emptySimulationMemory,
 } from '@/types/simulation';
+import {
+  generateOrRefreshMemory,
+  applyManualMemoryEdit,
+  addManualMemoryItem,
+  removeMemoryItem,
+  seedMemoryFromWorld,
+} from '@/services/simulationMemory';
 import { Image } from 'expo-image';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -943,6 +954,11 @@ export default function ChatScreen() {
   /** Sous-vue du panneau + Simulation : menu principal ou modèles. */
   const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features'>('menu');
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
+  const [showSimMemory, setShowSimMemory] = useState(false);
+  const [memoryGenerating, setMemoryGenerating] = useState(false);
+  const [memoryFocusItemId, setMemoryFocusItemId] = useState<string | null>(null);
+  const memoryGenRef = useRef(false);
+  const maybeAutoUpdateMemoryRef = useRef<(n?: number) => void>(() => {});
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
   const [responseMode, setResponseMode] = useState<ResponseMode>(() => {
@@ -1351,6 +1367,8 @@ export default function ChatScreen() {
         thinking: lastThinkingRef.current || undefined,
         questionnaire: questionnaireData ?? undefined,
       });
+      // Mémoire Simulation : MAJ auto tous les N messages
+      maybeAutoUpdateMemoryRef.current((activeConversation.messages?.length ?? 0) + 1);
       // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
       // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
       // traitée par l'agent doit rester ouverte jusqu'à être réellement faite.
@@ -1574,7 +1592,84 @@ export default function ChatScreen() {
   const roleplayLimits = getRoleplaySettings(profile);
   const inputMaxLength = isSimulation ? roleplayLimits.maxUserChars : 4000;
 
-  const handleSimSetupComplete = (data: import('@/types/simulation').SimulationData) => {
+  const persistSimMemory = (nextMemory: import('@/types/simulation').SimulationMemory) => {
+    if (!activeConversation || !simData) return;
+    updateSimulation(activeWorkspace.id, activeConversation.id, {
+      ...simData,
+      memory: nextMemory,
+    });
+  };
+
+  const runMemoryGeneration = async (mode: 'initial' | 'refresh') => {
+    if (!activeConversation || !simData || memoryGenRef.current) return;
+    memoryGenRef.current = true;
+    setMemoryGenerating(true);
+    try {
+      const history = (activeConversation.messages ?? []).map((m: any) => ({
+        role: m.role as 'user' | 'assistant' | 'system',
+        content: String(m.content ?? ''),
+      }));
+      const next = await generateOrRefreshMemory({
+        sim: simData,
+        messages: history,
+        bot,
+        mode,
+      });
+      persistSimMemory(next);
+    } catch (e: any) {
+      showToast(e?.message ? String(e.message).slice(0, 120) : 'Mémoire : génération impossible', { tone: 'error' });
+      // Seed minimal si première ouverture échoue totalement
+      if (mode === 'initial' && !simData.memory?.initialized) {
+        persistSimMemory(seedMemoryFromWorld(simData));
+      }
+    } finally {
+      memoryGenRef.current = false;
+      setMemoryGenerating(false);
+    }
+  };
+
+  const openSimMemory = (focusId?: string | null) => {
+    setMemoryFocusItemId(focusId ?? null);
+    setShowSimMemory(true);
+  };
+
+  const handleSimWikilink = (target: string) => {
+    if (!simData) {
+      showToast('Mémoire bientôt', { tone: 'info' });
+      return;
+    }
+    const hit = resolveMemoryWikilink(simData.memory, target);
+    if (hit) {
+      openSimMemory(hit.item.id);
+      showToast(`${hit.item.name}`, { tone: 'info' });
+    } else {
+      openSimMemory(null);
+      showToast(`Mémoire : « ${target} » — entrée à créer`, { tone: 'info' });
+    }
+  };
+
+  const maybeAutoUpdateMemory = (messageCountOverride?: number) => {
+    if (!activeConversation || !simData || activeConversation.kind !== 'simulation') return;
+    const mem = simData.memory ?? emptySimulationMemory();
+    const count = typeof messageCountOverride === 'number'
+      ? messageCountOverride
+      : (activeConversation.messages?.length ?? 0);
+    if (!shouldAutoUpdateMemory(mem, count)) return;
+    void runMemoryGeneration('refresh');
+  };
+  maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;
+
+
+  // Première ouverture de la page Mémoire → génération initiale
+  useEffect(() => {
+    if (!showSimMemory || !isSimulation || !simData) return;
+    if (simData.memory?.initialized) return;
+    if (memoryGenerating || memoryGenRef.current) return;
+    void runMemoryGeneration('initial');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSimMemory, isSimulation, simData?.memory?.initialized]);
+
+    const handleSimSetupComplete = (data: import('@/types/simulation').SimulationData) => {
     if (!activeConversation) return;
     updateSimulation(activeWorkspace.id, activeConversation.id, data);
     renameConversation(activeWorkspace.id, activeConversation.id, data.world.title || 'Nouvelle simulation');
@@ -1663,6 +1758,23 @@ export default function ChatScreen() {
     );
   }
 
+  if (showSimMemory && isSimulation && simData) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SimulationMemoryScreen
+          memory={simData.memory ?? emptySimulationMemory()}
+          generating={memoryGenerating}
+          focusItemId={memoryFocusItemId}
+          onClose={() => { setShowSimMemory(false); setMemoryFocusItemId(null); }}
+          onRefresh={() => void runMemoryGeneration(simData.memory?.initialized ? 'refresh' : 'initial')}
+          onAdd={(section, name, opts) => persistSimMemory(addManualMemoryItem(simData.memory ?? emptySimulationMemory(), section, name, opts))}
+          onRemove={(section, id) => persistSimMemory(removeMemoryItem(simData.memory ?? emptySimulationMemory(), section, id))}
+          onEditItem={(section, id, patch) => persistSimMemory(applyManualMemoryEdit(simData.memory ?? emptySimulationMemory(), section, id, patch))}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -1693,6 +1805,18 @@ export default function ChatScreen() {
               </View>
               <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · OnSpace AI</Text>
             </View>
+
+            {isSimulation ? (
+              <IconButton
+                icon="psychology"
+                label="Mémoire du roleplay"
+                onPress={() => openSimMemory(null)}
+                boxSize={36}
+                backgroundColor={showSimMemory ? '#9B59B633' : C.bgCardAlt}
+                borderColor={showSimMemory ? '#9B59B688' : C.border}
+                color="#9B59B6"
+              />
+            ) : null}
 
             <SyncIndicator compact />
             <IconButton
@@ -1835,6 +1959,7 @@ export default function ChatScreen() {
                 botName={isSimulation ? (activeSimPersona?.name || bot.name) : bot.name}
                 botColor={isSimulation ? '#9B59B6' : bot.avatarColor}
                 emphasizeRegenerate={!!isSimulation}
+                onWikilinkPress={isSimulation ? handleSimWikilink : undefined}
                 onCopy={() => handleCopyMessage(msg.content)}
                 onEdit={
                   !isLoading
