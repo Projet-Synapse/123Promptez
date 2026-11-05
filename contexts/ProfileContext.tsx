@@ -1,5 +1,51 @@
 import React, { createContext, useState, useContext, ReactNode, useCallback, useRef } from 'react';
 
+/** Limites de caractères du mode Simulation / Roleplay. */
+export interface RoleplaySettings {
+  /** Max caractères saisis par l'utilisatrice */
+  maxUserChars: number;
+  /** Max caractères attendus des réponses du chatbot */
+  maxBotChars: number;
+}
+
+export const DEFAULT_ROLEPLAY_SETTINGS: RoleplaySettings = {
+  maxUserChars: 1000,
+  maxBotChars: 2000,
+};
+
+export const ROLEPLAY_CHAR_BOUNDS = {
+  user: { min: 100, max: 4000 },
+  bot: { min: 100, max: 8000 },
+} as const;
+
+function clampInt(n: unknown, min: number, max: number, fallback: number): number {
+  const v = typeof n === 'number' ? n : Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+export function normalizeRoleplaySettings(raw: unknown): RoleplaySettings {
+  const r = raw && typeof raw === 'object' ? (raw as any) : {};
+  return {
+    maxUserChars: clampInt(
+      r.maxUserChars,
+      ROLEPLAY_CHAR_BOUNDS.user.min,
+      ROLEPLAY_CHAR_BOUNDS.user.max,
+      DEFAULT_ROLEPLAY_SETTINGS.maxUserChars,
+    ),
+    maxBotChars: clampInt(
+      r.maxBotChars,
+      ROLEPLAY_CHAR_BOUNDS.bot.min,
+      ROLEPLAY_CHAR_BOUNDS.bot.max,
+      DEFAULT_ROLEPLAY_SETTINGS.maxBotChars,
+    ),
+  };
+}
+
+export function getRoleplaySettings(profile: UserProfile | null | undefined): RoleplaySettings {
+  return normalizeRoleplaySettings(profile?.roleplay);
+}
+
 export interface UserProfile {
   name: string;
   email: string;
@@ -7,6 +53,8 @@ export interface UserProfile {
   role: string;
   language: string;
   aiMemory: AiMemoryItem[];
+  /** Réglages Roleplay (Simulation) — absents sur les anciens profils → défauts */
+  roleplay?: RoleplaySettings;
 }
 
 export interface AiMemoryItem {
@@ -64,7 +112,14 @@ export function ProfileProvider({ children, onDataChange }: Props) {
     try {
       isHydrating.current = true;
       const parsed = reviveDates(data) as UserProfile;
-      if (parsed && typeof parsed === 'object') setProfileRaw(parsed);
+      if (parsed && typeof parsed === 'object') {
+        setProfileRaw({
+          ...DEFAULT_PROFILE,
+          ...parsed,
+          aiMemory: Array.isArray(parsed.aiMemory) ? parsed.aiMemory : DEFAULT_PROFILE.aiMemory,
+          roleplay: normalizeRoleplaySettings(parsed.roleplay),
+        });
+      }
     } catch (e) {
       console.warn('[ProfileContext] hydrateFromCloud failed:', e);
     } finally {
@@ -73,7 +128,13 @@ export function ProfileProvider({ children, onDataChange }: Props) {
   }, []);
 
   const updateProfile = (updates: Partial<UserProfile>) =>
-    setProfile(prev => ({ ...prev, ...updates }));
+    setProfile(prev => {
+      const next = { ...prev, ...updates };
+      if (updates.roleplay !== undefined) {
+        next.roleplay = normalizeRoleplaySettings({ ...prev.roleplay, ...updates.roleplay });
+      }
+      return next;
+    });
 
   const addMemory = (item: Omit<AiMemoryItem, 'id' | 'createdAt'>) =>
     setProfile(prev => ({ ...prev, aiMemory: [...prev.aiMemory, { ...item, id: `mem-${Date.now()}`, createdAt: new Date() }] }));

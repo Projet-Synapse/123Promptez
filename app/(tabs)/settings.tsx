@@ -1,7 +1,7 @@
 // Theme fix: createStyles(C) pattern — styles are generated inside the component
 // using the reactive color object from useThemeColors(), NOT static StyleSheet.create() at module level.
 //
-// Settings is split into 3 top-level sections (Interface / Assistant / À propos).
+// Settings is split into top-level sections (Interface / Agents / Roleplay / À propos).
 // Compte was removed — auth lives on Profil. Mémoire IA lives under Assistant.
 // Keep new settings inside these sections, or add a new section rather than a flat list.
 import React, { useState, useEffect } from 'react';
@@ -23,17 +23,24 @@ import { checkForUpdate, type UpdateCheckResult } from '@/services/updateService
 import { collectDiagnostics } from '@/services/diagnostics';
 import * as Clipboard from 'expo-clipboard';
 import { useDesktopUpdates } from '@/hooks/useDesktopUpdates';
-import { useProfile, type AiMemoryItem } from '@/contexts/ProfileContext';
+import {
+  useProfile,
+  type AiMemoryItem,
+  getRoleplaySettings,
+  ROLEPLAY_CHAR_BOUNDS,
+  DEFAULT_ROLEPLAY_SETTINGS,
+} from '@/contexts/ProfileContext';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { buildExportBundle, downloadJson, parseImportBundle } from '@/services/exportService';
 import { useToast } from '@/contexts/ToastContext';
 import * as DocumentPicker from 'expo-document-picker';
 
-type SettingsSection = 'ui' | 'assistant' | 'about';
+type SettingsSection = 'ui' | 'assistant' | 'roleplay' | 'about';
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'ui', label: 'Interface', icon: 'palette' },
   { id: 'assistant', label: 'Agents', icon: 'smart-toy' },
+  { id: 'roleplay', label: 'Roleplay', icon: 'theater-comedy' },
   { id: 'about', label: 'À propos', icon: 'info' },
 ];
 
@@ -129,7 +136,16 @@ export default function SettingsScreen() {
   const { mode, toggleTheme, setTheme, customPalette, setCustomColor, resetCustomPalette, colors: themeColors } = useTheme();
   const { lang, setLang, t } = useLanguage();
   const C = useThemeColors();
-  const { profile, addMemory, updateMemory, removeMemory, hydrateFromCloud: hydrateProfile } = useProfile();
+  const { profile, updateProfile, addMemory, updateMemory, removeMemory, hydrateFromCloud: hydrateProfile } = useProfile();
+  const roleplay = getRoleplaySettings(profile);
+  const [draftUserChars, setDraftUserChars] = useState(String(roleplay.maxUserChars));
+  const [draftBotChars, setDraftBotChars] = useState(String(roleplay.maxBotChars));
+
+  useEffect(() => {
+    const r = getRoleplaySettings(profile);
+    setDraftUserChars(String(r.maxUserChars));
+    setDraftBotChars(String(r.maxBotChars));
+  }, [profile.roleplay?.maxUserChars, profile.roleplay?.maxBotChars]);
   const { workspaces, hydrateFromCloud: hydrateWorkspaces } = useWorkspace();
   const { showToast } = useToast();
 
@@ -817,6 +833,103 @@ export default function SettingsScreen() {
               </View>
             </View>
           </>
+        ) : null}
+
+
+        {section === 'roleplay' ? (
+          <View style={{ gap: Spacing.md }}>
+            <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: '#9B59B655', padding: Spacing.md, gap: Spacing.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <MaterialIcons name="theater-comedy" size={20} color="#9B59B6" />
+                <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Gestion du roleplay
+                </Text>
+              </View>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, lineHeight: 18 }}>
+                Ces limites s’appliquent uniquement aux conversations en mode Simulation.
+                Pour toi : compteur dans le champ de saisie et blocage au-delà.
+                Pour le chatbot : consigne claire dans le prompt (il doit s’adapter).
+              </Text>
+
+              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>
+                  Max caractères — toi
+                </Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                  Défaut {DEFAULT_ROLEPLAY_SETTINGS.maxUserChars} · entre {ROLEPLAY_CHAR_BOUNDS.user.min} et {ROLEPLAY_CHAR_BOUNDS.user.max}
+                </Text>
+                <TextInput
+                  value={draftUserChars}
+                  onChangeText={(v) => setDraftUserChars(v.replace(/[^\d]/g, ''))}
+                  onBlur={() => {
+                    const n = Number(draftUserChars);
+                    const next = getRoleplaySettings({
+                      ...profile,
+                      roleplay: { ...roleplay, maxUserChars: Number.isFinite(n) ? n : roleplay.maxUserChars },
+                    });
+                    updateProfile({ roleplay: next });
+                    setDraftUserChars(String(next.maxUserChars));
+                  }}
+                  keyboardType="number-pad"
+                  placeholder={String(DEFAULT_ROLEPLAY_SETTINGS.maxUserChars)}
+                  placeholderTextColor={C.textMuted}
+                  style={{
+                    borderWidth: 1, borderColor: C.border, borderRadius: Radius.md,
+                    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+                    color: C.textPrimary, backgroundColor: C.bg, fontSize: FontSize.body,
+                    fontFamily: 'monospace',
+                  }}
+                />
+              </View>
+
+              <View style={{ backgroundColor: C.bgCardAlt, borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.sm }}>
+                <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '600' }}>
+                  Max caractères — chatbot
+                </Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                  Défaut {DEFAULT_ROLEPLAY_SETTINGS.maxBotChars} · entre {ROLEPLAY_CHAR_BOUNDS.bot.min} et {ROLEPLAY_CHAR_BOUNDS.bot.max}
+                </Text>
+                <TextInput
+                  value={draftBotChars}
+                  onChangeText={(v) => setDraftBotChars(v.replace(/[^\d]/g, ''))}
+                  onBlur={() => {
+                    const n = Number(draftBotChars);
+                    const next = getRoleplaySettings({
+                      ...profile,
+                      roleplay: { ...roleplay, maxBotChars: Number.isFinite(n) ? n : roleplay.maxBotChars },
+                    });
+                    updateProfile({ roleplay: next });
+                    setDraftBotChars(String(next.maxBotChars));
+                  }}
+                  keyboardType="number-pad"
+                  placeholder={String(DEFAULT_ROLEPLAY_SETTINGS.maxBotChars)}
+                  placeholderTextColor={C.textMuted}
+                  style={{
+                    borderWidth: 1, borderColor: C.border, borderRadius: Radius.md,
+                    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+                    color: C.textPrimary, backgroundColor: C.bg, fontSize: FontSize.body,
+                    fontFamily: 'monospace',
+                  }}
+                />
+              </View>
+
+              <Pressable
+                onPress={() => {
+                  updateProfile({ roleplay: { ...DEFAULT_ROLEPLAY_SETTINGS } });
+                  setDraftUserChars(String(DEFAULT_ROLEPLAY_SETTINGS.maxUserChars));
+                  setDraftBotChars(String(DEFAULT_ROLEPLAY_SETTINGS.maxBotChars));
+                }}
+                style={({ pressed }) => [{
+                  alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8,
+                  borderRadius: Radius.pill, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg,
+                }, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>
+                  Remettre les valeurs par défaut
+                </Text>
+              </Pressable>
+            </View>
+          </View>
         ) : null}
 
         {section === 'about' ? (
