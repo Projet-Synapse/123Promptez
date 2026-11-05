@@ -111,13 +111,11 @@ export function ChatBubble({
                 },
           ]}>
             {isUser ? (
-              <Text style={{ fontSize: FontSize.body, lineHeight: 22, color: '#fff' }}>
-                {message.content}
-              </Text>
+              <MarkdownView content={message.content} variant="user" />
             ) : (
               <>
                 {message.thinking ? <ThinkingCard text={message.thinking} /> : null}
-                <MarkdownView content={message.content} />
+                <MarkdownView content={message.content} variant="assistant" />
                 {message.questionnaire ? (
                   <QuestionnaireCard
                     data={message.questionnaire}
