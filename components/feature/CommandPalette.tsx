@@ -75,14 +75,29 @@ export function CommandPalette() {
     const actions: { id: string; title: string; subtitle: string; icon: string; color: string; run: () => void }[] = [
       {
         id: 'action-new-conv',
-        title: 'Nouvelle conversation',
+        title: 'Nouvelle conversation (Classique)',
         subtitle: activeWorkspace ? `Dans « ${activeWorkspace.name} »` : 'Workspace actif',
         icon: 'add-comment',
         color: C.accent,
         run: () => {
           const target = activeWorkspace ?? workspaces[0];
           if (!target) return;
-          const id = addConversation(target.id);
+          const id = addConversation(target.id, { kind: 'classique' });
+          setActiveWorkspace(target.id);
+          setActiveConversation(target.id, id);
+          router.push('/(tabs)/chat' as any);
+        },
+      },
+      {
+        id: 'action-new-sim',
+        title: 'Nouvelle simulation (Roleplay)',
+        subtitle: activeWorkspace ? `Dans « ${activeWorkspace.name} »` : 'Workspace actif',
+        icon: 'theater-comedy',
+        color: '#9B59B6',
+        run: () => {
+          const target = activeWorkspace ?? workspaces[0];
+          if (!target) return;
+          const id = addConversation(target.id, { kind: 'simulation' });
           setActiveWorkspace(target.id);
           setActiveConversation(target.id, id);
           router.push('/(tabs)/chat' as any);

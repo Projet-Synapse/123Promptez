@@ -11,6 +11,8 @@ import { useWorkspace } from '@/hooks/useWorkspace';
 import { ThemedInput } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
+import NewConversationModal from '@/components/feature/NewConversationModal';
+import type { ConversationKind } from '@/types/simulation';
 import { useAlert } from '@/template';
 import { useRouter } from 'expo-router';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -55,6 +57,7 @@ function ContextMenuArea({ onMenu, children }: {
 export default function WorkspacesScreen() {
   const insets = useSafeAreaInsets();
   const C = useThemeColors();
+  const [newConvModalWsId, setNewConvModalWsId] = useState<string | null>(null);
   const { t } = useLanguage();
   const { openPalette } = useCommandPalette();
   const {
@@ -248,7 +251,7 @@ export default function WorkspacesScreen() {
                 <View style={{ borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bgCardAlt, padding: Spacing.md, gap: Spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs }}>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>{t('conversations')}</Text>
-                    <Pressable onPress={() => addConversation(ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: C.bgCard }, pressed && { opacity: 0.8 }]}>
+                    <Pressable onPress={() => setNewConvModalWsId(ws.id)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, backgroundColor: C.bgCard }, pressed && { opacity: 0.8 }]}>
                       <MaterialIcons name="add" size={14} color={ws.color} />
                       <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: ws.color }}>{t('new')}</Text>
                     </Pressable>
@@ -264,7 +267,7 @@ export default function WorkspacesScreen() {
                         style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: isActiveConv ? ws.color + '66' : C.border, padding: Spacing.sm + 2, backgroundColor: isActiveConv ? ws.color + '0C' : C.bgCard }, pressed && !isRenamingConv && { opacity: 0.75 }]}
                       >
                         <View style={{ width: 34, height: 34, borderRadius: Radius.sm, backgroundColor: isActiveConv ? ws.color + '22' : C.bgCardAlt, alignItems: 'center', justifyContent: 'center' }}>
-                          <MaterialIcons name={conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline'} size={16} color={isActiveConv ? ws.color : C.textMuted} />
+                          <MaterialIcons name={conv.kind === 'simulation' ? 'theater-comedy' : (conv.messages.length > 0 ? 'chat-bubble' : 'chat-bubble-outline')} size={16} color={isActiveConv ? ws.color : C.textMuted} />
                         </View>
                         <View style={{ flex: 1, gap: 2 }}>
                           {isRenamingConv ? (
@@ -408,6 +411,16 @@ export default function WorkspacesScreen() {
           </View>
         </View>
       ) : null}
+    
+      <NewConversationModal
+        visible={newConvModalWsId !== null}
+        onClose={() => setNewConvModalWsId(null)}
+        onChoose={(kind: ConversationKind) => {
+          const wsId = newConvModalWsId!;
+          addConversation(wsId, { kind });
+          setNewConvModalWsId(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
