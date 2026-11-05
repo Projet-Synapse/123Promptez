@@ -44,8 +44,15 @@ import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen from '@/components/feature/SimulationSetupScreen';
-import type { ConversationKind } from '@/types/simulation';
-import { buildSimulationPromptInjection, getActivePersona } from '@/types/simulation';
+import SimulationFeatureScreen from '@/components/feature/SimulationFeatureScreen';
+import { Toggle } from '@/components/ui/Toggle';
+import type { ConversationKind, SimulationFeatureId, SimulationFeatures } from '@/types/simulation';
+import {
+  buildSimulationPromptInjection,
+  getActivePersona,
+  SIMULATION_FEATURE_META,
+  emptySimulationFeatures,
+} from '@/types/simulation';
 import { Image } from 'expo-image';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -309,17 +316,24 @@ function PlusPopover({
 
 /** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
 function SimulationPlusPanel({
-  view, onChangeView, onReset, onPersona, onSelectModel, currentModelId, C,
+  view, onChangeView, onReset, onPersona, onSelectModel, currentModelId,
+  features, onToggleFeature, onOpenFeature, C,
 }: {
-  view: 'menu' | 'models';
-  onChangeView: (v: 'menu' | 'models') => void;
+  view: 'menu' | 'models' | 'features';
+  onChangeView: (v: 'menu' | 'models' | 'features') => void;
   onReset: () => void;
   onPersona: () => void;
   onSelectModel: (id: string) => void;
   currentModelId: string;
+  features: SimulationFeatures;
+  onToggleFeature: (id: SimulationFeatureId) => void;
+  onOpenFeature: (id: SimulationFeatureId) => void;
   C: ReturnType<typeof useThemeColors>;
 }) {
   const ACCENT = '#9B59B6';
+  const featureIds = Object.keys(SIMULATION_FEATURE_META) as SimulationFeatureId[];
+  const enabledFeatures = featureIds.filter((id) => features[id]);
+
   if (view === 'models') {
     return (
       <View style={{
@@ -366,6 +380,75 @@ function SimulationPlusPanel({
     );
   }
 
+  if (view === 'features') {
+    return (
+      <View style={{
+        backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
+        borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.sm, paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.sm, gap: Spacing.sm, maxHeight: 420,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Pressable onPress={() => onChangeView('menu')} hitSlop={8} style={{ padding: 4 }}>
+            <MaterialIcons name="arrow-back" size={20} color={C.textSecondary} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
+              Fonctionnalités complémentaires
+            </Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+              Active les interfaces utiles à ce roleplay
+            </Text>
+          </View>
+        </View>
+        <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          {featureIds.map((id) => {
+            const meta = SIMULATION_FEATURE_META[id];
+            const on = !!features[id];
+            return (
+              <View
+                key={id}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                  paddingVertical: 10, paddingHorizontal: Spacing.sm,
+                  borderRadius: Radius.md,
+                  backgroundColor: on ? ACCENT + '12' : 'transparent',
+                  marginBottom: 4,
+                }}
+              >
+                <Pressable
+                  onPress={() => { if (on) onOpenFeature(id); }}
+                  disabled={!on}
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !on }}
+                  accessibilityLabel={on ? `Ouvrir ${meta.label}` : meta.label}
+                >
+                  <View style={{
+                    width: 36, height: 36, borderRadius: Radius.md,
+                    backgroundColor: (on ? ACCENT : C.textMuted) + '18',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MaterialIcons name={meta.icon as any} size={20} color={on ? ACCENT : C.textMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: on ? C.textPrimary : C.textSecondary }}>
+                      {meta.label}
+                    </Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted }} numberOfLines={2}>
+                      {meta.description}
+                    </Text>
+                  </View>
+                  {on ? <MaterialIcons name="chevron-right" size={20} color={C.textMuted} /> : null}
+                </Pressable>
+                <Toggle value={on} onToggle={() => onToggleFeature(id)} />
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
   const items: { key: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; label: string; desc: string; onPress: () => void; danger?: boolean }[] = [
     {
       key: 'reset',
@@ -389,42 +472,65 @@ function SimulationPlusPanel({
       desc: 'Choisir le modèle IA pour cette simulation',
       onPress: () => onChangeView('models'),
     },
+    {
+      key: 'features',
+      icon: 'extension',
+      label: 'Fonctionnalités complémentaires',
+      desc: enabledFeatures.length
+        ? `${enabledFeatures.length} module${enabledFeatures.length > 1 ? 's' : ''} actif${enabledFeatures.length > 1 ? 's' : ''}`
+        : 'Inventaire, album, compétences, messages…',
+      onPress: () => onChangeView('features'),
+    },
   ];
+
+  // Accès rapide aux modules déjà activés
+  for (const id of enabledFeatures) {
+    const meta = SIMULATION_FEATURE_META[id];
+    items.push({
+      key: `open-${id}`,
+      icon: meta.icon as any,
+      label: meta.label,
+      desc: 'Ouvrir le module',
+      onPress: () => onOpenFeature(id),
+    });
+  }
 
   return (
     <View style={{
       backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
       borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.md, paddingHorizontal: Spacing.md,
-      paddingBottom: Spacing.sm, gap: 4,
+      paddingBottom: Spacing.sm, gap: 4, maxHeight: 420,
     }}>
       <Text style={{ fontSize: FontSize.xs, color: ACCENT, fontWeight: '800', letterSpacing: 0.6, marginBottom: 4 }}>
         ROLEPLAY
       </Text>
-      {items.map((item) => (
-        <Pressable
-          key={item.key}
-          onPress={item.onPress}
-          style={({ pressed }) => [{
-            flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-            paddingVertical: 12, paddingHorizontal: Spacing.sm, borderRadius: Radius.md,
-          }, pressed && { backgroundColor: C.bgCardAlt }]}
-        >
-          <View style={{
-            width: 36, height: 36, borderRadius: Radius.md,
-            backgroundColor: (item.danger ? C.error : ACCENT) + '18',
-            alignItems: 'center', justifyContent: 'center',
-          }}>
-            <MaterialIcons name={item.icon} size={20} color={item.danger ? C.error : ACCENT} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: item.danger ? C.error : C.textPrimary }}>
-              {item.label}
-            </Text>
-            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{item.desc}</Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={20} color={C.textMuted} />
-        </Pressable>
-      ))}
+      <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        {items.map((item) => (
+          <Pressable
+            key={item.key}
+            onPress={item.onPress}
+            style={({ pressed }) => [{
+              flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+              paddingVertical: 12, paddingHorizontal: Spacing.sm, borderRadius: Radius.md,
+            }, pressed && { backgroundColor: C.bgCardAlt }]}
+          >
+            <View style={{
+              width: 36, height: 36, borderRadius: Radius.md,
+              backgroundColor: (item.danger ? C.error : ACCENT) + '18',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <MaterialIcons name={item.icon} size={20} color={item.danger ? C.error : ACCENT} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: item.danger ? C.error : C.textPrimary }}>
+                {item.label}
+              </Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{item.desc}</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color={C.textMuted} />
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -835,7 +941,8 @@ export default function ChatScreen() {
 
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   /** Sous-vue du panneau + Simulation : menu principal ou modèles. */
-  const [simPlusView, setSimPlusView] = useState<'menu' | 'models'>('menu');
+  const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features'>('menu');
+  const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
   const [responseMode, setResponseMode] = useState<ResponseMode>(() => {
@@ -1545,6 +1652,17 @@ export default function ChatScreen() {
     );
   }
 
+  if (simFeatureScreen && isSimulation) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SimulationFeatureScreen
+          featureId={simFeatureScreen}
+          onClose={() => setSimFeatureScreen(null)}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -1904,6 +2022,23 @@ export default function ChatScreen() {
                 showToast(`Modèle : ${LLM_MODELS.find(m => m.id === id)?.label ?? id}`, { tone: 'success' });
               }}
               currentModelId={bot.llmConfig.model}
+              features={simData?.features ?? emptySimulationFeatures()}
+              onToggleFeature={(id) => {
+                if (!activeConversation || !simData) return;
+                const next = emptySimulationFeatures({
+                  ...simData.features,
+                  [id]: !simData.features?.[id],
+                });
+                updateSimulation(activeWorkspace.id, activeConversation.id, {
+                  ...simData,
+                  features: next,
+                });
+              }}
+              onOpenFeature={(id) => {
+                setShowPlusPopover(false);
+                setSimPlusView('menu');
+                setSimFeatureScreen(id);
+              }}
               C={C}
             />
           ) : null}
