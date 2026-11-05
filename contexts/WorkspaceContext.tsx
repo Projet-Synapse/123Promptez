@@ -5,6 +5,7 @@ import {
   type ConversationKind,
   type SimulationData,
   emptySimulationData,
+  normalizeSimulationData,
   defaultTitleForKind,
 } from '@/types/simulation';
 
@@ -195,6 +196,14 @@ interface WorkspaceContextType {
   clearConversation: (workspaceId: string, conversationId: string) => void;
   /** Keep messages strictly before messageId (drops that message and everything after). */
   truncateMessagesAfter: (workspaceId: string, conversationId: string, messageId: string) => void;
+  /** Garde ce message et tout ce qui précède ; supprime la suite (« repartir d'ici »). */
+  keepMessagesThrough: (workspaceId: string, conversationId: string, messageId: string) => void;
+  /** Met à jour le texte d'un message (édition in-place). */
+  updateMessageContent: (workspaceId: string, conversationId: string, messageId: string, content: string) => void;
+  /** Supprime un seul message. */
+  deleteMessage: (workspaceId: string, conversationId: string, messageId: string) => void;
+  /** Met à jour le blob Simulation d'une conversation. */
+  updateSimulation: (workspaceId: string, conversationId: string, simulation: SimulationData) => void;
   getActiveConversation: (workspaceId: string) => Conversation | undefined;
   // Database — folders
   addFolder: (workspaceId: string, folder: Omit<DBFolder, 'id' | 'files' | 'subFolders' | 'createdAt'>) => void;
@@ -287,35 +296,9 @@ function normalizeConversation(raw: any): Conversation {
     updatedAt: raw?.updatedAt instanceof Date ? raw.updatedAt : new Date(raw?.updatedAt ?? Date.now()),
   };
   if (kind === 'simulation') {
-    const sim = raw?.simulation && typeof raw.simulation === 'object' ? raw.simulation : {};
-    base.simulation = {
-      world: {
-        title: String(sim.world?.title ?? ''),
-        synopsis: String(sim.world?.synopsis ?? ''),
-        knowledgeFolderIds: Array.isArray(sim.world?.knowledgeFolderIds)
-          ? sim.world.knowledgeFolderIds.map(String)
-          : [],
-      },
-      characters: Array.isArray(sim.characters)
-        ? sim.characters.map((c: any) => ({
-            id: String(c?.id ?? `char-${Math.random().toString(36).slice(2, 7)}`),
-            name: String(c?.name ?? ''),
-            description: String(c?.description ?? ''),
-            traits: Array.isArray(c?.traits) ? c.traits.map(String) : [],
-            avatarColor: c?.avatarColor ? String(c.avatarColor) : undefined,
-          }))
-        : [],
-      memory: {
-        entries: Array.isArray(sim.memory?.entries)
-          ? sim.memory.entries.map((e: any) => ({
-              id: String(e?.id ?? `mem-${Math.random().toString(36).slice(2, 7)}`),
-              text: String(e?.text ?? ''),
-              createdAt: String(e?.createdAt ?? new Date().toISOString()),
-            }))
-          : [],
-      },
-      notes: String(sim.notes ?? ''),
-    };
+    base.simulation = normalizeSimulationData(raw?.simulation, {
+      hadMessages: Array.isArray(raw?.messages) && raw.messages.length > 0,
+    });
   }
   return base;
 }
@@ -624,6 +607,65 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
         }),
       };
     }));
+  const keepMessagesThrough = (wid: string, cid: string, messageId: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      return {
+        ...w,
+        conversations: w.conversations.map(c => {
+          if (c.id !== cid) return c;
+          const idx = c.messages.findIndex(m => m.id === messageId);
+          if (idx < 0) return c;
+          return { ...c, messages: c.messages.slice(0, idx + 1), updatedAt: new Date() };
+        }),
+      };
+    }));
+  const updateMessageContent = (wid: string, cid: string, messageId: string, content: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      return {
+        ...w,
+        conversations: w.conversations.map(c => {
+          if (c.id !== cid) return c;
+          return {
+            ...c,
+            messages: c.messages.map(m => m.id === messageId ? { ...m, content } : m),
+            updatedAt: new Date(),
+          };
+        }),
+      };
+    }));
+  const deleteMessage = (wid: string, cid: string, messageId: string) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      return {
+        ...w,
+        conversations: w.conversations.map(c => {
+          if (c.id !== cid) return c;
+          return {
+            ...c,
+            messages: c.messages.filter(m => m.id !== messageId),
+            updatedAt: new Date(),
+          };
+        }),
+      };
+    }));
+  const updateSimulation = (wid: string, cid: string, simulation: SimulationData) =>
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id !== wid) return w;
+      return {
+        ...w,
+        conversations: w.conversations.map(c => {
+          if (c.id !== cid) return c;
+          if (c.kind !== 'simulation') return c;
+          return {
+            ...c,
+            simulation: normalizeSimulationData(simulation),
+            updatedAt: new Date(),
+          };
+        }),
+      };
+    }));
   const getActiveConversation = (wid: string) => {
     const ws = workspaces.find(w => w.id === wid);
     return ws?.conversations.find(c => c.id === ws.activeConversationId);
@@ -906,7 +948,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
       addConversation, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
-      addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
+      addMessageToConversation, clearConversation, truncateMessagesAfter, keepMessagesThrough, updateMessageContent, deleteMessage, updateSimulation, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
       addSubFolder, updateSubFolder, removeSubFolder,
