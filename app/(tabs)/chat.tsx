@@ -44,7 +44,7 @@ import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen from '@/components/feature/SimulationSetupScreen';
-import SimulationFeatureScreen from '@/components/feature/SimulationFeatureScreen';
+import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { Toggle } from '@/components/ui/Toggle';
 import type { ConversationKind, SimulationFeatureId, SimulationFeatures } from '@/types/simulation';
 import {
