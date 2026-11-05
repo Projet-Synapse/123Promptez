@@ -70,7 +70,6 @@ function AvatarBubble({
 }: {
   uri?: string; size?: number; onPress: () => void; fallbackIcon?: React.ComponentProps<typeof MaterialIcons>['name'];
 }) {
-  const C = useThemeColors();
   return (
     <Pressable
       onPress={onPress}
