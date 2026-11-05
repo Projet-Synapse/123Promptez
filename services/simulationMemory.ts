@@ -12,8 +12,14 @@ import {
   emptySimulationMemory,
   mergeMemoryItems,
   normalizeMemoryKey,
+  normalizeCharacterCategory,
+  normalizeLinkSubsection,
+  pickPrincipalByMentions,
+  ensureSinglePrincipal,
   type SimulationMemory,
   type SimulationMemoryItem,
+  type MemoryCharacterCategory,
+  type MemoryLinkSubsection,
 } from '@/types/simulationMemory';
 
 type ChatMsg = { role: 'user' | 'assistant' | 'system'; content: string };
@@ -48,17 +54,26 @@ function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places')
     const name = String(r.name ?? r.title ?? '').trim();
     if (!name) continue;
     const summary = String(r.summary ?? r.description ?? r.text ?? '').trim();
-    out.push(
-      emptyMemoryItem({
-        name,
-        summary,
-        from: r.from ? String(r.from) : undefined,
-        to: r.to ? String(r.to) : undefined,
-        userEdited: false,
-      }),
-    );
+    const base: Partial<SimulationMemoryItem> & { name: string } = {
+      name,
+      summary,
+      from: r.from ? String(r.from) : undefined,
+      to: r.to ? String(r.to) : undefined,
+      userEdited: false,
+      isPlayerPersona: r.isPlayerPersona === true,
+    };
+    if (section === 'characters') {
+      base.characterCategory = normalizeCharacterCategory(
+        r.characterCategory ?? r.category ?? r.role,
+      );
+    }
+    if (section === 'links') {
+      base.linkSubsection = normalizeLinkSubsection(
+        r.linkSubsection ?? r.subsection ?? r.kind ?? r.type,
+      );
+    }
+    out.push(emptyMemoryItem(base));
   }
-  // Dédup interne
   return mergeMemoryItems([], out);
 }
 
@@ -76,6 +91,8 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
         name,
         summary: parts.join(' · ').slice(0, 600) || 'Persona joueur',
         userEdited: false,
+        isPlayerPersona: true,
+        characterCategory: 'secondaires',
       }),
     );
   }
@@ -88,6 +105,8 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
         name,
         summary: `${c.description || ''}${traits}`.trim().slice(0, 600) || 'Personnage du monde',
         userEdited: false,
+        isPlayerPersona: false,
+        characterCategory: 'secondaires',
       }),
     );
   }
@@ -117,17 +136,19 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
           from: persona.name.trim(),
           to: c.name.trim(),
           userEdited: false,
+          linkSubsection: 'rapports',
         }),
       );
     }
   }
+  const mergedChars = pickPrincipalByMentions(mergeMemoryItems([], characters), []);
   return emptySimulationMemory({
     entries: sim.memory?.entries ?? [],
     initialized: true,
     lastUpdatedAt: new Date().toISOString(),
     messageCountAtLastUpdate: 0,
     updateEveryN: sim.memory?.updateEveryN,
-    characters: mergeMemoryItems([], characters),
+    characters: mergedChars,
     links: mergeMemoryItems([], links),
     places: mergeMemoryItems([], places),
   });
@@ -238,15 +259,23 @@ function buildWorldSnippet(sim: SimulationData): string {
 const EXTRACT_SYSTEM = `Tu es un extracteur de mémoire pour un roleplay.
 Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), schéma:
 {
-  "characters": [{"name":"string","summary":"string courte factuelle"}],
-  "links": [{"name":"string","summary":"string","from":"string?","to":"string?"}],
+  "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","isPlayerPersona":false}],
+  "links": [{"name":"string","summary":"string","linkSubsection":"objets|rapports","from":"string?","to":"string?"}],
   "places": [{"name":"string","summary":"string"}]
 }
 Règles STRICTES:
 - Pas de doublons de personnages (un nom = une entrée ; fusionne les alias).
 - Faits vérifiables dans le worldbuilding / l'historique seulement — pas d'invention.
-- Summaries courtes (1–3 phrases), utiles pour que l'IA se souvienne.
-- Liens = relations entre personnages / factions / objets narratifs.
+- Summaries courtes (1–3 phrases).
+- characterCategory:
+  - principal = UN SEUL PNJ le plus parlé / le plus d'interactions (JAMAIS le persona joueur)
+  - secondaires = récurrents importants
+  - enjeux = liés aux conflits / enjeux
+  - anecdotiques = apparitions ponctuelles
+- isPlayerPersona=true uniquement pour le/les persona(s) joueur ; ils ne sont jamais principal.
+- linkSubsection:
+  - objets = objets clés narratifs
+  - rapports = liens relationnels entre personnages
 - Lieux clés seulement s'ils apparaissent vraiment.
 - Réponds en français.`;
 
@@ -286,6 +315,8 @@ export async function generateOrRefreshMemory(opts: {
             name: c.name,
             summary: c.summary,
             userEdited: c.userEdited,
+            characterCategory: c.characterCategory,
+            isPlayerPersona: c.isPlayerPersona,
           })),
           links: current.links.map((c) => ({
             name: c.name,
@@ -293,6 +324,7 @@ export async function generateOrRefreshMemory(opts: {
             from: c.from,
             to: c.to,
             userEdited: c.userEdited,
+            linkSubsection: c.linkSubsection,
           })),
           places: current.places.map((c) => ({
             name: c.name,
@@ -329,13 +361,17 @@ export async function generateOrRefreshMemory(opts: {
   const baseLinks = mode === 'initial' ? seed.links : current.links;
   const basePlaces = mode === 'initial' ? seed.places : current.places;
 
+  const mergedCharacters = pickPrincipalByMentions(
+    mergeMemoryItems(baseChars, llmCharacters),
+    messages,
+  );
   const next = emptySimulationMemory({
     entries: current.entries,
     initialized: true,
     lastUpdatedAt: new Date().toISOString(),
     messageCountAtLastUpdate: messages.length,
     updateEveryN: current.updateEveryN,
-    characters: mergeMemoryItems(baseChars, llmCharacters),
+    characters: mergedCharacters,
     links: mergeMemoryItems(baseLinks, llmLinks),
     places: mergeMemoryItems(basePlaces, llmPlaces),
   });
@@ -352,15 +388,28 @@ export function applyManualMemoryEdit(
   memory: SimulationMemory,
   section: 'characters' | 'links' | 'places',
   itemId: string,
-  patch: { name?: string; summary?: string; from?: string; to?: string },
+  patch: {
+    name?: string;
+    summary?: string;
+    from?: string;
+    to?: string;
+    characterCategory?: MemoryCharacterCategory;
+    linkSubsection?: MemoryLinkSubsection;
+  },
 ): SimulationMemory {
-  const list = memory[section].map((it) => {
+  let list = memory[section].map((it) => {
     if (it.id !== itemId) return it;
     const name = patch.name !== undefined ? patch.name.trim() || it.name : it.name;
     let key = normalizeMemoryKey(name);
-    // Évite collision de clé avec une autre entrée
     if (memory[section].some((o) => o.id !== itemId && o.key === key)) {
       key = `${key} ${itemId.slice(-4)}`;
+    }
+    let characterCategory = it.characterCategory;
+    if (patch.characterCategory) {
+      characterCategory = patch.characterCategory;
+      if (it.isPlayerPersona && characterCategory === 'principal') {
+        characterCategory = 'secondaires';
+      }
     }
     return emptyMemoryItem({
       ...it,
@@ -369,10 +418,13 @@ export function applyManualMemoryEdit(
       summary: patch.summary !== undefined ? patch.summary : it.summary,
       from: patch.from !== undefined ? (patch.from || undefined) : it.from,
       to: patch.to !== undefined ? (patch.to || undefined) : it.to,
+      characterCategory,
+      linkSubsection: patch.linkSubsection ?? it.linkSubsection,
       userEdited: true,
       updatedAt: new Date().toISOString(),
     });
   });
+  if (section === 'characters') list = ensureSinglePrincipal(list);
   return emptySimulationMemory({ ...memory, [section]: list });
 }
 
@@ -380,15 +432,21 @@ export function addManualMemoryItem(
   memory: SimulationMemory,
   section: 'characters' | 'links' | 'places',
   name: string,
+  opts?: { characterCategory?: MemoryCharacterCategory; linkSubsection?: MemoryLinkSubsection },
 ): SimulationMemory {
   const item = emptyMemoryItem({
     name: name.trim() || 'Nouvelle entrée',
     summary: '',
     userEdited: true,
+    characterCategory: section === 'characters' ? (opts?.characterCategory ?? 'anecdotiques') : undefined,
+    linkSubsection: section === 'links' ? (opts?.linkSubsection ?? 'rapports') : undefined,
+    isPlayerPersona: false,
   });
+  let list = mergeMemoryItems(memory[section], [item]);
+  if (section === 'characters') list = ensureSinglePrincipal(list);
   return emptySimulationMemory({
     ...memory,
-    [section]: mergeMemoryItems(memory[section], [item]),
+    [section]: list,
   });
 }
 

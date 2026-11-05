@@ -12,6 +12,8 @@ export type {
   SimulationMemoryEntry,
   SimulationMemoryItem,
   MemorySectionId,
+  MemoryCharacterCategory,
+  MemoryLinkSubsection,
 } from '@/types/simulationMemory';
 export {
   MEMORY_AUTO_UPDATE_EVERY_N,
@@ -22,6 +24,8 @@ export {
   mergeMemoryItems,
   formatMemoryForPrompt,
   emptySimulationMemory,
+  MEMORY_CHARACTER_CATEGORY_META,
+  MEMORY_LINK_SUBSECTION_META,
 } from '@/types/simulationMemory';
 
 export type ConversationKind = 'classique' | 'simulation';

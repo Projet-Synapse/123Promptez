@@ -1,6 +1,5 @@
 /**
- * Page Mémoire Simulation — Personnages / Liens / Lieux clés.
- * Éditable à la main ; génération initiale + bouton Rafraîchir.
+ * Page Mémoire Simulation — Personnages (catégories) / Liens (sous-sections) / Lieux.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -12,13 +11,28 @@ import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import {
   MEMORY_SECTION_META,
+  MEMORY_CHARACTER_CATEGORIES,
+  MEMORY_CHARACTER_CATEGORY_META,
+  MEMORY_LINK_SUBSECTIONS,
+  MEMORY_LINK_SUBSECTION_META,
+  MEMORY_AUTO_UPDATE_EVERY_N,
   type MemorySectionId,
+  type MemoryCharacterCategory,
+  type MemoryLinkSubsection,
   type SimulationMemory,
   type SimulationMemoryItem,
 } from '@/types/simulationMemory';
-import { MEMORY_AUTO_UPDATE_EVERY_N } from '@/types/simulationMemory';
 
 const ACCENT = '#9B59B6';
+
+type EditPatch = {
+  name?: string;
+  summary?: string;
+  from?: string;
+  to?: string;
+  characterCategory?: MemoryCharacterCategory;
+  linkSubsection?: MemoryLinkSubsection;
+};
 
 type Props = {
   memory: SimulationMemory;
@@ -26,14 +40,268 @@ type Props = {
   focusItemId?: string | null;
   onClose: () => void;
   onRefresh: () => void;
-  onAdd: (section: MemorySectionId, name: string) => void;
-  onRemove: (section: MemorySectionId, id: string) => void;
-  onEditItem: (
+  onAdd: (
     section: MemorySectionId,
-    id: string,
-    patch: { name?: string; summary?: string; from?: string; to?: string },
+    name: string,
+    opts?: { characterCategory?: MemoryCharacterCategory; linkSubsection?: MemoryLinkSubsection },
   ) => void;
+  onRemove: (section: MemorySectionId, id: string) => void;
+  onEditItem: (section: MemorySectionId, id: string, patch: EditPatch) => void;
 };
+
+function CategoryChips({
+  value,
+  onChange,
+  disabledPrincipal,
+  C,
+}: {
+  value: MemoryCharacterCategory;
+  onChange: (c: MemoryCharacterCategory) => void;
+  disabledPrincipal?: boolean;
+  C: ReturnType<typeof useThemeColors>;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {MEMORY_CHARACTER_CATEGORIES.map((cat) => {
+        const on = value === cat;
+        const blocked = cat === 'principal' && disabledPrincipal;
+        return (
+          <Pressable
+            key={cat}
+            disabled={blocked}
+            onPress={() => onChange(cat)}
+            style={{
+              paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+              backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
+              borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+              opacity: blocked ? 0.4 : 1,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+              {MEMORY_CHARACTER_CATEGORY_META[cat].label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function LinkKindChips({
+  value,
+  onChange,
+  C,
+}: {
+  value: MemoryLinkSubsection;
+  onChange: (k: MemoryLinkSubsection) => void;
+  C: ReturnType<typeof useThemeColors>;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {MEMORY_LINK_SUBSECTIONS.map((k) => {
+        const on = value === k;
+        return (
+          <Pressable
+            key={k}
+            onPress={() => onChange(k)}
+            style={{
+              paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+              backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
+              borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+              {MEMORY_LINK_SUBSECTION_META[k].label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function ItemCard({
+  section,
+  it,
+  open,
+  onToggle,
+  onEditItem,
+  onRemove,
+  C,
+}: {
+  section: MemorySectionId;
+  it: SimulationMemoryItem;
+  open: boolean;
+  onToggle: () => void;
+  onEditItem: Props['onEditItem'];
+  onRemove: Props['onRemove'];
+  C: ReturnType<typeof useThemeColors>;
+}) {
+  const catLabel =
+    section === 'characters' && it.characterCategory
+      ? MEMORY_CHARACTER_CATEGORY_META[it.characterCategory].label
+      : section === 'links' && it.linkSubsection
+        ? MEMORY_LINK_SUBSECTION_META[it.linkSubsection].label
+        : null;
+
+  return (
+    <View
+      style={{
+        backgroundColor: C.bgCard,
+        borderWidth: 1,
+        borderColor: open ? ACCENT + '66' : C.border,
+        borderRadius: Radius.md,
+        padding: Spacing.sm,
+        marginBottom: Spacing.xs,
+      }}
+    >
+      <Pressable onPress={onToggle} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
+              {it.name}
+            </Text>
+            {catLabel ? (
+              <View style={{
+                paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
+                backgroundColor: ACCENT + '18', borderWidth: 1, borderColor: ACCENT + '44',
+              }}>
+                <Text style={{ fontSize: 9, color: ACCENT, fontWeight: '800' }}>{catLabel}</Text>
+              </View>
+            ) : null}
+            {it.isPlayerPersona ? (
+              <View style={{
+                paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
+                backgroundColor: C.bgCardAlt, borderWidth: 1, borderColor: C.border,
+              }}>
+                <Text style={{ fontSize: 9, color: C.textMuted, fontWeight: '800' }}>PERSONA</Text>
+              </View>
+            ) : null}
+            {it.userEdited ? (
+              <View style={{
+                paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
+                backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55',
+              }}>
+                <Text style={{ fontSize: 9, color: C.warning, fontWeight: '800' }}>MODIFIÉ</Text>
+              </View>
+            ) : null}
+          </View>
+          {!open && it.summary ? (
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }} numberOfLines={2}>
+              {it.summary}
+            </Text>
+          ) : null}
+        </View>
+        <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={C.textMuted} />
+      </Pressable>
+
+      {open ? (
+        <View style={{ marginTop: Spacing.sm, gap: Spacing.sm }}>
+          <View>
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>NOM</Text>
+            <TextInput
+              value={it.name}
+              onChangeText={(v) => onEditItem(section, it.id, { name: v })}
+              style={{
+                borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+                paddingHorizontal: Spacing.sm, paddingVertical: 8,
+                color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.body,
+              }}
+              placeholderTextColor={C.textMuted}
+            />
+          </View>
+
+          {section === 'characters' ? (
+            <View>
+              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>CATÉGORIE</Text>
+              <CategoryChips
+                value={it.characterCategory ?? 'secondaires'}
+                disabledPrincipal={!!it.isPlayerPersona}
+                onChange={(c) => onEditItem(section, it.id, { characterCategory: c })}
+                C={C}
+              />
+              {it.isPlayerPersona ? (
+                <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+                  Le persona joueur ne peut pas être Principal.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {section === 'links' ? (
+            <>
+              <View>
+                <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>SOUS-SECTION</Text>
+                <LinkKindChips
+                  value={it.linkSubsection ?? 'rapports'}
+                  onChange={(k) => onEditItem(section, it.id, { linkSubsection: k })}
+                  C={C}
+                />
+              </View>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>DE</Text>
+                  <TextInput
+                    value={it.from ?? ''}
+                    onChangeText={(v) => onEditItem(section, it.id, { from: v })}
+                    style={{
+                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
+                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
+                    }}
+                    placeholderTextColor={C.textMuted}
+                    placeholder="…"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>VERS</Text>
+                  <TextInput
+                    value={it.to ?? ''}
+                    onChangeText={(v) => onEditItem(section, it.id, { to: v })}
+                    style={{
+                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
+                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
+                    }}
+                    placeholderTextColor={C.textMuted}
+                    placeholder="…"
+                  />
+                </View>
+              </View>
+            </>
+          ) : null}
+
+          <View>
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>RÉSUMÉ</Text>
+            <TextInput
+              value={it.summary}
+              onChangeText={(v) => onEditItem(section, it.id, { summary: v })}
+              multiline
+              style={{
+                borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+                paddingHorizontal: Spacing.sm, paddingVertical: 8,
+                color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
+                minHeight: 72, textAlignVertical: 'top',
+              }}
+              placeholderTextColor={C.textMuted}
+              placeholder="Faits à retenir…"
+            />
+          </View>
+          <Pressable
+            onPress={() => onRemove(section, it.id)}
+            style={({ pressed }) => [{
+              alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4,
+              paddingVertical: 6, paddingHorizontal: 8,
+            }, pressed && { opacity: 0.7 }]}
+          >
+            <MaterialIcons name="delete-outline" size={16} color={C.error} />
+            <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Supprimer</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function SectionBlock({
   section,
@@ -44,6 +312,10 @@ function SectionBlock({
   onEditItem,
   onRemove,
   onAdd,
+  charFilter,
+  setCharFilter,
+  linkFilter,
+  setLinkFilter,
 }: {
   section: MemorySectionId;
   items: SimulationMemoryItem[];
@@ -53,10 +325,43 @@ function SectionBlock({
   onEditItem: Props['onEditItem'];
   onRemove: Props['onRemove'];
   onAdd: Props['onAdd'];
+  charFilter: MemoryCharacterCategory | 'all';
+  setCharFilter: (v: MemoryCharacterCategory | 'all') => void;
+  linkFilter: MemoryLinkSubsection | 'all';
+  setLinkFilter: (v: MemoryLinkSubsection | 'all') => void;
 }) {
   const meta = MEMORY_SECTION_META[section];
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
+
+  const filtered = useMemo(() => {
+    if (section === 'characters' && charFilter !== 'all') {
+      return items.filter((it) => (it.characterCategory ?? 'secondaires') === charFilter);
+    }
+    if (section === 'links' && linkFilter !== 'all') {
+      return items.filter((it) => (it.linkSubsection ?? 'rapports') === linkFilter);
+    }
+    return items;
+  }, [items, section, charFilter, linkFilter]);
+
+  // Grouped view for "all" on characters/links
+  const groups: { key: string; label: string; list: SimulationMemoryItem[] }[] = useMemo(() => {
+    if (section === 'characters' && charFilter === 'all') {
+      return MEMORY_CHARACTER_CATEGORIES.map((cat) => ({
+        key: cat,
+        label: MEMORY_CHARACTER_CATEGORY_META[cat].label,
+        list: items.filter((it) => (it.characterCategory ?? 'secondaires') === cat),
+      })).filter((g) => g.list.length > 0);
+    }
+    if (section === 'links' && linkFilter === 'all') {
+      return MEMORY_LINK_SUBSECTIONS.map((k) => ({
+        key: k,
+        label: MEMORY_LINK_SUBSECTION_META[k].label,
+        list: items.filter((it) => (it.linkSubsection ?? 'rapports') === k),
+      })).filter((g) => g.list.length > 0);
+    }
+    return [{ key: 'flat', label: '', list: filtered }];
+  }, [section, charFilter, linkFilter, items, filtered]);
 
   return (
     <View style={{ marginBottom: Spacing.lg }}>
@@ -70,10 +375,80 @@ function SectionBlock({
         <Text style={{ flex: 1, fontSize: FontSize.md, fontWeight: '800', color: C.textPrimary }}>
           {meta.label}
         </Text>
-        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>
-          {items.length}
-        </Text>
+        <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>{items.length}</Text>
       </View>
+
+      {section === 'characters' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Pressable
+              onPress={() => setCharFilter('all')}
+              style={{
+                paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                backgroundColor: charFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
+                borderWidth: 1, borderColor: charFilter === 'all' ? ACCENT + '77' : C.border,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: charFilter === 'all' ? ACCENT : C.textSecondary }}>Tout</Text>
+            </Pressable>
+            {MEMORY_CHARACTER_CATEGORIES.map((cat) => {
+              const on = charFilter === cat;
+              const n = items.filter((it) => (it.characterCategory ?? 'secondaires') === cat).length;
+              return (
+                <Pressable
+                  key={cat}
+                  onPress={() => setCharFilter(cat)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                    backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
+                    borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+                    {MEMORY_CHARACTER_CATEGORY_META[cat].label}{n ? ` · ${n}` : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
+      ) : null}
+
+      {section === 'links' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Pressable
+              onPress={() => setLinkFilter('all')}
+              style={{
+                paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                backgroundColor: linkFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
+                borderWidth: 1, borderColor: linkFilter === 'all' ? ACCENT + '77' : C.border,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: linkFilter === 'all' ? ACCENT : C.textSecondary }}>Tout</Text>
+            </Pressable>
+            {MEMORY_LINK_SUBSECTIONS.map((k) => {
+              const on = linkFilter === k;
+              const n = items.filter((it) => (it.linkSubsection ?? 'rapports') === k).length;
+              return (
+                <Pressable
+                  key={k}
+                  onPress={() => setLinkFilter(k)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                    backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
+                    borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+                    {MEMORY_LINK_SUBSECTION_META[k].label}{n ? ` · ${n}` : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
+      ) : null}
 
       {items.length === 0 ? (
         <Text style={{ fontSize: FontSize.sm, color: C.textMuted, marginBottom: Spacing.sm, lineHeight: 18 }}>
@@ -81,131 +456,36 @@ function SectionBlock({
         </Text>
       ) : null}
 
-      {items.map((it) => {
-        const open = expandedId === it.id;
-        return (
-          <View
-            key={it.id}
-            style={{
-              backgroundColor: C.bgCard,
-              borderWidth: 1,
-              borderColor: open ? ACCENT + '66' : C.border,
-              borderRadius: Radius.md,
-              padding: Spacing.sm,
-              marginBottom: Spacing.xs,
-            }}
-          >
-            <Pressable
-              onPress={() => setExpandedId(open ? null : it.id)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}
-            >
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
-                    {it.name}
-                  </Text>
-                  {it.userEdited ? (
-                    <View style={{
-                      paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
-                      backgroundColor: C.warning + '22', borderWidth: 1, borderColor: C.warning + '55',
-                    }}>
-                      <Text style={{ fontSize: 9, color: C.warning, fontWeight: '800' }}>MODIFIÉ</Text>
-                    </View>
-                  ) : null}
-                </View>
-                {!open && it.summary ? (
-                  <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }} numberOfLines={2}>
-                    {it.summary}
-                  </Text>
-                ) : null}
-              </View>
-              <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={C.textMuted} />
-            </Pressable>
-
-            {open ? (
-              <View style={{ marginTop: Spacing.sm, gap: Spacing.sm }}>
-                <View>
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>NOM</Text>
-                  <TextInput
-                    value={it.name}
-                    onChangeText={(v) => onEditItem(section, it.id, { name: v })}
-                    style={{
-                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.body,
-                    }}
-                    placeholderTextColor={C.textMuted}
-                  />
-                </View>
-                {section === 'links' ? (
-                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>DE</Text>
-                      <TextInput
-                        value={it.from ?? ''}
-                        onChangeText={(v) => onEditItem(section, it.id, { from: v })}
-                        style={{
-                          borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                          paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                          color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                        }}
-                        placeholderTextColor={C.textMuted}
-                        placeholder="…"
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>VERS</Text>
-                      <TextInput
-                        value={it.to ?? ''}
-                        onChangeText={(v) => onEditItem(section, it.id, { to: v })}
-                        style={{
-                          borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                          paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                          color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                        }}
-                        placeholderTextColor={C.textMuted}
-                        placeholder="…"
-                      />
-                    </View>
-                  </View>
-                ) : null}
-                <View>
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>RÉSUMÉ</Text>
-                  <TextInput
-                    value={it.summary}
-                    onChangeText={(v) => onEditItem(section, it.id, { summary: v })}
-                    multiline
-                    style={{
-                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                      minHeight: 72, textAlignVertical: 'top',
-                    }}
-                    placeholderTextColor={C.textMuted}
-                    placeholder="Faits à retenir…"
-                  />
-                </View>
-                <Pressable
-                  onPress={() => onRemove(section, it.id)}
-                  style={({ pressed }) => [{
-                    alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4,
-                    paddingVertical: 6, paddingHorizontal: 8, borderRadius: Radius.sm,
-                  }, pressed && { opacity: 0.7 }]}
-                >
-                  <MaterialIcons name="delete-outline" size={16} color={C.error} />
-                  <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '700' }}>Supprimer</Text>
-                </Pressable>
-              </View>
-            ) : null}
-          </View>
-        );
-      })}
+      {groups.map((g) => (
+        <View key={g.key} style={{ marginBottom: g.label ? Spacing.sm : 0 }}>
+          {g.label ? (
+            <Text style={{
+              fontSize: FontSize.xs, fontWeight: '800', color: ACCENT,
+              letterSpacing: 0.5, marginBottom: 6, marginTop: 4,
+            }}>
+              {g.label.toUpperCase()}
+            </Text>
+          ) : null}
+          {g.list.length === 0 ? (
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginBottom: 6 }}>Aucune entrée</Text>
+          ) : null}
+          {g.list.map((it) => (
+            <ItemCard
+              key={it.id}
+              section={section}
+              it={it}
+              open={expandedId === it.id}
+              onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
+              onEditItem={onEditItem}
+              onRemove={onRemove}
+              C={C}
+            />
+          ))}
+        </View>
+      ))}
 
       {adding ? (
-        <View style={{
-          flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-          marginTop: Spacing.xs,
-        }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.xs }}>
           <TextInput
             value={draftName}
             onChangeText={setDraftName}
@@ -218,14 +498,34 @@ function SectionBlock({
               color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.body,
             }}
             onSubmitEditing={() => {
-              if (draftName.trim()) onAdd(section, draftName.trim());
+              if (draftName.trim()) {
+                onAdd(
+                  section,
+                  draftName.trim(),
+                  section === 'characters'
+                    ? { characterCategory: charFilter === 'all' ? 'anecdotiques' : charFilter }
+                    : section === 'links'
+                      ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
+                      : undefined,
+                );
+              }
               setDraftName('');
               setAdding(false);
             }}
           />
           <Pressable
             onPress={() => {
-              if (draftName.trim()) onAdd(section, draftName.trim());
+              if (draftName.trim()) {
+                onAdd(
+                  section,
+                  draftName.trim(),
+                  section === 'characters'
+                    ? { characterCategory: charFilter === 'all' ? 'anecdotiques' : charFilter }
+                    : section === 'links'
+                      ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
+                      : undefined,
+                );
+              }
               setDraftName('');
               setAdding(false);
             }}
@@ -259,6 +559,8 @@ export function SimulationMemoryScreen({
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
   const [tab, setTab] = useState<MemorySectionId | 'all'>('all');
+  const [charFilter, setCharFilter] = useState<MemoryCharacterCategory | 'all'>('all');
+  const [linkFilter, setLinkFilter] = useState<MemoryLinkSubsection | 'all'>('all');
 
   useEffect(() => {
     if (focusItemId) setExpandedId(focusItemId);
@@ -369,6 +671,10 @@ export function SimulationMemoryScreen({
             onEditItem={onEditItem}
             onRemove={onRemove}
             onAdd={onAdd}
+            charFilter={charFilter}
+            setCharFilter={setCharFilter}
+            linkFilter={linkFilter}
+            setLinkFilter={setLinkFilter}
           />
         ))}
 
@@ -381,7 +687,6 @@ export function SimulationMemoryScreen({
         ) : null}
       </ScrollView>
 
-      {/* Overlay léger pendant refresh si déjà initialisé */}
       <Modal visible={generating && memory.initialized} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: '#0006', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{
@@ -399,5 +704,3 @@ export function SimulationMemoryScreen({
     </SafeAreaView>
   );
 }
-
-export default SimulationMemoryScreen;

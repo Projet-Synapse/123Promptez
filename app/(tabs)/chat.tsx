@@ -1767,7 +1767,7 @@ export default function ChatScreen() {
           focusItemId={memoryFocusItemId}
           onClose={() => { setShowSimMemory(false); setMemoryFocusItemId(null); }}
           onRefresh={() => void runMemoryGeneration(simData.memory?.initialized ? 'refresh' : 'initial')}
-          onAdd={(section, name) => persistSimMemory(addManualMemoryItem(simData.memory ?? emptySimulationMemory(), section, name))}
+          onAdd={(section, name, opts) => persistSimMemory(addManualMemoryItem(simData.memory ?? emptySimulationMemory(), section, name, opts))}
           onRemove={(section, id) => persistSimMemory(removeMemoryItem(simData.memory ?? emptySimulationMemory(), section, id))}
           onEditItem={(section, id, patch) => persistSimMemory(applyManualMemoryEdit(simData.memory ?? emptySimulationMemory(), section, id, patch))}
         />
