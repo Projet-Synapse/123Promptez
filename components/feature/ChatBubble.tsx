@@ -26,12 +26,14 @@ interface ChatBubbleProps {
   emphasizeRegenerate?: boolean;
   questionnaireAnswered?: boolean;
   onAnswerQuestionnaire?: (answers: QuestionnaireAnswer[]) => void;
+  /** Clic [[wikilink]] — Simulation / mémoire */
+  onWikilinkPress?: (target: string) => void;
 }
 
 export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
   onRestartFromHere, onDelete, showActions, emphasizeRegenerate,
-  questionnaireAnswered, onAnswerQuestionnaire,
+  questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
 }: ChatBubbleProps) {
   const C = useThemeColors();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,11 +113,11 @@ export function ChatBubble({
                 },
           ]}>
             {isUser ? (
-              <MarkdownView content={message.content} variant="user" />
+              <MarkdownView content={message.content} variant="user" onWikilinkPress={onWikilinkPress} />
             ) : (
               <>
                 {message.thinking ? <ThinkingCard text={message.thinking} /> : null}
-                <MarkdownView content={message.content} variant="assistant" />
+                <MarkdownView content={message.content} variant="assistant" onWikilinkPress={onWikilinkPress} />
                 {message.questionnaire ? (
                   <QuestionnaireCard
                     data={message.questionnaire}

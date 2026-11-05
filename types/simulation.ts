@@ -1,5 +1,29 @@
 /** Types pour l'espace Simulation (roleplay) — worldbuilding, personas, chat. */
 
+import {
+  emptySimulationMemory,
+  formatMemoryForPrompt,
+  normalizeSimulationMemory,
+  type SimulationMemory,
+} from '@/types/simulationMemory';
+
+export type {
+  SimulationMemory,
+  SimulationMemoryEntry,
+  SimulationMemoryItem,
+  MemorySectionId,
+} from '@/types/simulationMemory';
+export {
+  MEMORY_AUTO_UPDATE_EVERY_N,
+  MEMORY_SECTION_META,
+  normalizeMemoryKey,
+  resolveMemoryWikilink,
+  shouldAutoUpdateMemory,
+  mergeMemoryItems,
+  formatMemoryForPrompt,
+  emptySimulationMemory,
+} from '@/types/simulationMemory';
+
 export type ConversationKind = 'classique' | 'simulation';
 
 /** PNJ / personnages du monde (réponses séparées plus tard). */
@@ -25,12 +49,6 @@ export interface SimulationPersona {
   tastes: string;
   /** Le reste des infos du personnage */
   background: string;
-}
-
-export interface SimulationMemoryEntry {
-  id: string;
-  text: string;
-  createdAt: string; // ISO — JSON-friendly for cloud sync
 }
 
 export interface SimulationWorld {
@@ -132,9 +150,8 @@ export interface SimulationData {
   activePersonaId?: string;
   /** PNJ — moteur multi-persos plus tard */
   characters: SimulationCharacter[];
-  memory: {
-    entries: SimulationMemoryEntry[];
-  };
+  /** Mémoire structurée (Personnages / Liens / Lieux) + journal legacy */
+  memory: SimulationMemory;
   notes: string;
   /**
    * false = afficher la page de création avant le chat.
@@ -181,7 +198,7 @@ export function emptySimulationData(): SimulationData {
     personas: [persona],
     activePersonaId: persona.id,
     characters: [],
-    memory: { entries: [] },
+    memory: emptySimulationMemory(),
     notes: '',
     setupComplete: false,
     features: emptySimulationFeatures(),
@@ -255,15 +272,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
           avatarUri: c?.avatarUri ? String(c.avatarUri) : undefined,
         }))
       : [],
-    memory: {
-      entries: Array.isArray(sim.memory?.entries)
-        ? sim.memory.entries.map((e: any) => ({
-            id: String(e?.id ?? newId('mem')),
-            text: String(e?.text ?? ''),
-            createdAt: String(e?.createdAt ?? new Date().toISOString()),
-          }))
-        : [],
-    },
+    memory: normalizeSimulationMemory(sim.memory),
     notes: String(sim.notes ?? ''),
     setupComplete,
     features: emptySimulationFeatures({
@@ -316,6 +325,9 @@ export function buildSimulationPromptInjection(
       w.rules.trim(),
     );
   }
+  // Mémoire structurée — priorité juste sous les Règles
+  const memBlock = formatMemoryForPrompt(sim.memory);
+  if (memBlock) lines.push(memBlock);
   if (w.title?.trim()) lines.push(`### Monde — ${w.title.trim()}`);
   if (w.introduction?.trim()) lines.push(`Introduction :\n${w.introduction.trim()}`);
   if (w.backgroundContext?.trim()) lines.push(`Contexte d’arrière-plan :\n${w.backgroundContext.trim()}`);
@@ -333,10 +345,6 @@ export function buildSimulationPromptInjection(
     for (const c of sim.characters) {
       lines.push(`- ${c.name || 'PNJ'}: ${c.description || ''}${c.traits?.length ? ` [${c.traits.join(', ')}]` : ''}`);
     }
-  }
-  if (sim.memory.entries.length > 0) {
-    lines.push('### Mémoire de partie');
-    for (const e of sim.memory.entries.slice(-12)) lines.push(`- ${e.text}`);
   }
   if (sim.notes.trim()) lines.push(`### Notes\n${sim.notes.trim()}`);
   return `\n\n${lines.join('\n')}`;
