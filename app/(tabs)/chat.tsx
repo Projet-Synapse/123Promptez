@@ -43,7 +43,10 @@ import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
+import SimulationSetupScreen from '@/components/feature/SimulationSetupScreen';
 import type { ConversationKind } from '@/types/simulation';
+import { buildSimulationPromptInjection, getActivePersona } from '@/types/simulation';
+import { Image } from 'expo-image';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -680,7 +683,8 @@ export default function ChatScreen() {
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace, setConversationPinned,
-    addMessageToConversation, clearConversation, truncateMessagesAfter, getActiveConversation,
+    addMessageToConversation, clearConversation, truncateMessagesAfter, keepMessagesThrough,
+    updateMessageContent, deleteMessage, updateSimulation, getActiveConversation,
     getDueTasks, completeTask, getActiveAutomations, recordAutomationRun,
     updateFile, addFile, addSubFolder,
   } = useWorkspace();
@@ -701,6 +705,11 @@ export default function ChatScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   /** Workspace pour lequel on choisit Classique / Simulation (null = fermé). */
   const [newConvModalWsId, setNewConvModalWsId] = useState<string | null>(null);
+  /** Réouvrir la fiche monde/persona d'une simulation déjà démarrée. */
+  const [editSimSetup, setEditSimSetup] = useState(false);
+  /** Édition in-place d'un message assistant (contenu brut). */
+  const [editingAssistant, setEditingAssistant] = useState<{ id: string; content: string } | null>(null);
+
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
@@ -957,7 +966,10 @@ export default function ChatScreen() {
         profile,
         getDueTasks(activeWorkspace.id),
         (systemInjection ?? '') + modeInjection + tasksInjection
-          + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : ''),
+          + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : '')
+          + (activeConversation?.kind === 'simulation' && activeConversation.simulation
+            ? buildSimulationPromptInjection(activeConversation.simulation)
+            : ''),
         controller.signal,
         {
           // Outils serveur réels : l'IA peut lire les dépôts GitHub connectés
@@ -1320,6 +1332,90 @@ export default function ChatScreen() {
     }
   };
 
+
+  const isSimulation = activeConversation?.kind === 'simulation';
+  const simData = activeConversation?.simulation;
+  const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || editSimSetup));
+  const activeSimPersona = getActivePersona(simData);
+
+  const handleSimSetupComplete = (data: import('@/types/simulation').SimulationData) => {
+    if (!activeConversation) return;
+    updateSimulation(activeWorkspace.id, activeConversation.id, data);
+    renameConversation(activeWorkspace.id, activeConversation.id, data.world.title || 'Nouvelle simulation');
+    setEditSimSetup(false);
+    // Premier message de bienvenue si la conversation est encore vide
+    if (
+      activeConversation.messages.length === 0 &&
+      data.world.welcomeMessage.trim()
+    ) {
+      addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+        role: 'assistant',
+        content: data.world.welcomeMessage.trim(),
+      });
+    }
+  };
+
+  const handleRestartFromHere = (msgId: string) => {
+    if (!activeConversation || isLoading) return;
+    keepMessagesThrough(activeWorkspace.id, activeConversation.id, msgId);
+    showToast('Suite de la conversation effacée — tu peux repartir d’ici', { tone: 'info' });
+  };
+
+  const handleDeleteMessage = (msgId: string) => {
+    if (!activeConversation || isLoading) return;
+    showAlert('Supprimer ce message ?', 'Cette action est définitive.', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: () => deleteMessage(activeWorkspace.id, activeConversation.id, msgId),
+      },
+    ]);
+  };
+
+  const handleEditAssistantMessage = (msgId: string, content: string) => {
+    setEditingAssistant({ id: msgId, content });
+  };
+
+  const saveAssistantEdit = () => {
+    if (!activeConversation || !editingAssistant) return;
+    updateMessageContent(
+      activeWorkspace.id,
+      activeConversation.id,
+      editingAssistant.id,
+      editingAssistant.content,
+    );
+    setEditingAssistant(null);
+  };
+
+  if (needsSimSetup && activeConversation) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
+        <SimulationSetupScreen
+          initial={simData}
+          workspaceName={activeWorkspace.name}
+          onCancel={
+            simData?.setupComplete
+              ? () => setEditSimSetup(false)
+              : () => {
+                  // Marque comme terminé sans forcer les champs — évite de bloquer
+                  const skipped = {
+                    ...(simData as any),
+                    setupComplete: true,
+                    world: {
+                      ...(simData?.world ?? {}),
+                      title: simData?.world?.title?.trim() || 'Nouvelle simulation',
+                    },
+                  };
+                  updateSimulation(activeWorkspace.id, activeConversation.id, skipped as any);
+                }
+          }
+          onComplete={handleSimSetupComplete}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -1413,6 +1509,45 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
 
+          {/* Switcher de persona (Simulation) */}
+          {isSimulation && simData?.setupComplete && (simData.personas?.length ?? 0) > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs }}>
+                <Text style={{ fontSize: 10, color: '#9B59B6', fontWeight: '800', marginRight: 4 }}>PERSONA</Text>
+                {simData!.personas.map((p) => {
+                  const active = p.id === simData!.activePersonaId;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => updateSimulation(activeWorkspace.id, activeConversation!.id, { ...simData!, activePersonaId: p.id })}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 5,
+                        paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                        borderWidth: 1,
+                        borderColor: active ? '#9B59B6' : C.border,
+                        backgroundColor: active ? '#9B59B622' : C.bgCardAlt,
+                      }}
+                    >
+                      {p.avatarUri ? (
+                        <Image source={{ uri: p.avatarUri }} style={{ width: 16, height: 16, borderRadius: 8 }} />
+                      ) : (
+                        <MaterialIcons name="person" size={12} color={active ? '#9B59B6' : C.textMuted} />
+                      )}
+                      <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: active ? '#9B59B6' : C.textSecondary }}>{p.name || 'Persona'}</Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  onPress={() => setEditSimSetup(true)}
+                  hitSlop={6}
+                  style={{ padding: 6, borderRadius: Radius.pill, backgroundColor: C.bgCardAlt }}
+                >
+                  <MaterialIcons name="tune" size={14} color={C.textMuted} />
+                </Pressable>
+              </View>
+            </ScrollView>
+          ) : null}
+
           {/* Messages */}
           <ScrollView
             ref={scrollRef}
@@ -1423,42 +1558,37 @@ export default function ChatScreen() {
             scrollEventThrottle={120}
           >
             {chatMessages.length === 0 ? (
-              activeConversation?.kind === 'simulation' ? (
+              activeConversation?.kind === 'simulation' && activeConversation.simulation?.setupComplete ? (
                 <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
-                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#9B59B6', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
-                    <MaterialIcons name="theater-comedy" size={32} color="#fff" />
-                  </View>
-                  <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>Simulation</Text>
-                  <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center', lineHeight: 20, maxWidth: 300 }}>
-                    Espace roleplay pour{' '}
-                    <Text style={{ color: activeWorkspace.color, fontWeight: '600' }}>{activeWorkspace.name}</Text>
-                    . Monde, personnages et mémoire seront configurables bientôt — tu peux déjà écrire pour tester.
+                  {activeConversation.simulation.world.iconUri ? (
+                    <Image source={{ uri: activeConversation.simulation.world.iconUri }} style={{ width: 72, height: 72, borderRadius: 36, marginBottom: Spacing.sm }} />
+                  ) : (
+                    <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#9B59B6', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
+                      <MaterialIcons name="theater-comedy" size={32} color="#fff" />
+                    </View>
+                  )}
+                  <Text style={{ fontSize: FontSize.lg, color: C.textPrimary, fontWeight: '700' }}>
+                    {activeConversation.simulation.world.title?.trim() || 'Simulation'}
                   </Text>
-                  <View style={{
-                    width: '100%', maxWidth: 320, gap: Spacing.sm, marginTop: Spacing.sm,
-                    backgroundColor: C.bgCard, borderRadius: Radius.md, padding: Spacing.md,
-                    borderWidth: 1, borderColor: '#9B59B655',
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                      <MaterialIcons name="public" size={16} color="#9B59B6" />
-                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
-                        Monde : {activeConversation.simulation?.world?.title?.trim() || 'non défini'}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                      <MaterialIcons name="groups" size={16} color="#9B59B6" />
-                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
-                        {(activeConversation.simulation?.characters?.length ?? 0)} personnage{(activeConversation.simulation?.characters?.length ?? 0) !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                      <MaterialIcons name="psychology" size={16} color="#9B59B6" />
-                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted, flex: 1 }}>
-                        {(activeConversation.simulation?.memory?.entries?.length ?? 0)} souvenir{(activeConversation.simulation?.memory?.entries?.length ?? 0) !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                  </View>
+                  {activeConversation.simulation.world.introduction?.trim() ? (
+                    <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center', lineHeight: 20, maxWidth: 340 }}>
+                      {activeConversation.simulation.world.introduction.trim()}
+                    </Text>
+                  ) : null}
+                  <Pressable
+                    onPress={() => setEditSimSetup(true)}
+                    style={({ pressed }) => [{
+                      flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: Radius.pill,
+                      borderWidth: 1, borderColor: '#9B59B655', backgroundColor: '#9B59B618',
+                    }, pressed && { opacity: 0.8 }]}
+                  >
+                    <MaterialIcons name="tune" size={14} color="#9B59B6" />
+                    <Text style={{ fontSize: FontSize.xs, fontWeight: '700', color: '#9B59B6' }}>Modifier le monde / persona</Text>
+                  </Pressable>
                 </View>
+              ) : activeConversation?.kind === 'simulation' ? (
+                <View style={{ height: 1 }} />
               ) : (
               <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
                 <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm }}>
@@ -1494,17 +1624,24 @@ export default function ChatScreen() {
               <ChatBubble
                 key={msg.id}
                 message={msg}
-                botName={bot.name}
-                botColor={bot.avatarColor}
+                botName={isSimulation ? (activeSimPersona?.name || bot.name) : bot.name}
+                botColor={isSimulation ? '#9B59B6' : bot.avatarColor}
+                emphasizeRegenerate={!!isSimulation}
                 onCopy={() => handleCopyMessage(msg.content)}
                 onEdit={
-                  msg.role === 'user' && !isLoading
-                    ? () => handleEditUserMessage(msg.id, msg.content)
+                  !isLoading
+                    ? (msg.role === 'user'
+                        ? () => handleEditUserMessage(msg.id, msg.content)
+                        : () => handleEditAssistantMessage(msg.id, msg.content))
                     : undefined
                 }
+                onRestartFromHere={
+                  !isLoading ? () => handleRestartFromHere(msg.id) : undefined
+                }
+                onDelete={
+                  !isLoading ? () => handleDeleteMessage(msg.id) : undefined
+                }
                 onRegenerate={
-                  // Régénérer n'importe quelle réponse de l'IA (fourche la
-                  // conversation à partir d'elle), pas seulement la dernière.
                   msg.role === 'assistant' && !isLoading
                     ? () => handleRegenerate(msg.id)
                     : undefined
@@ -1757,6 +1894,47 @@ export default function ChatScreen() {
         toggleConversationPinned={setConversationPinned}
         onNavigate={handleNavigate}
       />
+
+      {/* Édition in-place d'une réponse assistant */}
+      {editingAssistant ? (
+        <View style={{
+          position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center',
+          padding: Spacing.lg, zIndex: 100,
+        }}>
+          <View style={{
+            width: '100%', maxWidth: 480, backgroundColor: C.bgCard, borderRadius: Radius.lg,
+            padding: Spacing.lg, gap: Spacing.md, borderWidth: 1, borderColor: C.border,
+          }}>
+            <Text style={{ fontSize: FontSize.md, fontWeight: '700', color: C.textPrimary }}>Modifier la réponse</Text>
+            <TextInput
+              value={editingAssistant.content}
+              onChangeText={(v) => setEditingAssistant({ ...editingAssistant, content: v })}
+              multiline
+              textAlignVertical="top"
+              style={{
+                minHeight: 160, maxHeight: 320, borderWidth: 1, borderColor: C.border,
+                borderRadius: Radius.md, padding: Spacing.md, color: C.textPrimary,
+                backgroundColor: C.bgCardAlt, fontSize: FontSize.body, lineHeight: 22,
+              }}
+            />
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <Pressable
+                onPress={() => setEditingAssistant(null)}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: Radius.md, alignItems: 'center', backgroundColor: C.bgCardAlt }}
+              >
+                <Text style={{ color: C.textSecondary, fontWeight: '700' }}>Annuler</Text>
+              </Pressable>
+              <Pressable
+                onPress={saveAssistantEdit}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: Radius.md, alignItems: 'center', backgroundColor: C.primary }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Enregistrer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <NewConversationModal
         visible={newConvModalWsId !== null}

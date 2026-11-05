@@ -34,7 +34,7 @@ const OPTIONS: {
     kind: 'simulation',
     icon: 'theater-comedy',
     title: 'Simulation',
-    desc: 'Roleplay immersif : monde, personnages et mémoire (moteur RP à venir).',
+    desc: 'Roleplay immersif : crée ton monde et ton persona avant le chat.',
     accent: '#9B59B6',
   },
 ];
