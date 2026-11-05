@@ -33,7 +33,8 @@ jobs:
   build-android:
     name: Build Android (installable APK)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 4 ABI + native modules (reanimated, skia, webrtc…) : largeur généreuse.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -55,28 +56,56 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Prebuild native Android project
         run: npx expo prebuild --platform android --no-install
+      # Signature stable (même méthode que 123Créez) : Expo signe la version
+      # « release » avec android/app/debug.keystore (alias androiddebugkey /
+      # mots de passe « android »). On remplace ce fichier par NOTRE clé
+      # commitée, sans patcher le build.gradle généré.
+      - name: Installer la clé de signature
+        run: cp scripts/android/promptez.keystore android/app/debug.keystore
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+      # Maven Central peut couper hermes-android (« Read timed out ») :
+      # délais HTTP Gradle allongés + essais multiples.
+      - name: Délais réseau Gradle
+        run: |
+          mkdir -p ~/.gradle
+          cat >> ~/.gradle/gradle.properties <<'PROPS'
+          systemProp.org.gradle.internal.http.socketTimeout=300000
+          systemProp.org.gradle.internal.http.connectionTimeout=120000
+          systemProp.org.gradle.internal.repository.max.retries=8
+          systemProp.org.gradle.internal.repository.initial.backoff=2000
+          PROPS
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: gradle-${{ runner.os }}-
-      - name: Build APK
+      # Pré-génère les artefacts codegen des turbo modules : sans ça, la
+      # configuration CMake peut démarrer avant la création des cibles
+      # « react_codegen_* » (race « Cannot specify link libraries »).
+      - name: Pré-générer le codegen
         working-directory: android
-        # `assembleRelease`, NOT `assembleDebug`: React Native's Gradle plugin
-        # only bundles the JS + assets into the APK for release-type builds —
-        # a debug build expects a live Metro dev server instead and produces
-        # an APK with no JS bundle at all (installs, then fails to launch).
-        # This is still trivially installable/testable: Expo's generated
-        # build.gradle signs the "release" buildType with the debug keystore
-        # by default (no real signing/Play Store cert involved). Single ABI
-        # keeps the native-module compile step (reanimated, skia, webrtc,
-        # maps, ...) fast enough for CI.
-        run: ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+        timeout-minutes: 20
+        run: ./gradlew generateCodegenArtifactsFromSchema --no-daemon || true
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
+      # Pas de -PreactNativeArchitectures : 4 ABI comme 123Créez / 123Écriture.
+      # lintVital exclu — l'analyse Play Store saturait la mémoire du runner.
+      # `assembleRelease` (pas debug) : RN ne bundle le JS que pour release.
+      - name: Construire l'APK (essai 1)
+        working-directory: android
+        timeout-minutes: 60
+        run: ./gradlew --build-cache assembleRelease -x lintVitalRelease -x lintVitalAnalyzeRelease -x lintVitalReportRelease --no-daemon
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
+      - name: Construire l'APK (essai 2 après échec)
+        if: failure()
+        working-directory: android
+        timeout-minutes: 60
+        run: ./gradlew --build-cache assembleRelease -x lintVitalRelease -x lintVitalAnalyzeRelease -x lintVitalReportRelease --no-daemon
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
       - name: Rename APK
