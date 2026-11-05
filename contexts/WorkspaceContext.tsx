@@ -1,6 +1,12 @@
 import React, { createContext, useState, ReactNode, useCallback, useRef } from 'react';
 import type { ChatMessage } from '@/contexts/BotContext';
 import type { VaultMeta } from '@/services/vaultService';
+import {
+  type ConversationKind,
+  type SimulationData,
+  emptySimulationData,
+  defaultTitleForKind,
+} from '@/types/simulation';
 
 export interface DBFile {
   id: string;
@@ -65,11 +71,24 @@ export interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
+  /**
+   * Type de chat. Absent ou omis sur les anciennes données cloud → traité
+   * comme `classique` (voir normalizeConversation) pour ne rien casser.
+   */
+  kind: ConversationKind;
+  /**
+   * Données Simulation (monde, personnages, mémoire). Présent seulement
+   * quand kind === 'simulation' ; structures vides au départ, remplies
+   * aux étapes suivantes (moteur RP, import vault).
+   */
+  simulation?: SimulationData;
   /** Épinglée en tête de l'historique — persistée avec le workspace */
   pinned?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type { ConversationKind, SimulationData };
 
 export type TaskFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -166,7 +185,7 @@ interface WorkspaceContextType {
   recordAutomationRun: (workspaceId: string, autoId: string) => void;
   getActiveAutomations: (workspaceId: string) => WorkspaceAutomation[];
   // Conversations
-  addConversation: (workspaceId: string, title?: string) => string;
+  addConversation: (workspaceId: string, opts?: string | { title?: string; kind?: ConversationKind }) => string;
   removeConversation: (workspaceId: string, conversationId: string) => void;
   renameConversation: (workspaceId: string, conversationId: string, title: string) => void;
   setActiveConversation: (workspaceId: string, conversationId: string) => void;
@@ -236,8 +255,69 @@ function normalizeSubs(subs: DBSubFolder[] = []): DBSubFolder[] {
 
 const EMPTY_DATABASE: WorkspaceDatabase = { rootFiles: [], folders: [] };
 
-function makeConversation(title: string = 'Nouvelle conversation'): Conversation {
-  return { id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title, messages: [], createdAt: new Date(), updatedAt: new Date() };
+function makeConversation(
+  title?: string,
+  kind: ConversationKind = 'classique',
+): Conversation {
+  const resolvedTitle = title?.trim() || defaultTitleForKind(kind);
+  const conv: Conversation = {
+    id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: resolvedTitle,
+    messages: [],
+    kind,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  if (kind === 'simulation') {
+    conv.simulation = emptySimulationData();
+  }
+  return conv;
+}
+
+/** Garantit kind + simulation cohérents pour les données cloud anciennes. */
+function normalizeConversation(raw: any): Conversation {
+  const kind: ConversationKind = raw?.kind === 'simulation' ? 'simulation' : 'classique';
+  const base: Conversation = {
+    id: String(raw?.id ?? `conv-${Date.now()}`),
+    title: String(raw?.title ?? defaultTitleForKind(kind)),
+    messages: Array.isArray(raw?.messages) ? raw.messages : [],
+    kind,
+    pinned: raw?.pinned ? true : undefined,
+    createdAt: raw?.createdAt instanceof Date ? raw.createdAt : new Date(raw?.createdAt ?? Date.now()),
+    updatedAt: raw?.updatedAt instanceof Date ? raw.updatedAt : new Date(raw?.updatedAt ?? Date.now()),
+  };
+  if (kind === 'simulation') {
+    const sim = raw?.simulation && typeof raw.simulation === 'object' ? raw.simulation : {};
+    base.simulation = {
+      world: {
+        title: String(sim.world?.title ?? ''),
+        synopsis: String(sim.world?.synopsis ?? ''),
+        knowledgeFolderIds: Array.isArray(sim.world?.knowledgeFolderIds)
+          ? sim.world.knowledgeFolderIds.map(String)
+          : [],
+      },
+      characters: Array.isArray(sim.characters)
+        ? sim.characters.map((c: any) => ({
+            id: String(c?.id ?? `char-${Math.random().toString(36).slice(2, 7)}`),
+            name: String(c?.name ?? ''),
+            description: String(c?.description ?? ''),
+            traits: Array.isArray(c?.traits) ? c.traits.map(String) : [],
+            avatarColor: c?.avatarColor ? String(c.avatarColor) : undefined,
+          }))
+        : [],
+      memory: {
+        entries: Array.isArray(sim.memory?.entries)
+          ? sim.memory.entries.map((e: any) => ({
+              id: String(e?.id ?? `mem-${Math.random().toString(36).slice(2, 7)}`),
+              text: String(e?.text ?? ''),
+              createdAt: String(e?.createdAt ?? new Date().toISOString()),
+            }))
+          : [],
+      },
+      notes: String(sim.notes ?? ''),
+    };
+  }
+  return base;
 }
 
 function computeNextDue(frequency: TaskFrequency, from: Date = new Date()): Date {
@@ -276,6 +356,9 @@ function normalizeWorkspace(ws: any): Workspace {
   return {
     ...ws,
     automations: ws.automations ?? [],
+    conversations: Array.isArray(ws.conversations)
+      ? ws.conversations.map(normalizeConversation)
+      : [],
     database: {
       ...ws.database,
       folders: normalizeFolders(ws.database?.folders ?? []),
@@ -478,8 +561,11 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   };
 
   // ─── Conversations ───────────────────────────────────────────────
-  const addConversation = (wid: string, title?: string): string => {
-    const conv = makeConversation(title || 'Nouvelle conversation');
+  const addConversation = (wid: string, opts?: string | { title?: string; kind?: ConversationKind }): string => {
+    const parsed = typeof opts === 'string'
+      ? { title: opts, kind: 'classique' as ConversationKind }
+      : { title: opts?.title, kind: (opts?.kind ?? 'classique') as ConversationKind };
+    const conv = makeConversation(parsed.title, parsed.kind);
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id } : w));
     return conv.id;
   };

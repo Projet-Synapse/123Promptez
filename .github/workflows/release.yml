@@ -132,6 +132,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: npx expo export --platform web --output-dir dist
+      - name: Relocate icon font assets for electron-builder
+        run: node scripts/relocate-desktop-assets.js dist
       - name: Build desktop installer
         run: npx electron-builder --publish never
         env:

@@ -33,30 +33,37 @@ const MIME_TYPES = {
   '.wasm': 'application/wasm',
 };
 
-// Port fixe de préférence : l'origine http fait partie de l'URL de redirection
-// OAuth (template/auth/supabase/service.ts → getGoogleRedirectUrl renvoie
-// `${origin}/login`) ET du localStorage qui conserve la session Supabase.
-// Avec un port éphémère, l'URL de retour change à chaque lancement : elle ne
-// peut pas être ajoutée aux Redirect URLs autorisées du projet Supabase
-// (erreur renvoyée juste après le login Google), et la session est perdue à
-// chaque relance de l'app. Si le port est déjà pris, on retombe sur un port
-// éphémère : l'app démarre quand même, la connexion Google en moins.
-const PREFERRED_PORT = 47823;
+// Ports fixes : l'origine http fait partie de l'URL OAuth ET du localStorage
+// (session Supabase). Une plage courte évite de basculer sur un port
+// éphémère (origine différente → session « perdue ») dès qu'un seul port
+// est pris. En dernier recours seulement, port 0 + avertissement.
+const PREFERRED_PORTS = [47823, 47824, 47825, 47826, 47827];
 
 /**
  * Serves `rootDir` as static files on 127.0.0.1 (loopback only — never
- * exposed to the network). Prefers PREFERRED_PORT so the origin is stable
- * across launches; falls back to an ephemeral port if it is busy.
+ * exposed to the network). Tries PREFERRED_PORTS in order so the origin
+ * stays stable across launches; only falls back to an ephemeral port if
+ * every preferred port is busy (session may not survive that launch).
  * @param {string} rootDir
  * @returns {Promise<{ server: import('http').Server, url: string }>}
  */
-function startStaticServer(rootDir) {
+async function startStaticServer(rootDir) {
   const root = path.resolve(rootDir);
 
-  return listenOn(root, PREFERRED_PORT).catch((err) => {
-    if (err && err.code === 'EADDRINUSE') return listenOn(root, 0);
-    throw err;
-  });
+  for (const port of PREFERRED_PORTS) {
+    try {
+      return await listenOn(root, port);
+    } catch (err) {
+      if (err && err.code === 'EADDRINUSE') continue;
+      throw err;
+    }
+  }
+
+  console.warn(
+    '[static-server] Tous les ports fixes sont pris ; port éphémère ' +
+      '(la session Supabase de ce lancement ne sera pas réutilisée).',
+  );
+  return listenOn(root, 0);
 }
 
 function listenOn(root, port) {
