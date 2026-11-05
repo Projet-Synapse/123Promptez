@@ -1,6 +1,6 @@
 // Rendu markdown des bulles chat — react-native-markdown-display + plugin [[wikilink]]
 // (même règle que 123Écriture). Gras/italique via markdown-it standard.
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, Linking } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -65,10 +65,13 @@ export function MarkdownView({
     td: { color: mutedColor, padding: Spacing.xs, borderWidth: 0.5, borderColor: isUser ? 'rgba(255,255,255,0.3)' : C.border },
   }), [C, textColor, mutedColor, wikiColor, codeBg, isUser]);
 
-  const handleWiki = (target: string) => {
-    if (onWikilinkPress) onWikilinkPress(target);
-    else showToast('Mémoire bientôt', { tone: 'info' });
-  };
+  const handleWiki = useCallback(
+    (target: string) => {
+      if (onWikilinkPress) onWikilinkPress(target);
+      else showToast('Mémoire bientôt', { tone: 'info' });
+    },
+    [onWikilinkPress, showToast],
+  );
 
   const rules = useMemo(() => ({
     fence: (node: any, _children: any, _parent: any, _rootStyles: any) => {
@@ -154,7 +157,7 @@ export function MarkdownView({
         </Text>
       );
     },
-  }), [C, copiedFence, showToast, isUser, mutedColor, wikiColor, codeBg, onWikilinkPress]);
+  }), [C, copiedFence, showToast, isUser, mutedColor, wikiColor, codeBg, handleWiki]);
 
   return (
     <Markdown markdownit={markdownIt} style={styles as any} rules={rules as any}>
