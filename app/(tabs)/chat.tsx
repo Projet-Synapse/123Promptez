@@ -11,7 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { useBot } from '@/hooks/useBot';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { useProfile } from '@/contexts/ProfileContext';
+import { useProfile, getRoleplaySettings } from '@/contexts/ProfileContext';
 import { ChatBubble, IconButton } from '@/components';
 import { MarkdownView } from '@/components/feature/Markdown';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
@@ -968,7 +968,9 @@ export default function ChatScreen() {
         (systemInjection ?? '') + modeInjection + tasksInjection
           + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : '')
           + (activeConversation?.kind === 'simulation' && activeConversation.simulation
-            ? buildSimulationPromptInjection(activeConversation.simulation)
+            ? buildSimulationPromptInjection(activeConversation.simulation, {
+                maxBotChars: getRoleplaySettings(profile).maxBotChars,
+              })
             : ''),
         controller.signal,
         {
@@ -1337,6 +1339,8 @@ export default function ChatScreen() {
   const simData = activeConversation?.simulation;
   const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || editSimSetup));
   const activeSimPersona = getActivePersona(simData);
+  const roleplayLimits = getRoleplaySettings(profile);
+  const inputMaxLength = isSimulation ? roleplayLimits.maxUserChars : 4000;
 
   const handleSimSetupComplete = (data: import('@/types/simulation').SimulationData) => {
     if (!activeConversation) return;
@@ -1799,26 +1803,41 @@ export default function ChatScreen() {
               />
             </Pressable>
 
-            <TextInput
-              ref={inputRef}
-              style={{ flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: editingMsg ? C.warning : C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
-              value={input}
-              onChangeText={(v) => {
-                setInput(v);
-                if (activeConversation) persistDraft(activeWorkspace.id, activeConversation.id, v);
-              }}
-              placeholder={pendingAttachment ? `Message + "${pendingAttachment.name}"` : t('typeMessage')}
-              placeholderTextColor={C.textMuted}
-              multiline maxLength={4000}
-              onKeyPress={Platform.OS === 'web' ? (e: any) => {
-                // Entrée envoie le message, Maj+Entrée insère un saut de ligne (évite un clic à chaque message)
-                const composing = e?.nativeEvent?.isComposing ?? e?.isComposing;
-                if (e?.key === 'Enter' && !e?.shiftKey && !composing) {
-                  e.preventDefault?.();
-                  handleSend();
-                }
-              } : undefined}
-            />
+            <View style={{ flex: 1, gap: 2 }}>
+              <TextInput
+                ref={inputRef}
+                style={{ minHeight: 44, maxHeight: 120, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: editingMsg ? C.warning : C.border, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, color: C.textPrimary, fontSize: FontSize.body }}
+                value={input}
+                onChangeText={(v) => {
+                  const next = isSimulation && v.length > inputMaxLength ? v.slice(0, inputMaxLength) : v;
+                  setInput(next);
+                  if (activeConversation) persistDraft(activeWorkspace.id, activeConversation.id, next);
+                }}
+                placeholder={pendingAttachment ? `Message + "${pendingAttachment.name}"` : t('typeMessage')}
+                placeholderTextColor={C.textMuted}
+                multiline
+                maxLength={inputMaxLength}
+                onKeyPress={Platform.OS === 'web' ? (e: any) => {
+                  // Entrée envoie le message, Maj+Entrée insère un saut de ligne (évite un clic à chaque message)
+                  const composing = e?.nativeEvent?.isComposing ?? e?.isComposing;
+                  if (e?.key === 'Enter' && !e?.shiftKey && !composing) {
+                    e.preventDefault?.();
+                    handleSend();
+                  }
+                } : undefined}
+              />
+              {isSimulation ? (
+                <Text style={{
+                  alignSelf: 'flex-end',
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: input.length >= inputMaxLength ? C.error : C.textMuted,
+                  paddingHorizontal: 4,
+                }}>
+                  {input.length}/{inputMaxLength}
+                </Text>
+              ) : null}
+            </View>
 
             {isLoading ? (
               <IconButton

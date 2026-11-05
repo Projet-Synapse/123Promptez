@@ -54,6 +54,7 @@ export function buildExportBundle(opts: {
       bio: opts.profile.bio,
       language: opts.profile.language,
       aiMemory: opts.profile.aiMemory,
+      roleplay: opts.profile.roleplay,
     };
   }
   return bundle;

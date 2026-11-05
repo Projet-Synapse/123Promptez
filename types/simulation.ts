@@ -209,7 +209,10 @@ export function getActivePersona(sim?: SimulationData | null): SimulationPersona
 }
 
 /** Injection prompt pour le moteur de chat existant (une voix pour l'instant). */
-export function buildSimulationPromptInjection(sim: SimulationData): string {
+export function buildSimulationPromptInjection(
+  sim: SimulationData,
+  opts?: { maxBotChars?: number },
+): string {
   const w = sim.world;
   const persona = getActivePersona(sim);
   const lines: string[] = [
@@ -218,6 +221,15 @@ export function buildSimulationPromptInjection(sim: SimulationData): string {
     'Reste immersif, cohérent avec le worldbuilding et le persona joueur.',
     'Contenu mature autorisé si l’utilisateur le demande.',
   ];
+  const maxBot = opts?.maxBotChars;
+  if (typeof maxBot === 'number' && maxBot > 0) {
+    lines.push(
+      '### LIMITE DE LONGUEUR DES RÉPONSES',
+      `Tes réponses doivent faire AU MAXIMUM ${maxBot} caractères (espaces inclus).`,
+      'Adapte-toi : sois concis si besoin, coupe proprement, ne dépasse JAMAIS cette limite.',
+      'Cette contrainte de longueur s’applique à chaque message que tu produis.',
+    );
+  }
   // PRIORITÉ MAXIMALE : les règles battent intro, bienvenue, contexte et persona.
   if (w.rules?.trim()) {
     lines.push(
