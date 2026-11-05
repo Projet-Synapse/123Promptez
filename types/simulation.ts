@@ -61,6 +61,70 @@ export interface SimulationWorld {
   knowledgeFolderIds: string[];
 }
 
+/** Identifiants des modules gameplay optionnels (Simulation). */
+export type SimulationFeatureId = 'inventory' | 'album' | 'skills' | 'messages';
+
+/**
+ * Interrupteurs des fonctionnalités complémentaires — par conversation.
+ * Défauts : tout à off (activés seulement si le roleplay en a besoin).
+ */
+export interface SimulationFeatures {
+  /** Inventaire — items qui entrent/sortent selon la progression */
+  inventory: boolean;
+  /** Album photo — photos partagées ou générées pendant la partie */
+  album: boolean;
+  /** Carnet d'acquisitions — progression des compétences */
+  skills: boolean;
+  /** Messages — petits messages d'interaction à influence ultérieure */
+  messages: boolean;
+}
+
+export const DEFAULT_SIMULATION_FEATURES: SimulationFeatures = {
+  inventory: false,
+  album: false,
+  skills: false,
+  messages: false,
+};
+
+export const SIMULATION_FEATURE_META: Record<
+  SimulationFeatureId,
+  { label: string; description: string; emptyHint: string; icon: string }
+> = {
+  inventory: {
+    label: 'Inventaire',
+    description: 'Items qui entrent ou sortent selon la progression du roleplay',
+    emptyHint: 'Aucun objet pour l’instant. Les items apparaîtront ici au fil de la partie.',
+    icon: 'inventory-2',
+  },
+  album: {
+    label: 'Album photo',
+    description: 'Photos partagées ou générées pendant la partie',
+    emptyHint: 'Aucune photo pour l’instant. Les images partagées ou générées s’afficheront ici.',
+    icon: 'photo-library',
+  },
+  skills: {
+    label: 'Carnet d’acquisitions',
+    description: 'Progression des compétences au fil du roleplay',
+    emptyHint: 'Aucune compétence suivie pour l’instant. Les acquisitions s’ajouteront ici.',
+    icon: 'menu-book',
+  },
+  messages: {
+    label: 'Messages',
+    description: 'Petits messages d’interaction à influence ultérieure',
+    emptyHint: 'Aucun message pour l’instant. Les interactions notables s’afficheront ici.',
+    icon: 'mark-unread-chat-alt',
+  },
+};
+
+export function emptySimulationFeatures(partial?: Partial<SimulationFeatures>): SimulationFeatures {
+  return {
+    inventory: partial?.inventory ?? false,
+    album: partial?.album ?? false,
+    skills: partial?.skills ?? false,
+    messages: partial?.messages ?? false,
+  };
+}
+
 export interface SimulationData {
   world: SimulationWorld;
   /** Personas joueur (plusieurs possibles, un actif) */
@@ -78,6 +142,11 @@ export interface SimulationData {
    * si du contenu existait déjà.
    */
   setupComplete: boolean;
+  /**
+   * Fonctionnalités complémentaires (gameplay) — toggles par conversation.
+   * Défauts off ; le moteur qui remplit inventaire/album/etc. viendra plus tard.
+   */
+  features: SimulationFeatures;
 }
 
 function newId(prefix: string): string {
@@ -115,6 +184,7 @@ export function emptySimulationData(): SimulationData {
     memory: { entries: [] },
     notes: '',
     setupComplete: false,
+    features: emptySimulationFeatures(),
   };
 }
 
@@ -196,6 +266,12 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
     },
     notes: String(sim.notes ?? ''),
     setupComplete,
+    features: emptySimulationFeatures({
+      inventory: !!(sim.features && sim.features.inventory),
+      album: !!(sim.features && sim.features.album),
+      skills: !!(sim.features && sim.features.skills),
+      messages: !!(sim.features && sim.features.messages),
+    }),
   };
 }
 
