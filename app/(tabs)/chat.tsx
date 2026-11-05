@@ -39,7 +39,7 @@ import {
 import type { QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
 import { QuestionnaireCard } from '@/components/feature/QuestionnaireCard';
 import { recordDiag } from '@/services/diagnostics';
-import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
+import { AGENT_TOOLS, CONNECTOR_PRESETS, LLM_MODELS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
@@ -303,6 +303,129 @@ function PlusPopover({
           </ScrollView>
         </View>
       </View>
+  );
+}
+
+
+/** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
+function SimulationPlusPanel({
+  view, onChangeView, onReset, onPersona, onSelectModel, currentModelId, C,
+}: {
+  view: 'menu' | 'models';
+  onChangeView: (v: 'menu' | 'models') => void;
+  onReset: () => void;
+  onPersona: () => void;
+  onSelectModel: (id: string) => void;
+  currentModelId: string;
+  C: ReturnType<typeof useThemeColors>;
+}) {
+  const ACCENT = '#9B59B6';
+  if (view === 'models') {
+    return (
+      <View style={{
+        backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
+        borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.sm, paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.sm, gap: Spacing.sm, maxHeight: 320,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Pressable onPress={() => onChangeView('menu')} hitSlop={8} style={{ padding: 4 }}>
+            <MaterialIcons name="arrow-back" size={20} color={C.textSecondary} />
+          </Pressable>
+          <Text style={{ flex: 1, fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
+            Modèles de chat
+          </Text>
+        </View>
+        <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          {LLM_MODELS.map((model) => {
+            const active = model.id === currentModelId;
+            return (
+              <Pressable
+                key={model.id}
+                onPress={() => onSelectModel(model.id)}
+                style={({ pressed }) => [{
+                  flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                  paddingVertical: 10, paddingHorizontal: Spacing.sm,
+                  borderRadius: Radius.md,
+                  backgroundColor: active ? ACCENT + '18' : 'transparent',
+                }, pressed && { opacity: 0.8 }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FontSize.body, fontWeight: '600', color: active ? ACCENT : C.textPrimary }}>
+                    {model.label}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>
+                    {model.provider} · {model.tokens.toLocaleString('fr-FR')} tokens
+                  </Text>
+                </View>
+                {active ? <MaterialIcons name="check" size={18} color={ACCENT} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  const items: { key: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; label: string; desc: string; onPress: () => void; danger?: boolean }[] = [
+    {
+      key: 'reset',
+      icon: 'restart-alt',
+      label: 'Réinitialiser le roleplay',
+      desc: 'Efface les messages et rouvre la page de création',
+      danger: true,
+      onPress: onReset,
+    },
+    {
+      key: 'persona',
+      icon: 'person',
+      label: 'Persona',
+      desc: 'Changer ou éditer ton personnage joueur',
+      onPress: onPersona,
+    },
+    {
+      key: 'models',
+      icon: 'smart-toy',
+      label: 'Modèles de chat',
+      desc: 'Choisir le modèle IA pour cette simulation',
+      onPress: () => onChangeView('models'),
+    },
+  ];
+
+  return (
+    <View style={{
+      backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
+      borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.md, paddingHorizontal: Spacing.md,
+      paddingBottom: Spacing.sm, gap: 4,
+    }}>
+      <Text style={{ fontSize: FontSize.xs, color: ACCENT, fontWeight: '800', letterSpacing: 0.6, marginBottom: 4 }}>
+        ROLEPLAY
+      </Text>
+      {items.map((item) => (
+        <Pressable
+          key={item.key}
+          onPress={item.onPress}
+          style={({ pressed }) => [{
+            flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+            paddingVertical: 12, paddingHorizontal: Spacing.sm, borderRadius: Radius.md,
+          }, pressed && { backgroundColor: C.bgCardAlt }]}
+        >
+          <View style={{
+            width: 36, height: 36, borderRadius: Radius.md,
+            backgroundColor: (item.danger ? C.error : ACCENT) + '18',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <MaterialIcons name={item.icon} size={20} color={item.danger ? C.error : ACCENT} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: item.danger ? C.error : C.textPrimary }}>
+              {item.label}
+            </Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{item.desc}</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={C.textMuted} />
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -679,7 +802,7 @@ function SideDrawer({
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { bot, toggleAgentTool, updateConnectedApp } = useBot();
+  const { bot, toggleAgentTool, updateConnectedApp, updateLLMConfig } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace, setConversationPinned,
@@ -711,6 +834,8 @@ export default function ChatScreen() {
   const [editingAssistant, setEditingAssistant] = useState<{ id: string; content: string } | null>(null);
 
   const [showPlusPopover, setShowPlusPopover] = useState(false);
+  /** Sous-vue du panneau + Simulation : menu principal ou modèles. */
+  const [simPlusView, setSimPlusView] = useState<'menu' | 'models'>('menu');
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
   const [responseMode, setResponseMode] = useState<ResponseMode>(() => {
@@ -814,7 +939,7 @@ export default function ChatScreen() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (drawerOpen) setDrawerOpen(false);
-      else if (showPlusPopover) setShowPlusPopover(false);
+      else if (showPlusPopover) { setShowPlusPopover(false); setSimPlusView('menu'); }
       else if (showSidePanel) setShowSidePanel(false);
       else if (editingMsg) cancelEdit();
     };
@@ -1740,27 +1865,96 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
+          {/* Panneau + Simulation : soulève le bas (au-dessus du champ) */}
+          {isSimulation && showPlusPopover ? (
+            <SimulationPlusPanel
+              view={simPlusView}
+              onChangeView={setSimPlusView}
+              onReset={() => {
+                if (!activeConversation || !simData) return;
+                showAlert(
+                  'Réinitialiser le roleplay ?',
+                  'Les messages seront effacés et tu reviendras à la page de création. Le monde et les personas sont conservés.',
+                  [
+                    { text: 'Annuler', style: 'cancel' },
+                    {
+                      text: 'Réinitialiser',
+                      style: 'destructive',
+                      onPress: () => {
+                        clearConversation(activeWorkspace.id, activeConversation.id);
+                        updateSimulation(activeWorkspace.id, activeConversation.id, {
+                          ...simData,
+                          setupComplete: false,
+                        });
+                        setShowPlusPopover(false);
+                        setSimPlusView('menu');
+                        setEditSimSetup(false);
+                      },
+                    },
+                  ],
+                );
+              }}
+              onPersona={() => {
+                setShowPlusPopover(false);
+                setSimPlusView('menu');
+                setEditSimSetup(true);
+              }}
+              onSelectModel={(id) => {
+                updateLLMConfig({ model: id });
+                showToast(`Modèle : ${LLM_MODELS.find(m => m.id === id)?.label ?? id}`, { tone: 'success' });
+              }}
+              currentModelId={bot.llmConfig.model}
+              C={C}
+            />
+          ) : null}
+
           {/* Input bar */}
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs, paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm, paddingBottom: insets.bottom + Spacing.sm, backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs,
+            paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
+            paddingBottom: insets.bottom + Spacing.sm,
+            backgroundColor: isSimulation && showPlusPopover ? C.bgCard : C.bg,
+            borderTopWidth: isSimulation && showPlusPopover ? 0 : 1,
+            borderTopColor: C.border,
+            zIndex: 160,
+          }}>
             {/* Attach + mode + tools popover button */}
             <Pressable
-              onPress={() => setShowPlusPopover(v => !v)}
-              style={({ pressed }) => [{
-                width: 44, height: 44, borderRadius: 22,
-                alignItems: 'center', justifyContent: 'center',
-                backgroundColor: showPlusPopover
-                  ? (responseMode !== 'auto' ? currentModeInfo.color + '33' : C.accentGlow)
-                  : responseMode !== 'auto' ? currentModeInfo.color + '22' : C.bgCard,
-                borderWidth: 1,
-                borderColor: showPlusPopover
-                  ? (responseMode !== 'auto' ? currentModeInfo.color + '88' : C.accent + '66')
-                  : responseMode !== 'auto' ? currentModeInfo.color + '66' : C.border,
-              }, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                setShowPlusPopover(v => {
+                  const next = !v;
+                  if (next) setSimPlusView('menu');
+                  return next;
+                });
+              }}
+              style={({ pressed }) => {
+                const simOpen = isSimulation && showPlusPopover;
+                const classicTint = !isSimulation && responseMode !== 'auto';
+                return [{
+                  width: 44, height: 44, borderRadius: 22,
+                  alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: simOpen
+                    ? '#9B59B633'
+                    : showPlusPopover
+                      ? (classicTint ? currentModeInfo.color + '33' : C.accentGlow)
+                      : classicTint ? currentModeInfo.color + '22' : C.bgCard,
+                  borderWidth: 1,
+                  borderColor: simOpen
+                    ? '#9B59B688'
+                    : showPlusPopover
+                      ? (classicTint ? currentModeInfo.color + '88' : C.accent + '66')
+                      : classicTint ? currentModeInfo.color + '66' : C.border,
+                }, pressed && { opacity: 0.7 }];
+              }}
             >
               <MaterialIcons
-                name={showPlusPopover ? 'close' : (responseMode !== 'auto' ? currentModeInfo.icon as any : 'add')}
+                name={showPlusPopover ? 'close' : (!isSimulation && responseMode !== 'auto' ? currentModeInfo.icon as any : 'add')}
                 size={20}
-                color={showPlusPopover ? C.textPrimary : (responseMode !== 'auto' ? currentModeInfo.color : C.textSecondary)}
+                color={
+                  showPlusPopover
+                    ? (isSimulation ? '#9B59B6' : C.textPrimary)
+                    : (!isSimulation && responseMode !== 'auto' ? currentModeInfo.color : C.textSecondary)
+                }
               />
             </Pressable>
 
@@ -1828,9 +2022,9 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* Mini-panneau « + » : pièces jointes, mode de réponse, outils */}
+      {/* Mini-panneau « + » Classique uniquement */}
       <PlusPopover
-        visible={showPlusPopover}
+        visible={showPlusPopover && !isSimulation}
         onClose={() => setShowPlusPopover(false)}
         onPickFile={handlePickFile}
         onPickImage={handlePickImage}
@@ -1843,6 +2037,14 @@ export default function ChatScreen() {
         onToggleAgentTool={toggleAgentTool}
         bottomInset={insets.bottom}
       />
+
+      {/* Assombrir le fil quand le panneau Roleplay est soulevé */}
+      {isSimulation && showPlusPopover ? (
+        <Pressable
+          onPress={() => { setShowPlusPopover(false); setSimPlusView('menu'); }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 140 }}
+        />
+      ) : null}
 
       {/* Panneau latéral droit (façon Grok) : fichiers, instructions, sites web / sandbox */}
       <WorkspaceSidePanel
