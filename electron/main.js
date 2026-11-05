@@ -148,6 +148,10 @@ function createWindow(startUrl) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Partition persistante : le localStorage (session Supabase) survit
+      // d'un lancement à l'autre. Sans ça, une partition éphémère efface
+      // le compte à chaque ouverture.
+      partition: 'persist:123promptez',
     },
   });
 
