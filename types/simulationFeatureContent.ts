@@ -45,6 +45,22 @@ export interface SimulationFeatureMessageItem {
   influence: string;
   read: boolean;
   updatedAt: string;
+  /** Numéro de l’expéditeur (xxx-xxx) */
+  fromNumber?: string;
+  /** Affiché « Numéro inconnu » tant que non enregistré */
+  unknownSender?: boolean;
+  /** Identité réelle (cachée) d’un numéro inconnu */
+  hiddenName?: string;
+  /** Numéro étrange / suspect */
+  suspicious?: boolean;
+}
+
+/** Numéro découvert en RP (chat ou papier) — sert à valider l’ajout de contact. */
+export interface SimulationKnownNumber {
+  number: string;
+  name: string;
+  source: 'chat' | 'paper' | 'message';
+  discoveredAt: string;
 }
 
 /** Contact = personnage mémoire autorisé à envoyer des messages. */
@@ -54,6 +70,7 @@ export interface SimulationContactItem {
   key: string;
   name: string;
   addedAt: string;
+  number?: string;
 }
 
 export interface SimulationFeatureContent {
@@ -62,6 +79,11 @@ export interface SimulationFeatureContent {
   skills: SimulationSkillItem[];
   messages: SimulationFeatureMessageItem[];
   contacts: SimulationContactItem[];
+  knownNumbers: SimulationKnownNumber[];
+  /** Numéro imaginaire du persona joueur */
+  personaNumber?: string;
+  /** Personnages à qui le persona a donné son numéro (message à venir) */
+  pendingNumberGivenTo: string[];
 }
 
 export function emptyFeatureContent(
@@ -73,6 +95,9 @@ export function emptyFeatureContent(
     skills: Array.isArray(partial?.skills) ? partial!.skills! : [],
     messages: Array.isArray(partial?.messages) ? partial!.messages! : [],
     contacts: Array.isArray(partial?.contacts) ? partial!.contacts! : [],
+    knownNumbers: Array.isArray(partial?.knownNumbers) ? partial!.knownNumbers! : [],
+    personaNumber: partial?.personaNumber ? String(partial.personaNumber) : undefined,
+    pendingNumberGivenTo: Array.isArray(partial?.pendingNumberGivenTo) ? partial!.pendingNumberGivenTo! : [],
   };
 }
 
@@ -121,7 +146,71 @@ export function emptyFeatureMessageItem(
     influence: optStr(partial?.influence),
     read: partial?.read === true,
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    fromNumber: normalizePhone(partial?.fromNumber) ?? undefined,
+    unknownSender: partial?.unknownSender === true,
+    hiddenName: optStr(partial?.hiddenName) || undefined,
+    suspicious: partial?.suspicious === true,
   };
+}
+
+/** Format numéro RP : xxx-xxx (chiffres). */
+export const PHONE_RE = /\b(\d{3})[-‐–](\d{3})\b/g;
+
+export function normalizePhone(v: unknown): string | null {
+  const m = String(v ?? '').match(/(\d{3})\s*[-‐–]\s*(\d{3})/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+export function extractPhones(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of String(text ?? '').matchAll(PHONE_RE)) out.add(`${m[1]}-${m[2]}`);
+  return Array.from(out);
+}
+
+export function randomPhone(): string {
+  const d = () => Math.floor(Math.random() * 900 + 100);
+  return `${d()}-${d()}`;
+}
+
+/** Ajoute / met à jour des numéros découverts (dédupliqués par numéro). */
+export function mergeKnownNumbers(
+  existing: SimulationKnownNumber[],
+  incoming: { number: string; name?: string; source?: SimulationKnownNumber['source'] }[],
+): SimulationKnownNumber[] {
+  const map = new Map(existing.map((k) => [k.number, k]));
+  for (const r of incoming) {
+    const n = normalizePhone(r.number);
+    if (!n) continue;
+    const prev = map.get(n);
+    const name = optStr(r.name);
+    if (!prev) {
+      map.set(n, { number: n, name, source: r.source ?? 'chat', discoveredAt: new Date().toISOString() });
+    } else if (!prev.name && name) {
+      map.set(n, { ...prev, name });
+    }
+  }
+  return Array.from(map.values());
+}
+
+/** Tente d’ajouter un contact par numéro. null = introuvable. */
+export function addContactByNumber(
+  content: SimulationFeatureContent,
+  raw: string,
+): { next: SimulationFeatureContent; contact: SimulationContactItem } | null {
+  const n = normalizePhone(raw);
+  if (!n) return null;
+  const known = content.knownNumbers.find((k) => k.number === n);
+  const fromMsg = content.messages.find((m) => m.fromNumber === n);
+  if (!known && !fromMsg) return null;
+  if (content.contacts.some((c) => c.number === n)) {
+    return { next: content, contact: content.contacts.find((c) => c.number === n)! };
+  }
+  const name = known?.name || fromMsg?.hiddenName || `Contact ${n}`;
+  const contact = emptyContactItem({ name, key: name.toLowerCase(), number: n });
+  const messages = content.messages.map((m) =>
+    m.fromNumber === n ? { ...m, unknownSender: false, from: name } : m,
+  );
+  return { next: { ...content, contacts: [...content.contacts, contact], messages }, contact };
 }
 
 export function emptyContactItem(
@@ -134,6 +223,7 @@ export function emptyContactItem(
     key,
     name,
     addedAt: partial?.addedAt ?? new Date().toISOString(),
+    number: normalizePhone(partial?.number) ?? undefined,
   };
 }
 
@@ -183,14 +273,27 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
         influence: String(r.influence ?? r.effect ?? ''),
         read: r.read === true,
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
+        fromNumber: r.fromNumber,
+        unknownSender: r.unknownSender === true,
+        hiddenName: r.hiddenName,
+        suspicious: r.suspicious === true,
       }),
     ),
+    knownNumbers: normalizeList(src.knownNumbers, (r) => ({
+      number: normalizePhone(r.number) ?? '',
+      name: String(r.name ?? ''),
+      source: (['chat', 'paper', 'message'].includes(r.source) ? r.source : 'chat') as SimulationKnownNumber['source'],
+      discoveredAt: String(r.discoveredAt ?? new Date().toISOString()),
+    })).filter((k) => k.number),
+    personaNumber: normalizePhone(src.personaNumber) ?? undefined,
+    pendingNumberGivenTo: Array.isArray(src.pendingNumberGivenTo) ? src.pendingNumberGivenTo.map(String) : [],
     contacts: normalizeList(src.contacts, (r) =>
       emptyContactItem({
         id: r.id ? String(r.id) : undefined,
         key: String(r.key ?? r.name ?? ''),
         name: String(r.name ?? r.key ?? ''),
         addedAt: r.addedAt ? String(r.addedAt) : undefined,
+        number: r.number,
       }),
     ),
   });
@@ -233,6 +336,17 @@ export function mergeInventoryItems(
   return { next: Array.from(map.values()), added };
 }
 
+/** Retire des objets par nom (casse/accents-insensible). */
+export function removeInventoryItems(
+  existing: SimulationInventoryItem[],
+  names: string[],
+): { next: SimulationInventoryItem[]; removed: SimulationInventoryItem[] } {
+  const keyOf = (n: string) => n.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const kill = new Set(names.map(keyOf).filter(Boolean));
+  const removed = existing.filter((i) => kill.has(keyOf(i.name)));
+  return { next: existing.filter((i) => !kill.has(keyOf(i.name))), removed };
+}
+
 export function countUnreadMessages(content: SimulationFeatureContent | undefined | null): number {
   if (!content?.messages) return 0;
   return content.messages.filter((m) => !m.read).length;
@@ -272,8 +386,11 @@ export function formatFeaturesForPrompt(
     if (content.contacts?.length) {
       blocks.push(
         `#### Contacts (peuvent écrire au persona)\n`
-        + content.contacts.slice(0, maxPer).map((c) => `- ${c.name}`).join('\n'),
+        + content.contacts.slice(0, maxPer).map((c) => `- ${c.name}${c.number ? ` (${c.number})` : ''}`).join('\n'),
       );
+    }
+    if (content.personaNumber) {
+      blocks.push(`#### Numéro du persona joueur\n${content.personaNumber} (le joueur peut le donner aux personnages)`);
     }
     if (content.messages.length) {
       const lines = content.messages.slice(0, maxPer).map((it) => {

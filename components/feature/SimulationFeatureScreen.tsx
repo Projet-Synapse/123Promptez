@@ -25,9 +25,8 @@ import {
   emptyAlbumItem,
   emptySkillItem,
   emptyFeatureMessageItem,
-  emptyContactItem,
+  addContactByNumber,
 } from '@/types/simulationFeatureContent';
-import { normalizeMemoryKey } from '@/types/simulationMemory';
 
 const ACCENT = '#9B59B6';
 
@@ -36,8 +35,6 @@ type Props = {
   content: SimulationFeatureContent;
   onChange: (next: SimulationFeatureContent) => void;
   onClose: () => void;
-  /** Personnages mémoire (pour ajouter des contacts) */
-  memoryCharacters?: { name: string; key?: string }[];
 };
 
 function Field({
@@ -125,10 +122,19 @@ function CardShell({
   );
 }
 
-export function SimulationFeatureScreen({ featureId, content, onChange, onClose, memoryCharacters }: Props) {
+export function SimulationFeatureScreen({ featureId, content, onChange, onClose }: Props) {
   const C = useThemeColors();
   const meta = SIMULATION_FEATURE_META[featureId];
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [dialValue, setDialValue] = useState('');
+  const [dialError, setDialError] = useState<string | null>(null);
+  const tryDial = () => {
+    const res = addContactByNumber(content, dialValue);
+    if (!res) { setDialError('Numéro introuvable'); return; }
+    onChange(res.next);
+    setDialValue('');
+    setDialError(null);
+  };
 
   const items = useMemo(() => {
     if (featureId === 'inventory') return content.inventory;
@@ -355,7 +361,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose,
               CONTACTS
             </Text>
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginBottom: 4, lineHeight: 16 }}>
-              Personnages autorisés à t’envoyer des messages (depuis la mémoire).
+              Un personnage devient contact quand il t’a donné son numéro (xxx-xxx) et que tu le composes ici.
             </Text>
             {(content.contacts ?? []).map((c) => (
               <View
@@ -367,7 +373,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose,
                 }}
               >
                 <MaterialIcons name="person" size={16} color={ACCENT} />
-                <Text style={{ flex: 1, fontSize: FontSize.sm, fontWeight: '600', color: C.textPrimary }}>{c.name}</Text>
+                <Text style={{ flex: 1, fontSize: FontSize.sm, fontWeight: '600', color: C.textPrimary }}>{c.name}{c.number ? `  ·  ${c.number}` : ''}</Text>
                 <Pressable
                   onPress={() => onChange({
                     ...content,
@@ -380,36 +386,45 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose,
                 </Pressable>
               </View>
             ))}
-            {(memoryCharacters ?? [])
-              .filter((ch) => {
-                const k = normalizeMemoryKey(ch.key || ch.name);
-                return !(content.contacts ?? []).some((c) => c.key === k);
-              })
-              .slice(0, 12)
-              .map((ch) => {
-                const k = normalizeMemoryKey(ch.key || ch.name);
-                return (
-                  <Pressable
-                    key={k}
-                    onPress={() => {
-                      const next = emptyContactItem({ key: k, name: ch.name });
-                      onChange({
-                        ...content,
-                        contacts: [...(content.contacts ?? []), next],
-                      });
-                    }}
-                    style={({ pressed }) => [{
-                      flexDirection: 'row', alignItems: 'center', gap: 6,
-                      paddingVertical: 8, paddingHorizontal: Spacing.sm,
-                    }, pressed && { opacity: 0.7 }]}
-                  >
-                    <MaterialIcons name="person-add" size={16} color={ACCENT} />
-                    <Text style={{ fontSize: FontSize.sm, color: ACCENT, fontWeight: '700' }}>
-                      Ajouter « {ch.name} »
-                    </Text>
-                  </Pressable>
-                );
-              })}
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginTop: Spacing.sm }}>AJOUTER UN CONTACT</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TextInput
+                value={dialValue}
+                onChangeText={(v) => { setDialValue(v.replace(/[^0-9-]/g, '').slice(0, 7)); setDialError(null); }}
+                placeholder="xxx-xxx"
+                placeholderTextColor={C.textMuted}
+                keyboardType="numeric"
+                maxLength={7}
+                onSubmitEditing={tryDial}
+                style={{
+                  flex: 1, borderWidth: 1, borderColor: dialError ? C.error : C.border, borderRadius: Radius.sm,
+                  paddingHorizontal: Spacing.sm, paddingVertical: 8, color: C.textPrimary,
+                  backgroundColor: C.bgCardAlt, fontSize: FontSize.body, letterSpacing: 2,
+                }}
+              />
+              <Pressable
+                onPress={tryDial}
+                accessibilityLabel="Ajouter le contact"
+                style={({ pressed }) => [{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: Radius.sm, backgroundColor: ACCENT }, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialIcons name="person-add" size={18} color="#fff" />
+              </Pressable>
+            </View>
+            {dialError ? <Text style={{ fontSize: FontSize.xs, color: C.error }}>{dialError}</Text> : null}
+            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginTop: Spacing.sm }}>MON NUMÉRO (IMAGINAIRE)</Text>
+            <TextInput
+              value={content.personaNumber ?? ''}
+              onChangeText={(v) => onChange({ ...content, personaNumber: v.replace(/[^0-9-]/g, '').slice(0, 7) || undefined })}
+              placeholder="ex. 555-123"
+              placeholderTextColor={C.textMuted}
+              keyboardType="numeric"
+              maxLength={7}
+              style={{
+                borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+                paddingHorizontal: Spacing.sm, paddingVertical: 8, color: C.textPrimary,
+                backgroundColor: C.bgCardAlt, fontSize: FontSize.body, letterSpacing: 2,
+              }}
+            />
             <Text style={{ fontSize: FontSize.xs, fontWeight: '800', color: C.textMuted, marginTop: Spacing.sm, letterSpacing: 0.4 }}>
               BOÎTE DE RÉCEPTION
             </Text>
@@ -427,6 +442,20 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose,
               onRemove={() => removeById(it.id)}
               C={C}
             >
+              {it.unknownSender && it.fromNumber ? (
+                <Pressable
+                  onPress={() => {
+                    const res = addContactByNumber(content, it.fromNumber!);
+                    if (res) onChange(res.next);
+                  }}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, marginBottom: Spacing.sm }, pressed && { opacity: 0.7 }]}
+                >
+                  <MaterialIcons name="person-add" size={18} color={ACCENT} />
+                  <Text style={{ fontSize: FontSize.sm, color: ACCENT, fontWeight: '700' }}>
+                    Enregistrer {it.fromNumber}{it.suspicious ? ' (suspect)' : ''}
+                  </Text>
+                </Pressable>
+              ) : null}
               <Field label="De" value={it.from} onChange={(v) => patchMessage(it.id, { from: v })} C={C} />
               <Field label="Contenu" value={it.content} multiline onChange={(v) => patchMessage(it.id, { content: v })} C={C} />
               <Field label="Influence" value={it.influence} multiline onChange={(v) => patchMessage(it.id, { influence: v })} placeholder="Effet potentiel…" C={C} />

@@ -1766,6 +1766,8 @@ export default function ChatScreen() {
         ...fc,
         inventory: result.inventoryNext ?? fc.inventory,
         messages: result.messagesNext ?? fc.messages,
+        knownNumbers: result.knownNumbersNext ?? fc.knownNumbers,
+        pendingNumberGivenTo: result.pendingNext ?? fc.pendingNumberGivenTo,
       });
       updateSimulation(activeWorkspace.id, activeConversation.id, {
         ...simData,
@@ -1781,6 +1783,9 @@ export default function ChatScreen() {
       }
       if (result.inventoryAdded.length > 0) {
         showToast('Nouvel objet dans l\'inventaire', { tone: 'success' });
+      }
+      if (result.inventoryRemoved.length > 0) {
+        showToast('Objet retiré de l\'inventaire', { tone: 'info' });
       }
       if (result.messagesAdded.length > 0) {
         showToast('Vous avez reçu un nouveau message', { tone: 'info' });
@@ -1828,8 +1833,16 @@ export default function ChatScreen() {
     const count = typeof opts?.messageCount === 'number'
       ? opts.messageCount
       : (activeConversation.messages?.length ?? 0);
-    if (!shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant])) return;
-    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: true });
+    const fc = simData.featureContent;
+    const feats = simData.features ?? emptySimulationFeatures();
+    const turn = `${opts?.lastUser ?? ''}\n${opts?.lastAssistant ?? ''}`;
+    // Numéros xxx-xxx (donnés / reçus) → passe d’extraction aussi
+    const hasPhone = !!feats.messages && /\b\d{3}[-‐–]\d{3}\b/.test(turn);
+    // Personnages ayant notre numéro : chance d’écrire « tôt ou tard »
+    const pendingChance = !!feats.messages && (fc?.pendingNumberGivenTo?.length ?? 0) > 0 && Math.random() < 0.25;
+    const wiki = shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant]);
+    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance)) return;
+    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone });
   };
   maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;
 
@@ -1941,9 +1954,6 @@ export default function ChatScreen() {
         <SimulationFeatureScreen
           featureId={simFeatureScreen}
           content={simData.featureContent ?? emptyFeatureContent()}
-          memoryCharacters={(simData.memory?.characters ?? [])
-            .filter((c) => !c.isPlayerPersona)
-            .map((c) => ({ name: c.name, key: c.key }))}
           onChange={(featureContent) => {
             updateSimulation(activeWorkspace.id, activeConversation!.id, {
               ...simData,
