@@ -1810,8 +1810,21 @@ export default function ChatScreen() {
 
   const handleRestartFromHere = (msgId: string) => {
     if (!activeConversation || isLoading) return;
-    keepMessagesThrough(activeWorkspace.id, activeConversation.id, msgId);
-    showToast('Suite de la conversation effacée — tu peux repartir d’ici', { tone: 'info' });
+    showAlert(
+      'Repartir d’ici ?',
+      'Tous les messages suivants seront supprimés. Cette action est définitive.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Repartir',
+          style: 'destructive',
+          onPress: () => {
+            keepMessagesThrough(activeWorkspace.id, activeConversation.id, msgId);
+            showToast('Suite de la conversation effacée — tu peux repartir d’ici', { tone: 'info' });
+          },
+        },
+      ],
+    );
   };
 
   const handleDeleteMessage = (msgId: string) => {

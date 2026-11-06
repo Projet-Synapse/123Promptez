@@ -87,10 +87,11 @@ function CharAvatar({ look, size = 28 }: { look: SimCharacterLook; size?: number
 
 export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
-  onRestartFromHere, onDelete, showActions, emphasizeRegenerate,
+  onRestartFromHere, onDelete, showActions, emphasizeRegenerate: _emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
   roleplayMode, simCharacters, simThemeColors, personaLook,
 }: ChatBubbleProps) {
+  void _emphasizeRegenerate;
   const C = useThemeColors();
   const userBubbleBg = simThemeColors?.userBubble || C.primary;
   const charBubbleBg = simThemeColors?.assistantBubble || C.bgCard;
@@ -135,45 +136,69 @@ export function ChatBubble({
     onDelete ? { key: 'delete', label: 'Supprimer', icon: 'delete-outline', color: C.error, action: onDelete } : null,
   ].filter(Boolean) as any[];
 
+  /** Pastille semi-opaque : lisible sur fond custom clair/foncé (Simulation). */
+  const actionIconColor = 'rgba(255,255,255,0.92)';
+  const actionIconBtn = ({ pressed }: { pressed: boolean }) => [{
+    width: 30, height: 30, borderRadius: 8,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+  }, pressed && { opacity: 0.55 }];
+
   const actionsRow = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4, marginLeft: roleplayMode && !isUser ? 0 : 4, flexWrap: 'wrap' }}>
-      <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+    <View style={{
+      alignSelf: isUser ? 'flex-end' : 'flex-start',
+      marginTop: 6,
+      marginLeft: roleplayMode && !isUser ? 0 : 4,
+      marginRight: isUser ? 4 : 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 2,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: Radius.pill,
+      backgroundColor: 'rgba(12,12,18,0.55)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.14)',
+    }}>
+      <Text style={{
+        fontSize: FontSize.xs,
+        color: actionIconColor,
+        fontWeight: '600',
+        paddingHorizontal: 4,
+        textShadowColor: 'rgba(0,0,0,0.55)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+      }}>
         {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
       </Text>
       {actionsVisible ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+        <>
           {onCopy ? (
-            <Pressable onPress={onCopy} hitSlop={8} accessibilityLabel="Copier" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-              <MaterialIcons name="content-copy" size={13} color={C.textMuted} />
+            <Pressable onPress={onCopy} hitSlop={6} accessibilityLabel="Copier" style={actionIconBtn}>
+              <MaterialIcons name="content-copy" size={15} color={actionIconColor} />
             </Pressable>
           ) : null}
-          {hasLongPress ? (
-            <Pressable onPress={openMenu} hitSlop={8} accessibilityLabel="Options du message" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-              <MaterialIcons name="more-horiz" size={14} color={C.textMuted} />
+          {onEdit ? (
+            <Pressable onPress={onEdit} hitSlop={6} accessibilityLabel="Modifier" style={actionIconBtn}>
+              <MaterialIcons name="edit" size={15} color={actionIconColor} />
             </Pressable>
           ) : null}
           {!isUser && onRegenerate ? (
-            emphasizeRegenerate ? (
-              <Pressable
-                onPress={onRegenerate}
-                hitSlop={6}
-                accessibilityLabel="Régénérer"
-                style={({ pressed }) => [{
-                  flexDirection: 'row', alignItems: 'center', gap: 4,
-                  paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill,
-                  borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt,
-                }, pressed && { opacity: 0.7 }]}
-              >
-                <MaterialIcons name="refresh" size={13} color={C.textSecondary} />
-                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>Régénérer</Text>
-              </Pressable>
-            ) : (
-              <Pressable onPress={onRegenerate} hitSlop={8} accessibilityLabel="Régénérer" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-                <MaterialIcons name="refresh" size={14} color={C.textMuted} />
-              </Pressable>
-            )
+            <Pressable onPress={onRegenerate} hitSlop={6} accessibilityLabel="Régénérer" style={actionIconBtn}>
+              <MaterialIcons name="refresh" size={16} color={actionIconColor} />
+            </Pressable>
           ) : null}
-        </View>
+          {onRestartFromHere ? (
+            <Pressable onPress={onRestartFromHere} hitSlop={6} accessibilityLabel="Repartir d’ici" style={actionIconBtn}>
+              <MaterialIcons name="undo" size={16} color={actionIconColor} />
+            </Pressable>
+          ) : null}
+          {onDelete ? (
+            <Pressable onPress={onDelete} hitSlop={6} accessibilityLabel="Supprimer" style={actionIconBtn}>
+              <MaterialIcons name="delete-outline" size={16} color="#FF8A80" />
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
     </View>
   );
