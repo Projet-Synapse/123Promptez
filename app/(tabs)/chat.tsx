@@ -2062,8 +2062,8 @@ export default function ChatScreen() {
               )
             ) : null}
 
-            {/* Suggestions de relance sous la dernière réponse de l'IA */}
-            {!isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' ? (
+            {/* Suggestions de relance — Classique uniquement (Simulation : bouton » au-dessus d’Envoyer) */}
+            {!isSimulation && !isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.md, paddingLeft: 40 }}>
                 {['Continue', 'Peux-tu détailler ?', 'Concrètement, je fais quoi ?'].map(s => (
                   <Pressable
@@ -2299,30 +2299,48 @@ export default function ChatScreen() {
               ) : null}
             </View>
 
-            {isLoading ? (
-              <IconButton
-                icon="stop"
-                label="Arrêter la génération"
-                onPress={handleStop}
-                boxSize={44}
-                backgroundColor={C.error}
-                borderColor="transparent"
-                color="#fff"
-                style={{ borderRadius: 22 }}
-              />
-            ) : (
-              <IconButton
-                icon="send"
-                label="Envoyer"
-                onPress={() => handleSend()}
-                disabled={!input.trim() && !pendingAttachment}
-                boxSize={44}
-                backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
-                borderColor="transparent"
-                color={(input.trim() || pendingAttachment) ? C.bg : C.textMuted}
-                style={{ borderRadius: 22 }}
-              />
-            )}
+            <View style={{ alignItems: 'center', gap: 4 }}>
+              {isSimulation && !isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === 'assistant' ? (
+                <Pressable
+                  onPress={() => handleSend('»')}
+                  accessibilityLabel="Continuer le roleplay"
+                  hitSlop={6}
+                  style={({ pressed }) => [{
+                    minWidth: 44, height: 28, borderRadius: Radius.pill,
+                    alignItems: 'center', justifyContent: 'center',
+                    paddingHorizontal: 10,
+                    backgroundColor: '#9B59B622',
+                    borderWidth: 1, borderColor: '#9B59B666',
+                  }, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#9B59B6', lineHeight: 20, letterSpacing: -1 }}>»</Text>
+                </Pressable>
+              ) : null}
+              {isLoading ? (
+                <IconButton
+                  icon="stop"
+                  label="Arrêter la génération"
+                  onPress={handleStop}
+                  boxSize={44}
+                  backgroundColor={C.error}
+                  borderColor="transparent"
+                  color="#fff"
+                  style={{ borderRadius: 22 }}
+                />
+              ) : (
+                <IconButton
+                  icon="send"
+                  label="Envoyer"
+                  onPress={() => handleSend()}
+                  disabled={!input.trim() && !pendingAttachment}
+                  boxSize={44}
+                  backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
+                  borderColor="transparent"
+                  color={(input.trim() || pendingAttachment) ? C.bg : C.textMuted}
+                  style={{ borderRadius: 22 }}
+                />
+              )}
+            </View>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
