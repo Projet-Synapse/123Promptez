@@ -3,7 +3,9 @@ import { safeSupabaseOperation, getSharedSupabaseClient } from '../../core/clien
 import { configManager } from '../../core/config';
 import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
+import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 
 // Ensure Web platform correctly handles auth callbacks
 WebBrowser.maybeCompleteAuthSession();
@@ -513,6 +515,92 @@ export class AuthService {
   }
 
 
+
+  /**
+   * Finalise la session après retour OAuth mobile.
+   * - PKCE : `?code=` (ou `#code=`) → exchangeCodeForSession
+   * - Implicit legacy : `#access_token` + `#refresh_token` → setSession
+   * Utilise QueryParams (doc Supabase Expo) car `new URL(customScheme)`
+   * rate souvent search/hash sur Android.
+   */
+  private async createSessionFromCallbackUrl(url: string): Promise<GoogleSignInResult> {
+    const { params, errorCode } = QueryParams.getQueryParams(url);
+    if (errorCode) {
+      return { error: this.mapGoogleOAuthError(String(errorCode)) };
+    }
+
+    const oauthError = params.error_description || params.error;
+    if (oauthError && !params.code && !params.access_token) {
+      return { error: this.mapGoogleOAuthError(String(oauthError)) };
+    }
+
+    // Fallback découpe manuelle (schémas custom — motif 123Créez / 123Écriture)
+    let code = params.code ? String(params.code) : null;
+    let accessToken = params.access_token ? String(params.access_token) : null;
+    let refreshToken = params.refresh_token ? String(params.refresh_token) : null;
+
+    if (!code && !accessToken) {
+      const qIdx = url.indexOf('?');
+      const hIdx = url.indexOf('#');
+      const query = qIdx === -1 ? '' : url.slice(qIdx + 1, hIdx === -1 ? undefined : hIdx);
+      const hash = hIdx === -1 ? '' : url.slice(hIdx + 1);
+      const q = new URLSearchParams(query);
+      const h = new URLSearchParams(hash);
+      code = q.get('code') || h.get('code');
+      accessToken = q.get('access_token') || h.get('access_token');
+      refreshToken = q.get('refresh_token') || h.get('refresh_token');
+      const err = q.get('error_description') || h.get('error_description') || q.get('error') || h.get('error');
+      if (err && !code && !accessToken) {
+        return { error: this.mapGoogleOAuthError(err) };
+      }
+    }
+
+    if (accessToken && refreshToken) {
+      const { error: setErr } = await withTimeout(
+        this.supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        }),
+        TIMEOUT_CONFIG.AUTH_OPERATIONS,
+        'SetSession',
+      );
+      if (setErr) {
+        return { error: this.mapGoogleOAuthError(`Session set failed: ${setErr.message}`) };
+      }
+    } else if (code) {
+      const { error: sessionError } = await withTimeout(
+        this.supabase.auth.exchangeCodeForSession(code),
+        Math.max(TIMEOUT_CONFIG.AUTH_OPERATIONS, 20000),
+        'ExchangeCode',
+      );
+      if (sessionError) {
+        return { error: this.mapGoogleOAuthError(`Session exchange failed: ${sessionError.message}`) };
+      }
+    } else {
+      return {
+        error: this.mapGoogleOAuthError(
+          'Retour Google sans code ni jeton. Vérifiez les Redirect URLs (onspaceapp://auth).',
+        ),
+      };
+    }
+
+    const { data: sessionData } = await this.supabase.auth.getSession();
+    if (sessionData.session) return { error: null };
+
+    await new Promise((r) => setTimeout(r, 500));
+    const { data: retry } = await this.supabase.auth.getSession();
+    if (retry.session) return { error: null };
+
+    try {
+      await this.supabase.auth.refreshSession();
+    } catch {
+      /* ignore */
+    }
+    const { data: last } = await this.supabase.auth.getSession();
+    if (last.session) return { error: null };
+    return { error: 'Failed to establish session' };
+  }
+
   private getGoogleRedirectUrl(): string {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const { origin, pathname } = window.location;
@@ -521,10 +609,17 @@ export class AuthService {
       return `${origin}${base}/login`;
     }
 
-    return AuthSession.makeRedirectUri({
+    // Prefixed scheme (standalone APK). Ne pas utiliser le path Expo Go.
+    const fromAuthSession = AuthSession.makeRedirectUri({
       scheme: 'onspaceapp',
       path: 'auth',
     });
+    // Aligné Linking (même schéma) — utile si AuthSession ajoute un host inattendu.
+    const fromLinking = Linking.createURL('auth', { scheme: 'onspaceapp' });
+    // Prefer the simple custom-scheme form expected in Supabase Redirect URLs.
+    if (fromAuthSession.startsWith('onspaceapp://')) return fromAuthSession;
+    if (fromLinking.startsWith('onspaceapp://')) return fromLinking;
+    return 'onspaceapp://auth';
   }
 
   private mapGoogleOAuthError(raw: string): string {
@@ -576,55 +671,31 @@ export class AuthService {
         return { error: null };
       }
 
-      // Mobile: flux OAuth manuel
+      // Mobile: flux OAuth manuel (PKCE / tokens via deep link)
+      console.log('[Auth] Google redirectTo=', redirectUrl);
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
-        redirectUrl
+        redirectUrl,
       );
 
       if (result.type === 'success') {
-        const url = result.url;
-        
         try {
-          const params = new URL(url).searchParams;
-          const code = params.get('code');
-          
-          if (!code) {
-            const error = params.get('error');
-            const errorDescription = params.get('error_description');
-            
-            if (error) {
-              return { 
-                error: this.mapGoogleOAuthError(`OAuth error: ${error}${errorDescription ? ` - ${errorDescription}` : ''}`)
-              };
-            }
-            
-            return { error: 'No authorization code received' };
-          }
-
-          const { data: sessionData, error: sessionError } = await withTimeout(
-            this.supabase.auth.exchangeCodeForSession(code),
-            TIMEOUT_CONFIG.AUTH_OPERATIONS,
-            'ExchangeCode'
-          );
-
-          if (sessionError) {
-            return { error: this.mapGoogleOAuthError(`Session exchange failed: ${sessionError.message}`) };
-          }
-
-          if (sessionData.user) {
-            return { error: null };
-          }
-          
-          return { error: 'Failed to establish session' };
-          
+          return await this.createSessionFromCallbackUrl(result.url);
         } catch (parseError) {
-          return { 
-            error: `Callback parsing failed: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`
+          return {
+            error: this.mapGoogleOAuthError(
+              `Callback parsing failed: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+            ),
           };
         }
       } else if (result.type === 'cancel') {
         return { error: 'Connexion Google annulée.' };
+      } else if (result.type === 'dismiss') {
+        // Sur Android, dismiss peut encore arriver avec une URL déjà traitée
+        // via Linking — on tente une dernière lecture de session.
+        const { data: s } = await this.supabase.auth.getSession();
+        if (s.session) return { error: null };
+        return { error: 'Fenêtre Google fermée avant la fin de la connexion.' };
       } else {
         return { error: 'OAuth authentication failed' };
       }
