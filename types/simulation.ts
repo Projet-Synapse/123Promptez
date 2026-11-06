@@ -11,6 +11,25 @@ import {
   normalizeSimulationThemeId,
   type SimulationThemeId,
 } from '@/types/simulationTheme';
+import {
+  emptyFeatureContent,
+  formatFeaturesForPrompt,
+  normalizeFeatureContent,
+  type SimulationFeatureContent,
+} from '@/types/simulationFeatureContent';
+
+export type {
+  SimulationFeatureContent,
+  SimulationInventoryItem,
+  SimulationAlbumItem,
+  SimulationSkillItem,
+  SimulationFeatureMessageItem,
+} from '@/types/simulationFeatureContent';
+export {
+  emptyFeatureContent,
+  normalizeFeatureContent,
+  formatFeaturesForPrompt,
+} from '@/types/simulationFeatureContent';
 
 export type { SimulationThemeId } from '@/types/simulationTheme';
 export {
@@ -178,9 +197,13 @@ export interface SimulationData {
   setupComplete: boolean;
   /**
    * Fonctionnalités complémentaires (gameplay) — toggles par conversation.
-   * Défauts off ; le moteur qui remplit inventaire/album/etc. viendra plus tard.
+   * Défauts off ; contenu dans `featureContent` (CRUD + injection prompt).
    */
   features: SimulationFeatures;
+  /**
+   * Contenu CRUD des modules activés (inventaire, album, compétences, messages).
+   */
+  featureContent: SimulationFeatureContent;
   /**
    * Thème UI de cette conversation uniquement (fond + bulles).
    * `default` = thème global de l’app.
@@ -224,6 +247,7 @@ export function emptySimulationData(): SimulationData {
     notes: '',
     setupComplete: false,
     features: emptySimulationFeatures(),
+    featureContent: emptyFeatureContent(),
     theme: 'default',
   };
 }
@@ -304,6 +328,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       skills: !!(sim.features && sim.features.skills),
       messages: !!(sim.features && sim.features.messages),
     }),
+    featureContent: normalizeFeatureContent(sim.featureContent),
     theme: normalizeSimulationThemeId(sim.theme),
   };
 }
@@ -354,6 +379,12 @@ export function buildSimulationPromptInjection(
   // Mémoire structurée — priorité juste sous les Règles
   const memBlock = formatMemoryForPrompt(sim.memory);
   if (memBlock) lines.push(memBlock);
+  // Modules gameplay actifs (contenu joueur)
+  const featBlock = formatFeaturesForPrompt(
+    sim.features ?? { inventory: false, album: false, skills: false, messages: false },
+    sim.featureContent,
+  );
+  if (featBlock) lines.push(featBlock);
   if (w.title?.trim()) lines.push(`### Monde — ${w.title.trim()}`);
   if (w.introduction?.trim()) lines.push(`Introduction :\n${w.introduction.trim()}`);
   if (w.backgroundContext?.trim()) lines.push(`Contexte d’arrière-plan :\n${w.backgroundContext.trim()}`);
