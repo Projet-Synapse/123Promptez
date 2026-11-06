@@ -55,7 +55,7 @@ export const MEMORY_LINK_SUBSECTION_META: Record<
   },
   accords: {
     label: 'Accords et tâches',
-    hint: 'Case à cocher + proposé par, participants, tâche',
+    hint: 'Case à cocher + proposé par, participants, description',
   },
 };
 
@@ -108,15 +108,15 @@ export const MEMORY_RELATION_FICHE_FIELDS: {
   { key: 'attachmentLevel', label: 'Niveau d’attachement' },
 ];
 
-/** Accords et tâches */
+/** Accords et tâches (description = summary) */
 export const MEMORY_ACCORD_FICHE_FIELDS: {
-  key: 'proposedBy' | 'participants' | 'task';
+  key: 'proposedBy' | 'participants' | 'summary';
   label: string;
   multiline?: boolean;
 }[] = [
   { key: 'proposedBy', label: 'Proposé par' },
   { key: 'participants', label: 'Participants' },
-  { key: 'task', label: 'Tâche', multiline: true },
+  { key: 'summary', label: 'Description', multiline: true },
 ];
 
 /** Faits appris sur le persona (différents du persona de base) */
@@ -682,7 +682,7 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
         bits.push(it.completed ? '✓ fait' : '○ en cours');
         if (it.proposedBy) bits.push(`proposé par: ${it.proposedBy}`);
         if (it.participants) bits.push(`participants: ${it.participants}`);
-        if (it.task || it.summary) bits.push(it.task || it.summary);
+        if (it.summary) bits.push(it.summary);
       } else {
         if (it.from || it.to) bits.push([it.from, it.to].filter(Boolean).join(' → '));
         if (it.summary) bits.push(it.summary);
@@ -691,9 +691,7 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
         title === 'Liens' && it.linkSubsection
           ? ` [${MEMORY_LINK_SUBSECTION_META[it.linkSubsection]?.label ?? it.linkSubsection}]`
           : '';
-      const label = title === 'Liens' && sub === 'accords'
-        ? (it.task || it.name)
-        : it.name;
+      const label = it.name;
       return `- ${label}${kind}: ${bits.filter(Boolean).join(' · ') || '—'}`;
     });
     blocks.push(`#### ${title}\n${lines.join('\n')}`);

@@ -165,7 +165,7 @@ function previewLine(section: MemorySectionId, it: SimulationMemoryItem): string
     }
     if (sub === 'accords') {
       const mark = it.completed ? '✓' : '○';
-      return [mark, it.proposedBy, it.participants, it.task || it.summary].filter(Boolean).join(' · ');
+      return [mark, it.proposedBy, it.participants, it.summary].filter(Boolean).join(' · ');
     }
   }
   return it.summary || '';
@@ -194,9 +194,7 @@ function ItemCard({
       ? MEMORY_LINK_SUBSECTION_META[sub].label
       : null;
   const preview = previewLine(section, it);
-  const displayName = section === 'links' && sub === 'accords'
-    ? (it.task || it.name)
-    : it.name;
+  const displayName = it.name;
 
   return (
     <View
@@ -362,20 +360,24 @@ function ItemCard({
                 ))
               ) : null}
               {sub === 'accords' ? (
-                MEMORY_ACCORD_FICHE_FIELDS.map((f) => (
+                <>
                   <Field
-                    key={f.key}
-                    label={f.label}
-                    value={String((f.key === 'task' ? (it.task || it.name) : it[f.key]) ?? '')}
-                    multiline={f.multiline}
-                    onChange={(v) => onEditItem(
-                      section,
-                      it.id,
-                      f.key === 'task' ? { task: v, name: v } : { [f.key]: v },
-                    )}
+                    label="Nom"
+                    value={it.name}
+                    onChange={(v) => onEditItem(section, it.id, { name: v })}
                     C={C}
                   />
-                ))
+                  {MEMORY_ACCORD_FICHE_FIELDS.map((f) => (
+                    <Field
+                      key={f.key}
+                      label={f.label}
+                      value={String(it[f.key] ?? '')}
+                      multiline={f.multiline}
+                      onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
+                      C={C}
+                    />
+                  ))}
+                </>
               ) : null}
             </>
           ) : null}

@@ -91,7 +91,9 @@ function itemsFromLlmArray(
       base.linkSubsection = normalizeLinkSubsection(
         r.linkSubsection ?? r.subsection ?? r.kind ?? r.type,
       );
-      if (base.linkSubsection === 'accords' && !base.task) base.task = name;
+      if (base.linkSubsection === 'accords' && !base.summary) {
+        base.summary = summary || name;
+      }
       if (base.linkSubsection === 'rapports' && !base.interlocutors && (base.from || base.to)) {
         base.interlocutors = [base.from, base.to].filter(Boolean).join(' / ');
       }
@@ -275,7 +277,7 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
 {
   "persona": [{"name":"string","summary":"string"}],
   "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
-  "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","task":"string?","completed":false}],
+  "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","summary":"string?","completed":false}],
   "places": [{"name":"string","summary":"string"}]
 }
 Règles STRICTES:
@@ -289,7 +291,7 @@ Règles STRICTES:
   - objets = objets clés (owner=propriétaire, name=nom article, summary=description, origin=origine)
   - rapports = liens relationnels (interlocutors, dynamics, attitude, attachmentLevel)
   - evenements = évènements marquants (participants, summary=description, time, location)
-  - accords = accords et tâches (proposedBy, participants, task, completed true/false)
+  - accords = accords et tâches (proposedBy, participants, summary=description, completed true/false)
 - Lieux clés seulement s'ils apparaissent vraiment.
 - Réponds en français.`;
 
@@ -525,9 +527,6 @@ export function addManualMemoryItem(
     userEdited: true,
     characterCategory: section === 'characters' ? (opts?.characterCategory ?? 'anecdotiques') : undefined,
     linkSubsection: section === 'links' ? (opts?.linkSubsection ?? 'rapports') : undefined,
-    task: section === 'links' && (opts?.linkSubsection ?? 'rapports') === 'accords'
-      ? (name.trim() || 'Nouvelle tâche')
-      : undefined,
     isPlayerPersona: false,
   });
   let list = mergeMemoryItems(memory[section], [item]);
