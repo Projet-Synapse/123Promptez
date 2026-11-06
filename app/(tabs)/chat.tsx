@@ -47,7 +47,7 @@ import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/fe
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScreen';
 import { Toggle } from '@/components/ui/Toggle';
-import type { ConversationKind, SimulationFeatureId, SimulationFeatures } from '@/types/simulation';
+import type { ConversationKind, SimulationFeatureId, SimulationFeatures, SimulationThemeId } from '@/types/simulation';
 import {
   buildSimulationPromptInjection,
   getActivePersona,
@@ -56,6 +56,9 @@ import {
   resolveMemoryWikilink,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
+  SIMULATION_THEME_META,
+  resolveSimulationThemeColors,
+  simulationThemeLabel,
 } from '@/types/simulation';
 import {
   generateOrRefreshMemory,
@@ -328,10 +331,11 @@ function PlusPopover({
 /** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
 function SimulationPlusPanel({
   view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
-  features, onToggleFeature, onOpenFeature, C,
+  features, onToggleFeature, onOpenFeature,
+  themeId, onSelectTheme, C,
 }: {
-  view: 'menu' | 'models' | 'features';
-  onChangeView: (v: 'menu' | 'models' | 'features') => void;
+  view: 'menu' | 'models' | 'features' | 'theme';
+  onChangeView: (v: 'menu' | 'models' | 'features' | 'theme') => void;
   onReset: () => void;
   onPersona: () => void;
   onRoleplay: () => void;
@@ -340,6 +344,8 @@ function SimulationPlusPanel({
   features: SimulationFeatures;
   onToggleFeature: (id: SimulationFeatureId) => void;
   onOpenFeature: (id: SimulationFeatureId) => void;
+  themeId: SimulationThemeId;
+  onSelectTheme: (id: SimulationThemeId) => void;
   C: ReturnType<typeof useThemeColors>;
 }) {
   const ACCENT = '#9B59B6';
@@ -461,6 +467,68 @@ function SimulationPlusPanel({
     );
   }
 
+  if (view === 'theme') {
+    return (
+      <View style={{
+        backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
+        borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.sm, paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.sm, gap: Spacing.sm, maxHeight: 420,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Pressable onPress={() => onChangeView('menu')} hitSlop={8} style={{ padding: 4 }}>
+            <MaterialIcons name="arrow-back" size={20} color={C.textSecondary} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
+              Thème
+            </Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+              Couleurs des bulles et du fond — cette conversation seulement
+            </Text>
+          </View>
+        </View>
+        <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          {SIMULATION_THEME_META.map((meta) => {
+            const active = meta.id === themeId;
+            return (
+              <Pressable
+                key={meta.id}
+                onPress={() => onSelectTheme(meta.id)}
+                style={({ pressed }) => [{
+                  flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+                  paddingVertical: 12, paddingHorizontal: Spacing.sm,
+                  borderRadius: Radius.md,
+                  backgroundColor: active ? ACCENT + '18' : 'transparent',
+                  marginBottom: 4,
+                }, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Thème ${meta.label}`}
+              >
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {meta.swatches.map((hex, i) => (
+                    <View
+                      key={`${meta.id}-${i}`}
+                      style={{
+                        width: 22, height: 22, borderRadius: 11,
+                        backgroundColor: hex,
+                        borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                      }}
+                    />
+                  ))}
+                </View>
+                <Text style={{ flex: 1, fontSize: FontSize.body, fontWeight: '700', color: active ? ACCENT : C.textPrimary }}>
+                  {meta.label}
+                </Text>
+                {active ? <MaterialIcons name="check" size={18} color={ACCENT} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
   const items: { key: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; label: string; desc: string; onPress: () => void; danger?: boolean }[] = [
     {
       key: 'reset',
@@ -490,6 +558,13 @@ function SimulationPlusPanel({
       label: 'Modèles de chat',
       desc: 'Choisir le modèle IA pour cette simulation',
       onPress: () => onChangeView('models'),
+    },
+    {
+      key: 'theme',
+      icon: 'palette',
+      label: 'Thème',
+      desc: simulationThemeLabel(themeId),
+      onPress: () => onChangeView('theme'),
     },
     {
       key: 'features',
@@ -960,7 +1035,7 @@ export default function ChatScreen() {
 
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   /** Sous-vue du panneau + Simulation : menu principal ou modèles. */
-  const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features'>('menu');
+  const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features' | 'theme'>('menu');
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
   const [showSimMemory, setShowSimMemory] = useState(false);
   const [memoryGenerating, setMemoryGenerating] = useState(false);
@@ -1597,6 +1672,9 @@ export default function ChatScreen() {
   const simData = activeConversation?.simulation;
   const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || simEditMode));
   const activeSimPersona = getActivePersona(simData);
+  const simThemeId: SimulationThemeId = (simData?.theme as SimulationThemeId) || 'default';
+  const simThemeColors = isSimulation ? resolveSimulationThemeColors(simThemeId) : null;
+  const chatBg = simThemeColors?.bg ?? C.bg;
   const roleplayLimits = getRoleplaySettings(profile);
   const inputMaxLength = isSimulation ? roleplayLimits.maxUserChars : 4000;
 
@@ -1785,12 +1863,12 @@ export default function ChatScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: chatBg }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
 
           {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: chatBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
             {/* Drawer toggle */}
             <View style={{ position: 'relative' }}>
               <IconButton icon="menu" label="Historique des conversations" onPress={() => setDrawerOpen(true)} backgroundColor={C.bgCardAlt} boxSize={38} />
@@ -1827,56 +1905,59 @@ export default function ChatScreen() {
               />
             ) : null}
 
-            <SyncIndicator compact />
-            <IconButton
-              icon="search"
-              label="Recherche globale (Ctrl+K)"
-              onPress={openPalette}
-              boxSize={36}
-              backgroundColor={C.bgCardAlt}
-              color={C.textMuted}
-            />
+            {/* Classique uniquement — Simulation : Mémoire seulement (t208u) */}
+            {!isSimulation ? (
+              <>
+                <SyncIndicator compact />
+                <IconButton
+                  icon="search"
+                  label="Recherche globale (Ctrl+K)"
+                  onPress={openPalette}
+                  boxSize={36}
+                  backgroundColor={C.bgCardAlt}
+                  color={C.textMuted}
+                />
 
-            {/* Export de la conversation active en Markdown */}
-            <IconButton
-              icon="download"
-              label="Exporter la conversation (.md)"
-              onPress={() => void handleExportConversation()}
-              boxSize={36}
-              backgroundColor={C.bgCardAlt}
-              color={C.textMuted}
-            />
+                <IconButton
+                  icon="download"
+                  label="Exporter la conversation (.md)"
+                  onPress={() => void handleExportConversation()}
+                  boxSize={36}
+                  backgroundColor={C.bgCardAlt}
+                  color={C.textMuted}
+                />
 
-            {/* Panneau latéral droit : fichiers, instructions, sites web */}
-            <IconButton
-              icon="space-dashboard"
-              label="Panneau workspace (fichiers, instructions, sites)"
-              onPress={() => setShowSidePanel(v => !v)}
-              boxSize={36}
-              backgroundColor={showSidePanel ? C.accentGlow : C.bgCardAlt}
-              borderColor={showSidePanel ? C.accent + '55' : C.border}
-              color={showSidePanel ? C.accent : C.textMuted}
-            />
+                <IconButton
+                  icon="space-dashboard"
+                  label="Panneau workspace (fichiers, instructions, sites)"
+                  onPress={() => setShowSidePanel(v => !v)}
+                  boxSize={36}
+                  backgroundColor={showSidePanel ? C.accentGlow : C.bgCardAlt}
+                  borderColor={showSidePanel ? C.accent + '55' : C.border}
+                  color={showSidePanel ? C.accent : C.textMuted}
+                />
 
-            <IconButton
-              icon="delete-outline"
-              label="Effacer la conversation"
-              bare
-              size={22}
-              color={C.textMuted}
-              onPress={() => {
-                if (!activeConversation) return;
-                showAlert(t('clearConversation'), t('clearConversationMsg'), [
-                  { text: t('cancel'), style: 'cancel' },
-                  { text: t('delete'), style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
-                ]);
-              }}
-            />
+                <IconButton
+                  icon="delete-outline"
+                  label="Effacer la conversation"
+                  bare
+                  size={22}
+                  color={C.textMuted}
+                  onPress={() => {
+                    if (!activeConversation) return;
+                    showAlert(t('clearConversation'), t('clearConversationMsg'), [
+                      { text: t('cancel'), style: 'cancel' },
+                      { text: t('delete'), style: 'destructive', onPress: () => clearConversation(activeWorkspace.id, activeConversation.id) },
+                    ]);
+                  }}
+                />
+              </>
+            ) : null}
           </View>
 
           {/* Active modes bar */}
           {activeModes.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: chatBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
               <View style={{ flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs }}>
                 {activeModes.map((mode: any) => (
                   <Pressable key={mode.id} onPress={() => toggleMode(activeWorkspace.id, mode.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill, borderWidth: 1, backgroundColor: mode.color + '20', borderColor: mode.color + '55' }}>
@@ -1969,6 +2050,7 @@ export default function ChatScreen() {
                 botColor={bot.avatarColor}
                 emphasizeRegenerate={!!isSimulation}
                 roleplayMode={!!isSimulation}
+                simThemeColors={simThemeColors}
                 simCharacters={
                   isSimulation
                     ? [
@@ -2143,7 +2225,7 @@ export default function ChatScreen() {
 
           {/* Astuce raccourci clavier (web/desktop uniquement) */}
           {Platform.OS === 'web' ? (
-            <View style={{ paddingHorizontal: Spacing.md, paddingTop: 2, backgroundColor: C.bg }}>
+            <View style={{ paddingHorizontal: Spacing.md, paddingTop: 2, backgroundColor: chatBg }}>
               <Text style={{ fontSize: 10, color: C.textMuted }}>↵ Envoyer · Maj + ↵ Nouvelle ligne · Échap ferme les panneaux</Text>
             </View>
           ) : null}
@@ -2209,6 +2291,15 @@ export default function ChatScreen() {
                 setSimPlusView('menu');
                 setSimFeatureScreen(id);
               }}
+              themeId={simThemeId}
+              onSelectTheme={(id) => {
+                if (!activeConversation || !simData) return;
+                updateSimulation(activeWorkspace.id, activeConversation.id, {
+                  ...simData,
+                  theme: id,
+                });
+                showToast(`Thème : ${simulationThemeLabel(id)}`, { tone: 'success' });
+              }}
               C={C}
             />
           ) : null}
@@ -2218,7 +2309,7 @@ export default function ChatScreen() {
             flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs,
             paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
             paddingBottom: insets.bottom + Spacing.sm,
-            backgroundColor: isSimulation && showPlusPopover ? C.bgCard : C.bg,
+            backgroundColor: isSimulation && showPlusPopover ? (simThemeColors?.bgCard ?? C.bgCard) : chatBg,
             borderTopWidth: isSimulation && showPlusPopover ? 0 : 1,
             borderTopColor: C.border,
             zIndex: 160,

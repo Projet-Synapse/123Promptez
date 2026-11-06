@@ -40,6 +40,8 @@ interface ChatBubbleProps {
   roleplayMode?: boolean;
   /** PNJ connus pour résoudre icône / couleur par nom */
   simCharacters?: SimCharacterLook[];
+  /** Couleurs de thème par conversation (Simulation) — bulles */
+  simThemeColors?: { userBubble?: string; assistantBubble?: string; accent?: string } | null;
 }
 
 function colorFromName(name: string): string {
@@ -85,9 +87,12 @@ export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
   onRestartFromHere, onDelete, showActions, emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
-  roleplayMode, simCharacters,
+  roleplayMode, simCharacters, simThemeColors,
 }: ChatBubbleProps) {
   const C = useThemeColors();
+  const userBubbleBg = simThemeColors?.userBubble || C.primary;
+  const charBubbleBg = simThemeColors?.assistantBubble || C.bgCard;
+  const themeAccent = simThemeColors?.accent || RP_ACCENT;
   const [menuOpen, setMenuOpen] = useState(false);
   const isUser = message.role === 'user';
   const isToolResults = isUser && message.content.startsWith('[RÉSULTATS D\'OUTILS');
@@ -239,11 +244,11 @@ export function ChatBubble({
                     <CharAvatar look={look} />
                     <View style={{
                       flex: 1,
-                      backgroundColor: C.bgCard,
+                      backgroundColor: charBubbleBg,
                       borderRadius: Radius.lg,
                       borderBottomLeftRadius: 4,
                       borderWidth: 1,
-                      borderColor: (look.avatarColor || RP_ACCENT) + '44',
+                      borderColor: (look.avatarColor || themeAccent) + '44',
                       paddingHorizontal: Spacing.md,
                       paddingVertical: Spacing.sm + 2,
                     }}>
@@ -314,7 +319,7 @@ export function ChatBubble({
                   borderRadius: Radius.lg,
                   paddingHorizontal: Spacing.md,
                   paddingVertical: Spacing.sm + 2,
-                  backgroundColor: C.primary,
+                  backgroundColor: userBubbleBg,
                   borderBottomRightRadius: 4,
                 }
               : {
@@ -351,7 +356,7 @@ export function ChatBubble({
       </View>
 
       {isUser ? (
-        <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: C.primary }}>
+        <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: userBubbleBg }}>
           <MaterialIcons name="person" size={14} color="#fff" />
         </View>
       ) : null}
