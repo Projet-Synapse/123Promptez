@@ -53,6 +53,7 @@ import {
   getActivePersona,
   SIMULATION_FEATURE_META,
   emptySimulationFeatures,
+  emptyFeatureContent,
   resolveMemoryWikilink,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
@@ -1834,11 +1835,18 @@ export default function ChatScreen() {
     );
   }
 
-  if (simFeatureScreen && isSimulation) {
+  if (simFeatureScreen && isSimulation && simData) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
         <SimulationFeatureScreen
           featureId={simFeatureScreen}
+          content={simData.featureContent ?? emptyFeatureContent()}
+          onChange={(featureContent) => {
+            updateSimulation(activeWorkspace.id, activeConversation!.id, {
+              ...simData,
+              featureContent,
+            });
+          }}
           onClose={() => setSimFeatureScreen(null)}
         />
       </View>
