@@ -52,6 +52,8 @@ type Props = {
   ) => void;
   onRemove: (section: MemorySectionId, id: string) => void;
   onEditItem: (section: MemorySectionId, id: string, patch: EditPatch) => void;
+  /** Marque une fiche comme consultée (retire le badge 🔴). */
+  onMarkSeen: (section: MemorySectionId, id: string) => void;
 };
 
 function Field({
@@ -179,6 +181,9 @@ function ItemCard({
             <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
               {it.name}
             </Text>
+            {it.isNew ? (
+              <Text style={{ fontSize: 10, lineHeight: 12 }} accessibilityLabel="Nouveauté">🔴</Text>
+            ) : null}
             {kindLabel ? (
               <View style={{
                 paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
@@ -336,6 +341,7 @@ function SectionBlock({
   onEditItem,
   onRemove,
   onAdd,
+  onMarkSeen,
   linkFilter,
   setLinkFilter,
 }: {
@@ -347,6 +353,7 @@ function SectionBlock({
   onEditItem: Props['onEditItem'];
   onRemove: Props['onRemove'];
   onAdd: Props['onAdd'];
+  onMarkSeen: Props['onMarkSeen'];
   linkFilter: MemoryLinkSubsection | 'all';
   setLinkFilter: (v: MemoryLinkSubsection | 'all') => void;
 }) {
@@ -397,6 +404,7 @@ function SectionBlock({
         </View>
         <Text style={{ flex: 1, fontSize: FontSize.md, fontWeight: '800', color: C.textPrimary }}>
           {meta.label}
+          {items.some((it) => it.isNew) ? ' 🔴' : ''}
         </Text>
         <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>{items.length}</Text>
       </View>
@@ -462,7 +470,14 @@ function SectionBlock({
               section={section}
               it={it}
               open={expandedId === it.id}
-              onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
+              onToggle={() => {
+                if (expandedId === it.id) {
+                  setExpandedId(null);
+                } else {
+                  setExpandedId(it.id);
+                  if (it.isNew) onMarkSeen(section, it.id);
+                }
+              }}
               onEditItem={onEditItem}
               onRemove={onRemove}
               C={C}
@@ -510,7 +525,7 @@ function SectionBlock({
 }
 
 export function SimulationMemoryScreen({
-  memory, generating, focusItemId, onClose, onRefresh, onEditItem, onAdd, onRemove,
+  memory, generating, focusItemId, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen,
 }: Props) {
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
@@ -518,7 +533,15 @@ export function SimulationMemoryScreen({
   const [linkFilter, setLinkFilter] = useState<MemoryLinkSubsection | 'all'>('all');
 
   useEffect(() => {
-    if (focusItemId) setExpandedId(focusItemId);
+    if (!focusItemId) return;
+    setExpandedId(focusItemId);
+    for (const s of ['characters', 'links', 'places'] as MemorySectionId[]) {
+      const hit = memory[s].find((it) => it.id === focusItemId);
+      if (hit?.isNew) {
+        onMarkSeen(s, focusItemId);
+        break;
+      }
+    }
   }, [focusItemId]);
 
   const sections = useMemo(() => {
@@ -583,6 +606,11 @@ export function SimulationMemoryScreen({
             { id: 'places' as const, label: 'Lieux' },
           ]).map((t) => {
             const on = tab === t.id;
+            const hasNew = t.id === 'all'
+              ? (memory.characters.some((it) => it.isNew)
+                || memory.links.some((it) => it.isNew)
+                || memory.places.some((it) => it.isNew))
+              : memory[t.id].some((it) => it.isNew);
             return (
               <Pressable
                 key={t.id}
@@ -594,7 +622,7 @@ export function SimulationMemoryScreen({
                 }}
               >
                 <Text style={{ fontSize: FontSize.xs, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
-                  {t.label}
+                  {t.label}{hasNew ? ' 🔴' : ''}
                 </Text>
               </Pressable>
             );
@@ -626,6 +654,7 @@ export function SimulationMemoryScreen({
             onEditItem={onEditItem}
             onRemove={onRemove}
             onAdd={onAdd}
+            onMarkSeen={onMarkSeen}
             linkFilter={linkFilter}
             setLinkFilter={setLinkFilter}
           />

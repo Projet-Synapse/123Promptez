@@ -56,6 +56,8 @@ export {
   mergeMemoryItems,
   formatMemoryForPrompt,
   emptySimulationMemory,
+  markMemoryItemSeen,
+  memoryHasUnseen,
   MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_LINK_SUBSECTION_META,
 } from '@/types/simulationMemory';

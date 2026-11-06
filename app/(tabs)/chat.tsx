@@ -57,6 +57,8 @@ import {
   resolveMemoryWikilink,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
+  markMemoryItemSeen,
+  memoryHasUnseen,
   SIMULATION_THEME_META,
   resolveSimulationThemeColors,
   simulationThemeLabel,
@@ -535,7 +537,7 @@ function SimulationPlusPanel({
       key: 'reset',
       icon: 'restart-alt',
       label: 'Réinitialiser le roleplay',
-      desc: 'Efface les messages et rouvre la page de création',
+      desc: 'Efface les messages et la mémoire, rouvre la page de création',
       danger: true,
       onPress: onReset,
     },
@@ -1865,6 +1867,7 @@ export default function ChatScreen() {
           onAdd={(section, name, opts) => persistSimMemory(addManualMemoryItem(simData.memory ?? emptySimulationMemory(), section, name, opts))}
           onRemove={(section, id) => persistSimMemory(removeMemoryItem(simData.memory ?? emptySimulationMemory(), section, id))}
           onEditItem={(section, id, patch) => persistSimMemory(applyManualMemoryEdit(simData.memory ?? emptySimulationMemory(), section, id, patch))}
+          onMarkSeen={(section, id) => persistSimMemory(markMemoryItemSeen(simData.memory ?? emptySimulationMemory(), section, id))}
         />
       </View>
     );
@@ -1902,15 +1905,26 @@ export default function ChatScreen() {
             </View>
 
             {isSimulation ? (
-              <IconButton
-                icon="psychology"
-                label="Mémoire du roleplay"
-                onPress={() => openSimMemory(null)}
-                boxSize={36}
-                backgroundColor={showSimMemory ? '#9B59B633' : C.bgCardAlt}
-                borderColor={showSimMemory ? '#9B59B688' : C.border}
-                color="#9B59B6"
-              />
+              <View style={{ position: 'relative' }}>
+                <IconButton
+                  icon="psychology"
+                  label="Mémoire du roleplay"
+                  onPress={() => openSimMemory(null)}
+                  boxSize={36}
+                  backgroundColor={showSimMemory ? '#9B59B633' : C.bgCardAlt}
+                  borderColor={showSimMemory ? '#9B59B688' : C.border}
+                  color="#9B59B6"
+                />
+                {memoryHasUnseen(simData?.memory) ? (
+                  <Text
+                    pointerEvents="none"
+                    accessibilityLabel="Nouveautés mémoire"
+                    style={{ position: 'absolute', top: -2, right: -2, fontSize: 10, lineHeight: 12 }}
+                  >
+                    🔴
+                  </Text>
+                ) : null}
+              </View>
             ) : null}
 
             {/* Classique uniquement — Simulation : Mémoire seulement (t208u) */}
@@ -2247,7 +2261,7 @@ export default function ChatScreen() {
                 if (!activeConversation || !simData) return;
                 showAlert(
                   'Réinitialiser le roleplay ?',
-                  'Les messages seront effacés et tu reviendras à la page de création. Le monde et les personas sont conservés.',
+                  'Les messages et la mémoire seront effacés ; tu reviendras à la page de création. Le monde et les personas sont conservés.',
                   [
                     { text: 'Annuler', style: 'cancel' },
                     {
@@ -2258,6 +2272,7 @@ export default function ChatScreen() {
                         updateSimulation(activeWorkspace.id, activeConversation.id, {
                           ...simData,
                           setupComplete: false,
+                          memory: emptySimulationMemory(),
                         });
                         setShowPlusPopover(false);
                         setSimPlusView('menu');
