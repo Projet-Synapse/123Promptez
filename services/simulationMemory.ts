@@ -463,6 +463,9 @@ export function applyManualMemoryEdit(
     proposedBy?: string;
     task?: string;
     completed?: boolean;
+    pinned?: boolean;
+    avatarUri?: string | null;
+    avatarColor?: string;
   },
 ): SimulationMemory {
   let list = memory[section].map((it) => {
@@ -506,6 +509,11 @@ export function applyManualMemoryEdit(
       proposedBy: pick('proposedBy', it.proposedBy),
       task: pick('task', it.task),
       completed: patch.completed !== undefined ? patch.completed === true : it.completed === true,
+      pinned: patch.pinned !== undefined ? patch.pinned === true : it.pinned === true,
+      avatarUri: patch.avatarUri === null
+        ? undefined
+        : (patch.avatarUri !== undefined ? (String(patch.avatarUri).trim() || undefined) : it.avatarUri),
+      avatarColor: pick('avatarColor', it.avatarColor),
       userEdited: true,
       updatedAt: new Date().toISOString(),
       isNew: false,

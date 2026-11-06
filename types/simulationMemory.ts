@@ -7,6 +7,9 @@
 /** MAJ auto tous les N messages (user + assistant). Documenté / constant. */
 export const MEMORY_AUTO_UPDATE_EVERY_N = 10;
 
+/** Nombre max d’entrées épinglées dans la Mémoire. */
+export const MEMORY_PIN_MAX = 10;
+
 export type MemorySectionId = 'persona' | 'characters' | 'links' | 'places';
 
 /** Catégories Personnages — LEGACY (bulles retirées t209u). Conservé pour migration. */
@@ -195,6 +198,12 @@ export interface SimulationMemoryItem {
   updatedAt: string;
   /** true = nouveauté non encore consultée → badge 🔴 */
   isNew?: boolean;
+  /** Épinglé (max MEMORY_PIN_MAX au total) */
+  pinned?: boolean;
+  /** Photo de profil (personnages mémoire) — data-URI ou file URI */
+  avatarUri?: string;
+  /** Couleur de secours avatar */
+  avatarColor?: string;
 }
 
 export interface SimulationMemory {
@@ -309,6 +318,9 @@ export function emptyMemoryItem(
     completed: partial?.completed === true,
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
     isNew: partial?.isNew === true,
+    pinned: partial?.pinned === true,
+    avatarUri: optStr(partial?.avatarUri),
+    avatarColor: optStr(partial?.avatarColor),
   };
 }
 
@@ -404,6 +416,9 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
       completed: r.completed === true || r.done === true || r.coche === true,
       updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       isNew: r.isNew === true,
+      pinned: r.pinned === true,
+      avatarUri: r.avatarUri ? String(r.avatarUri) : undefined,
+      avatarColor: r.avatarColor ? String(r.avatarColor) : undefined,
     });
     if (!item.key || seen.has(item.key)) continue;
     seen.add(item.key);
@@ -507,6 +522,9 @@ export function mergeMemoryItems(
         proposedBy: prev.proposedBy || item.proposedBy,
         task: prev.task || item.task,
         completed: prev.completed === true ? true : item.completed === true,
+        pinned: prev.pinned === true,
+        avatarUri: prev.avatarUri || item.avatarUri,
+        avatarColor: prev.avatarColor || item.avatarColor,
         updatedAt: prev.updatedAt,
         isNew: prev.isNew === true,
       });
@@ -537,6 +555,9 @@ export function mergeMemoryItems(
       proposedBy: item.proposedBy || prev.proposedBy,
       task: item.task || prev.task,
       completed: item.completed === true || prev.completed === true,
+      pinned: prev.pinned === true,
+      avatarUri: prev.avatarUri || item.avatarUri,
+      avatarColor: prev.avatarColor || item.avatarColor,
       userEdited: false,
       updatedAt: new Date().toISOString(),
       isNew: true,
@@ -622,6 +643,45 @@ export function shouldAutoUpdateMemory(
 }
 
 /** Résumé injecté dans le prompt (sous les Règles). */
+
+/** Compte les entrées épinglées toutes sections confondues. */
+export function countPinnedMemory(memory: SimulationMemory): number {
+  return (
+    memory.persona.filter((it) => it.pinned).length +
+    memory.characters.filter((it) => it.pinned).length +
+    memory.links.filter((it) => it.pinned).length +
+    memory.places.filter((it) => it.pinned).length
+  );
+}
+
+/** Liste plate des entrées épinglées (pour bandeau chat / tri). */
+export function listPinnedMemoryItems(
+  memory: SimulationMemory,
+): { section: MemorySectionId; item: SimulationMemoryItem }[] {
+  const out: { section: MemorySectionId; item: SimulationMemoryItem }[] = [];
+  for (const section of ['persona', 'characters', 'links', 'places'] as MemorySectionId[]) {
+    for (const item of memory[section]) {
+      if (item.pinned) out.push({ section, item });
+    }
+  }
+  return out;
+}
+
+/** Épingle / désépingle une fiche (max MEMORY_PIN_MAX). Renvoie null si quota atteint. */
+export function toggleMemoryPin(
+  memory: SimulationMemory,
+  section: MemorySectionId,
+  itemId: string,
+): SimulationMemory | null {
+  const target = memory[section].find((it) => it.id === itemId);
+  if (!target) return memory;
+  if (!target.pinned && countPinnedMemory(memory) >= MEMORY_PIN_MAX) return null;
+  const list = memory[section].map((it) =>
+    it.id === itemId ? { ...it, pinned: !it.pinned, userEdited: true } : it,
+  );
+  return emptySimulationMemory({ ...memory, [section]: list });
+}
+
 /** Retire le badge nouveauté après consultation d'une fiche. */
 export function markMemoryItemSeen(
   memory: SimulationMemory,

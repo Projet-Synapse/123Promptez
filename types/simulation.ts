@@ -58,6 +58,10 @@ export {
   emptySimulationMemory,
   markMemoryItemSeen,
   memoryHasUnseen,
+  MEMORY_PIN_MAX,
+  countPinnedMemory,
+  listPinnedMemoryItems,
+  toggleMemoryPin,
   MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_LINK_SUBSECTION_META,
 } from '@/types/simulationMemory';
@@ -211,6 +215,8 @@ export interface SimulationData {
    * `default` = thème global de l’app.
    */
   theme: SimulationThemeId;
+  /** Arrière-plan image personnalisé (data-URI / file URI) — optionnel. */
+  themeBackgroundUri?: string;
 }
 
 function newId(prefix: string): string {
@@ -251,6 +257,7 @@ export function emptySimulationData(): SimulationData {
     features: emptySimulationFeatures(),
     featureContent: emptyFeatureContent(),
     theme: 'default',
+    themeBackgroundUri: undefined,
   };
 }
 
@@ -332,6 +339,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
     }),
     featureContent: normalizeFeatureContent(sim.featureContent),
     theme: normalizeSimulationThemeId(sim.theme),
+    themeBackgroundUri: sim.themeBackgroundUri ? String(sim.themeBackgroundUri) : undefined,
   };
 }
 

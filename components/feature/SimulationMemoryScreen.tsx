@@ -3,8 +3,10 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Modal,
+  View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Modal, Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { useAlert } from '@/template';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Spacing, Radius, FontSize } from '@/constants/theme';
@@ -20,6 +22,8 @@ import {
   MEMORY_ACCORD_FICHE_FIELDS,
   MEMORY_PERSONA_FICHE_FIELDS,
   MEMORY_AUTO_UPDATE_EVERY_N,
+  MEMORY_PIN_MAX,
+  countPinnedMemory,
   type MemorySectionId,
   type MemoryLinkSubsection,
   type SimulationMemory,
@@ -50,6 +54,9 @@ type EditPatch = {
   proposedBy?: string;
   task?: string;
   completed?: boolean;
+  pinned?: boolean;
+  avatarUri?: string | null;
+  avatarColor?: string;
 };
 
 type Props = {
@@ -69,6 +76,8 @@ type Props = {
   onEditItem: (section: MemorySectionId, id: string, patch: EditPatch) => void;
   /** Marque une fiche comme consultée (retire le badge 🔴). */
   onMarkSeen: (section: MemorySectionId, id: string) => void;
+  /** Épingle / désépingle (retour false si quota MEMORY_PIN_MAX). */
+  onTogglePin: (section: MemorySectionId, id: string) => boolean;
 };
 
 function Field({
@@ -178,6 +187,7 @@ function ItemCard({
   onToggle,
   onEditItem,
   onRemove,
+  onTogglePin,
   C,
 }: {
   section: MemorySectionId;
@@ -186,8 +196,34 @@ function ItemCard({
   onToggle: () => void;
   onEditItem: Props['onEditItem'];
   onRemove: Props['onRemove'];
+  onTogglePin: Props['onTogglePin'];
   C: ReturnType<typeof useThemeColors>;
 }) {
+  const { showAlert } = useAlert();
+  const pickAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission requise', "L'accès à la galerie est nécessaire pour choisir une photo.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.base64
+        ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+        : asset.uri;
+      onEditItem(section, it.id, { avatarUri: uri });
+    } catch (e: any) {
+      showAlert('Erreur', e?.message ?? "Impossible d'importer la photo");
+    }
+  };
   const sub = it.linkSubsection ?? 'rapports';
   const kindLabel =
     section === 'links'
@@ -208,6 +244,25 @@ function ItemCard({
       }}
     >
       <Pressable onPress={onToggle} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+        {section === 'characters' ? (
+          <Pressable
+            onPress={(e) => { e?.stopPropagation?.(); void pickAvatar(); }}
+            hitSlop={6}
+            style={{
+              width: 36, height: 36, borderRadius: 18, overflow: 'hidden',
+              backgroundColor: it.avatarColor || ACCENT + '55',
+              alignItems: 'center', justifyContent: 'center',
+              borderWidth: 1, borderColor: C.border,
+            }}
+            accessibilityLabel="Importer une photo de profil"
+          >
+            {it.avatarUri ? (
+              <Image source={{ uri: it.avatarUri }} style={{ width: 36, height: 36 }} />
+            ) : (
+              <MaterialIcons name="add-a-photo" size={16} color="#fff" />
+            )}
+          </Pressable>
+        ) : null}
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {section === 'links' && sub === 'accords' ? (
@@ -216,6 +271,9 @@ function ItemCard({
             <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
               {displayName}
             </Text>
+            {it.pinned ? (
+              <MaterialIcons name="push-pin" size={14} color={ACCENT} />
+            ) : null}
             {it.isNew ? (
               <Text style={{ fontSize: 10, lineHeight: 12 }} accessibilityLabel="Nouveauté">🔴</Text>
             ) : null}
@@ -250,6 +308,24 @@ function ItemCard({
             </Text>
           ) : null}
         </View>
+        <Pressable
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            if (!onTogglePin(section, it.id) && !it.pinned) {
+              showAlert('Limite atteinte', `Tu peux épingler au maximum ${MEMORY_PIN_MAX} infos.`);
+            }
+          }}
+          hitSlop={8}
+          accessibilityLabel={it.pinned ? 'Désépingler' : 'Épingler'}
+          style={{ padding: 4 }}
+        >
+          <MaterialIcons
+            name={it.pinned ? 'push-pin' : 'push-pin'}
+            size={18}
+            color={it.pinned ? ACCENT : C.textMuted}
+            style={{ transform: [{ rotate: it.pinned ? '0deg' : '45deg' }] }}
+          />
+        </Pressable>
         <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color={C.textMuted} />
       </Pressable>
 
@@ -286,6 +362,31 @@ function ItemCard({
 
           {section === 'characters' ? (
             <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                <Pressable onPress={() => void pickAvatar()} style={{
+                  width: 56, height: 56, borderRadius: 28, overflow: 'hidden',
+                  backgroundColor: it.avatarColor || ACCENT + '55',
+                  alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1, borderColor: C.border,
+                }}>
+                  {it.avatarUri ? (
+                    <Image source={{ uri: it.avatarUri }} style={{ width: 56, height: 56 }} />
+                  ) : (
+                    <MaterialIcons name="add-a-photo" size={22} color="#fff" />
+                  )}
+                </Pressable>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700' }}>PHOTO DE PROFIL</Text>
+                  <Pressable onPress={() => void pickAvatar()}>
+                    <Text style={{ fontSize: FontSize.sm, color: ACCENT, fontWeight: '700' }}>Importer…</Text>
+                  </Pressable>
+                  {it.avatarUri ? (
+                    <Pressable onPress={() => onEditItem(section, it.id, { avatarUri: null })}>
+                      <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '600' }}>Retirer</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
               <Field
                 label="Nom"
                 value={it.name}
@@ -427,6 +528,7 @@ function SectionBlock({
   onRemove,
   onAdd,
   onMarkSeen,
+  onTogglePin,
   linkFilter,
   setLinkFilter,
 }: {
@@ -439,6 +541,7 @@ function SectionBlock({
   onRemove: Props['onRemove'];
   onAdd: Props['onAdd'];
   onMarkSeen: Props['onMarkSeen'];
+  onTogglePin: Props['onTogglePin'];
   linkFilter: MemoryLinkSubsection | 'all';
   setLinkFilter: (v: MemoryLinkSubsection | 'all') => void;
 }) {
@@ -565,6 +668,7 @@ function SectionBlock({
               }}
               onEditItem={onEditItem}
               onRemove={onRemove}
+              onTogglePin={onTogglePin}
               C={C}
             />
           ))}
@@ -610,7 +714,7 @@ function SectionBlock({
 }
 
 export function SimulationMemoryScreen({
-  memory, generating, focusItemId, personaBaseHint, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen,
+  memory, generating, focusItemId, personaBaseHint, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen, onTogglePin,
 }: Props) {
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
@@ -658,6 +762,7 @@ export function SimulationMemoryScreen({
           <Text style={{ fontSize: FontSize.md, fontWeight: '800', color: C.textPrimary }}>Mémoire</Text>
           <Text style={{ fontSize: FontSize.xs, color: ACCENT, fontWeight: '700', letterSpacing: 0.4 }}>
             ROLEPLAY · MAJ auto tous les {everyN} messages
+            {' · '}📌 {countPinnedMemory(memory)}/{MEMORY_PIN_MAX}
           </Text>
         </View>
         <Pressable
@@ -751,9 +856,10 @@ export function SimulationMemoryScreen({
           <SectionBlock
             key={section}
             section={section}
-            items={section === 'characters'
+            items={(section === 'characters'
               ? memory.characters.filter((c) => !c.isPlayerPersona)
-              : memory[section]}
+              : memory[section]
+            ).slice().sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))}
             C={C}
             expandedId={expandedId}
             setExpandedId={setExpandedId}
@@ -761,6 +867,7 @@ export function SimulationMemoryScreen({
             onRemove={onRemove}
             onAdd={onAdd}
             onMarkSeen={onMarkSeen}
+            onTogglePin={onTogglePin}
             linkFilter={linkFilter}
             setLinkFilter={setLinkFilter}
           />

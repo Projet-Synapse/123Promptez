@@ -42,6 +42,8 @@ interface ChatBubbleProps {
   simCharacters?: SimCharacterLook[];
   /** Couleurs de thème par conversation (Simulation) — bulles */
   simThemeColors?: { userBubble?: string; assistantBubble?: string; accent?: string } | null;
+  /** Persona joueur (photo dans les bulles user en Simulation) */
+  personaLook?: SimCharacterLook | null;
 }
 
 function colorFromName(name: string): string {
@@ -87,7 +89,7 @@ export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
   onRestartFromHere, onDelete, showActions, emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
-  roleplayMode, simCharacters, simThemeColors,
+  roleplayMode, simCharacters, simThemeColors, personaLook,
 }: ChatBubbleProps) {
   const C = useThemeColors();
   const userBubbleBg = simThemeColors?.userBubble || C.primary;
@@ -356,9 +358,13 @@ export function ChatBubble({
       </View>
 
       {isUser ? (
-        <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: userBubbleBg }}>
-          <MaterialIcons name="person" size={14} color="#fff" />
-        </View>
+        roleplayMode && personaLook ? (
+          <CharAvatar look={personaLook} size={28} />
+        ) : (
+          <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: userBubbleBg }}>
+            <MaterialIcons name="person" size={14} color="#fff" />
+          </View>
+        )
       ) : null}
 
       {menuModal}
