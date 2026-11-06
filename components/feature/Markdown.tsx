@@ -18,8 +18,8 @@ export function MarkdownView({
   onWikilinkPress,
 }: {
   content: string;
-  /** `user` = texte clair sur bulle colorée */
-  variant?: 'assistant' | 'user';
+  /** `user` = texte clair sur bulle colorée ; `narration` = italique RP */
+  variant?: 'assistant' | 'user' | 'narration';
   /** Clic sur [[lien]] — défaut : toast « Mémoire bientôt » */
   onWikilinkPress?: (target: string) => void;
 }) {
@@ -28,13 +28,14 @@ export function MarkdownView({
   const [copiedFence, setCopiedFence] = useState<string | null>(null);
   const markdownIt = useMemo(() => createChatMarkdownIt(), []);
   const isUser = variant === 'user';
+  const isNarr = variant === 'narration';
   const textColor = isUser ? '#FFFFFF' : C.textPrimary;
   const mutedColor = isUser ? 'rgba(255,255,255,0.75)' : C.textSecondary;
   const wikiColor = isUser ? '#FFE08A' : C.accent;
   const codeBg = isUser ? 'rgba(0,0,0,0.2)' : C.bgCardAlt;
 
   const styles = useMemo(() => ({
-    body: { color: textColor, fontSize: FontSize.body, lineHeight: 22, maxWidth: '100%', flexShrink: 1 },
+    body: { color: textColor, fontSize: FontSize.body, lineHeight: 22, maxWidth: '100%', flexShrink: 1, fontStyle: isNarr ? 'italic' : 'normal' },
     heading1: { color: textColor, fontSize: FontSize.lg, fontWeight: '700', marginTop: Spacing.md, marginBottom: Spacing.xs },
     heading2: { color: textColor, fontSize: FontSize.md, fontWeight: '700', marginTop: Spacing.sm + 4, marginBottom: Spacing.xs },
     heading3: { color: textColor, fontSize: FontSize.body, fontWeight: '700', marginTop: Spacing.sm, marginBottom: Spacing.xs },
@@ -42,7 +43,7 @@ export function MarkdownView({
     heading5: { color: mutedColor, fontSize: FontSize.sm, fontWeight: '600' },
     heading6: { color: mutedColor, fontSize: FontSize.sm, fontWeight: '600' },
     hr: { backgroundColor: isUser ? 'rgba(255,255,255,0.3)' : C.border, height: 1, marginVertical: Spacing.sm },
-    strong: { fontWeight: '700', color: textColor },
+    strong: { fontWeight: '700', color: textColor, fontStyle: isNarr ? 'italic' : 'normal' },
     em: { fontStyle: 'italic', color: textColor },
     s: { textDecorationLine: 'line-through' },
     link: { color: wikiColor, textDecorationLine: 'underline' },
@@ -58,12 +59,12 @@ export function MarkdownView({
     bullet_list_icon: { color: wikiColor, lineHeight: 22 },
     ordered_list_icon: { color: wikiColor, lineHeight: 22 },
     list_item: { marginVertical: 1 },
-    text: { color: textColor },
+    text: { color: textColor, fontStyle: isNarr ? 'italic' : 'normal' },
     table: { borderWidth: 1, borderColor: isUser ? 'rgba(255,255,255,0.3)' : C.border, borderRadius: Radius.sm },
     thead: { backgroundColor: codeBg },
     th: { color: textColor, fontWeight: '700', padding: Spacing.xs, borderWidth: 0.5, borderColor: isUser ? 'rgba(255,255,255,0.3)' : C.border },
     td: { color: mutedColor, padding: Spacing.xs, borderWidth: 0.5, borderColor: isUser ? 'rgba(255,255,255,0.3)' : C.border },
-  }), [C, textColor, mutedColor, wikiColor, codeBg, isUser]);
+  }), [C, textColor, mutedColor, wikiColor, codeBg, isUser, isNarr]);
 
   const handleWiki = useCallback(
     (target: string) => {

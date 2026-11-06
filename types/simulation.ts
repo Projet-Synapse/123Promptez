@@ -6,6 +6,7 @@ import {
   normalizeSimulationMemory,
   type SimulationMemory,
 } from '@/types/simulationMemory';
+import { SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS } from '@/services/simulationRoleplayFormat';
 
 export type {
   SimulationMemory,
@@ -309,6 +310,8 @@ export function buildSimulationPromptInjection(
     'Tu incarnes le narrateur / les personnages du monde décrit ci-dessous.',
     'Reste immersif, cohérent avec le worldbuilding et le persona joueur.',
     'Contenu mature autorisé si l’utilisateur le demande.',
+    'Ne montre JAMAIS ton raisonnement, plan ou « thinking » — uniquement la scène.',
+    SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS,
   ];
   const maxBot = opts?.maxBotChars;
   if (typeof maxBot === 'number' && maxBot > 0) {
