@@ -7,13 +7,13 @@
 /** MAJ auto tous les N messages (user + assistant). Documenté / constant. */
 export const MEMORY_AUTO_UPDATE_EVERY_N = 10;
 
-export type MemorySectionId = 'characters' | 'links' | 'places';
+export type MemorySectionId = 'persona' | 'characters' | 'links' | 'places';
 
 /** Catégories Personnages — LEGACY (bulles retirées t209u). Conservé pour migration. */
 export type MemoryCharacterCategory = 'principal' | 'secondaires' | 'enjeux' | 'anecdotiques';
 
-/** Sous-sections Liens : Objets / Rapports / Évènements marquants. */
-export type MemoryLinkSubsection = 'objets' | 'rapports' | 'evenements';
+/** Sous-sections Liens : Objets / Liens relationnels / Évènements / Accords. */
+export type MemoryLinkSubsection = 'objets' | 'rapports' | 'evenements' | 'accords';
 
 export const MEMORY_CHARACTER_CATEGORY_META: Record<
   MemoryCharacterCategory,
@@ -43,15 +43,19 @@ export const MEMORY_LINK_SUBSECTION_META: Record<
 > = {
   objets: {
     label: 'Objets clés',
-    hint: 'Objets narratifs importants',
+    hint: 'Propriétaire, nom, description, origine',
   },
   rapports: {
-    label: 'Rapports',
-    hint: 'Liens relationnels entre personnages',
+    label: 'Liens relationnels',
+    hint: 'Interlocuteurs, dynamique, attitude, attachement',
   },
   evenements: {
     label: 'Évènements marquants',
-    hint: 'Moments clés du roleplay',
+    hint: 'Participants, description, temps, emplacement',
+  },
+  accords: {
+    label: 'Accords et tâches',
+    hint: 'Case à cocher + proposé par, participants, description',
   },
 };
 
@@ -75,9 +79,54 @@ export const MEMORY_EVENT_FICHE_FIELDS: {
   multiline?: boolean;
 }[] = [
   { key: 'participants', label: 'Participants' },
-  { key: 'summary', label: 'Description', multiline: true },
+  { key: 'summary', label: 'Description de l’évènement', multiline: true },
   { key: 'time', label: 'Temps' },
   { key: 'location', label: 'Emplacement' },
+];
+
+/** Objets clés */
+export const MEMORY_OBJECT_FICHE_FIELDS: {
+  key: 'owner' | 'name' | 'summary' | 'origin';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'owner', label: 'Propriétaire' },
+  { key: 'name', label: 'Nom de l’article' },
+  { key: 'summary', label: 'Description', multiline: true },
+  { key: 'origin', label: 'Origine' },
+];
+
+/** Liens relationnels (ex-Rapports) */
+export const MEMORY_RELATION_FICHE_FIELDS: {
+  key: 'interlocutors' | 'dynamics' | 'attitude' | 'attachmentLevel';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'interlocutors', label: 'Interlocuteurs' },
+  { key: 'dynamics', label: 'Dynamique', multiline: true },
+  { key: 'attitude', label: 'Attitude', multiline: true },
+  { key: 'attachmentLevel', label: 'Niveau d’attachement' },
+];
+
+/** Accords et tâches (description = summary) */
+export const MEMORY_ACCORD_FICHE_FIELDS: {
+  key: 'proposedBy' | 'participants' | 'summary';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'proposedBy', label: 'Proposé par' },
+  { key: 'participants', label: 'Participants' },
+  { key: 'summary', label: 'Description', multiline: true },
+];
+
+/** Faits appris sur le persona (différents du persona de base) */
+export const MEMORY_PERSONA_FICHE_FIELDS: {
+  key: 'name' | 'summary';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'name', label: 'Fait appris' },
+  { key: 'summary', label: 'Détail', multiline: true },
 ];
 
 export const MEMORY_CHARACTER_CATEGORIES: MemoryCharacterCategory[] = [
@@ -87,7 +136,7 @@ export const MEMORY_CHARACTER_CATEGORIES: MemoryCharacterCategory[] = [
   'anecdotiques',
 ];
 
-export const MEMORY_LINK_SUBSECTIONS: MemoryLinkSubsection[] = ['objets', 'rapports', 'evenements'];
+export const MEMORY_LINK_SUBSECTIONS: MemoryLinkSubsection[] = ['objets', 'rapports', 'evenements', 'accords'];
 
 
 export interface SimulationMemoryEntry {
@@ -112,7 +161,7 @@ export interface SimulationMemoryItem {
   characterCategory?: MemoryCharacterCategory;
   /** Personnages : true si c'est le persona joueur */
   isPlayerPersona?: boolean;
-  /** Liens : Objets clés / Rapports / Évènements marquants */
+  /** Liens : Objets / Relationnels / Évènements / Accords */
   linkSubsection?: MemoryLinkSubsection;
   /** Fiche personnage */
   age?: string;
@@ -121,10 +170,28 @@ export interface SimulationMemoryItem {
   extraInfo?: string;
   /** Emplacement (personnage ou évènement) */
   location?: string;
-  /** Évènements : participants */
+  /** Évènements / accords : participants */
   participants?: string;
   /** Évènements : temps / moment */
   time?: string;
+  /** Objets clés : propriétaire */
+  owner?: string;
+  /** Objets clés : origine */
+  origin?: string;
+  /** Liens relationnels : interlocuteurs (peut remplacer from/to) */
+  interlocutors?: string;
+  /** Liens relationnels : dynamique */
+  dynamics?: string;
+  /** Liens relationnels : attitude */
+  attitude?: string;
+  /** Liens relationnels : niveau d’attachement */
+  attachmentLevel?: string;
+  /** Accords : proposé par */
+  proposedBy?: string;
+  /** Accords : libellé de la tâche (sinon name) */
+  task?: string;
+  /** Accords : case cochée = fait / tenu */
+  completed?: boolean;
   updatedAt: string;
   /** true = nouveauté non encore consultée → badge 🔴 */
   isNew?: boolean;
@@ -140,6 +207,8 @@ export interface SimulationMemory {
   messageCountAtLastUpdate: number;
   /** Intervalle de MAJ auto (défaut MEMORY_AUTO_UPDATE_EVERY_N) */
   updateEveryN: number;
+  /** Faits appris sur le persona joueur (≠ infos du persona de base) */
+  persona: SimulationMemoryItem[];
   characters: SimulationMemoryItem[];
   links: SimulationMemoryItem[];
   places: SimulationMemoryItem[];
@@ -149,6 +218,12 @@ export const MEMORY_SECTION_META: Record<
   MemorySectionId,
   { label: string; icon: string; empty: string; addLabel: string }
 > = {
+  persona: {
+    label: 'Persona',
+    icon: 'face',
+    empty: 'Aucun fait nouveau appris sur le persona pour l’instant.',
+    addLabel: 'Ajouter un fait persona',
+  },
   characters: {
     label: 'Personnages',
     icon: 'groups',
@@ -190,6 +265,14 @@ function optStr(v: unknown): string | undefined {
   return s ? s : undefined;
 }
 
+function joinFromTo(from?: unknown, to?: unknown): string | undefined {
+  const a = optStr(from);
+  const b = optStr(to);
+  if (!a && !b) return undefined;
+  if (a && b) return `${a} / ${b}`;
+  return a || b;
+}
+
 export function emptyMemoryItem(
   partial?: Partial<SimulationMemoryItem> & { name?: string },
 ): SimulationMemoryItem {
@@ -215,6 +298,15 @@ export function emptyMemoryItem(
     location: optStr(partial?.location),
     participants: optStr(partial?.participants),
     time: optStr(partial?.time),
+    owner: optStr(partial?.owner),
+    origin: optStr(partial?.origin),
+    interlocutors: optStr(partial?.interlocutors) ?? joinFromTo(partial?.from, partial?.to),
+    dynamics: optStr(partial?.dynamics),
+    attitude: optStr(partial?.attitude),
+    attachmentLevel: optStr(partial?.attachmentLevel),
+    proposedBy: optStr(partial?.proposedBy),
+    task: optStr(partial?.task),
+    completed: partial?.completed === true,
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
     isNew: partial?.isNew === true,
   };
@@ -239,6 +331,23 @@ export function normalizeLinkSubsection(raw: any): MemoryLinkSubsection {
   ) {
     return 'evenements';
   }
+  if (
+    v === 'accords' ||
+    v === 'accord' ||
+    v.includes('accord') ||
+    v.includes('tache') ||
+    v.includes('task')
+  ) {
+    return 'accords';
+  }
+  if (
+    v === 'relationnels' ||
+    v.includes('relationnel') ||
+    v === 'rapports' ||
+    v.includes('rapport')
+  ) {
+    return 'rapports';
+  }
   return 'rapports';
 }
 
@@ -253,6 +362,7 @@ export function emptySimulationMemory(partial?: Partial<SimulationMemory>): Simu
       typeof partial?.updateEveryN === 'number' && partial!.updateEveryN! > 0
         ? Math.floor(partial!.updateEveryN!)
         : MEMORY_AUTO_UPDATE_EVERY_N,
+    persona: Array.isArray(partial?.persona) ? partial!.persona! : [],
     characters: Array.isArray(partial?.characters) ? partial!.characters! : [],
     links: Array.isArray(partial?.links) ? partial!.links! : [],
     places: Array.isArray(partial?.places) ? partial!.places! : [],
@@ -283,6 +393,15 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
       location: r.location ?? r.emplacement ?? r.place,
       participants: r.participants,
       time: r.time ?? r.temps ?? r.when,
+      owner: r.owner ?? r.proprietaire,
+      origin: r.origin ?? r.origine,
+      interlocutors: r.interlocutors ?? r.interlocuteurs,
+      dynamics: r.dynamics ?? r.dynamique,
+      attitude: r.attitude,
+      attachmentLevel: r.attachmentLevel ?? r.niveauAttachement ?? r.attachement,
+      proposedBy: r.proposedBy ?? r.proposePar ?? r.proposed_by,
+      task: r.task ?? r.tache,
+      completed: r.completed === true || r.done === true || r.coche === true,
       updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       isNew: r.isNew === true,
     });
@@ -312,6 +431,7 @@ export function normalizeSimulationMemory(raw: any): SimulationMemory {
       typeof mem.updateEveryN === 'number' && mem.updateEveryN > 0
         ? Math.floor(mem.updateEveryN)
         : MEMORY_AUTO_UPDATE_EVERY_N,
+    persona: normalizeItemList(mem.persona),
     characters: normalizeItemList(mem.characters),
     links: normalizeItemList(mem.links),
     places: normalizeItemList(mem.places),
@@ -319,7 +439,12 @@ export function normalizeSimulationMemory(raw: any): SimulationMemory {
   // Si des sections existent déjà (données cloud), considérer comme initialisé
   if (
     !base.initialized &&
-    (base.characters.length > 0 || base.links.length > 0 || base.places.length > 0)
+    (
+      base.persona.length > 0 ||
+      base.characters.length > 0 ||
+      base.links.length > 0 ||
+      base.places.length > 0
+    )
   ) {
     base.initialized = true;
   }
@@ -373,6 +498,15 @@ export function mergeMemoryItems(
         location: prev.location || item.location,
         participants: prev.participants || item.participants,
         time: prev.time || item.time,
+        owner: prev.owner || item.owner,
+        origin: prev.origin || item.origin,
+        interlocutors: prev.interlocutors || item.interlocutors,
+        dynamics: prev.dynamics || item.dynamics,
+        attitude: prev.attitude || item.attitude,
+        attachmentLevel: prev.attachmentLevel || item.attachmentLevel,
+        proposedBy: prev.proposedBy || item.proposedBy,
+        task: prev.task || item.task,
+        completed: prev.completed === true ? true : item.completed === true,
         updatedAt: prev.updatedAt,
         isNew: prev.isNew === true,
       });
@@ -394,6 +528,15 @@ export function mergeMemoryItems(
       location: item.location || prev.location,
       participants: item.participants || prev.participants,
       time: item.time || prev.time,
+      owner: item.owner || prev.owner,
+      origin: item.origin || prev.origin,
+      interlocutors: item.interlocutors || prev.interlocutors,
+      dynamics: item.dynamics || prev.dynamics,
+      attitude: item.attitude || prev.attitude,
+      attachmentLevel: item.attachmentLevel || prev.attachmentLevel,
+      proposedBy: item.proposedBy || prev.proposedBy,
+      task: item.task || prev.task,
+      completed: item.completed === true || prev.completed === true,
       userEdited: false,
       updatedAt: new Date().toISOString(),
       isNew: true,
@@ -495,6 +638,7 @@ export function markMemoryItemSeen(
 export function memoryHasUnseen(memory: SimulationMemory | undefined | null): boolean {
   if (!memory) return false;
   return (
+    memory.persona.some((it) => it.isNew) ||
     memory.characters.some((it) => it.isNew) ||
     memory.links.some((it) => it.isNew) ||
     memory.places.some((it) => it.isNew)
@@ -508,18 +652,37 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
     if (!items.length) return;
     const lines = items.slice(0, maxPerSection).map((it) => {
       const bits: string[] = [];
-      if (title === 'Personnages') {
+      const sub = it.linkSubsection ?? 'rapports';
+      if (title === 'Persona') {
+        if (it.summary) bits.push(it.summary);
+      } else if (title === 'Personnages') {
         if (it.age) bits.push(`âge: ${it.age}`);
         if (it.physique) bits.push(`physique: ${it.physique}`);
         if (it.personality) bits.push(`personnalité: ${it.personality}`);
         if (it.extraInfo) bits.push(`infos: ${it.extraInfo}`);
         if (it.location) bits.push(`emplacement: ${it.location}`);
         if (it.summary) bits.push(it.summary);
-      } else if (title === 'Liens' && it.linkSubsection === 'evenements') {
+      } else if (title === 'Liens' && sub === 'evenements') {
         if (it.participants) bits.push(`participants: ${it.participants}`);
         if (it.summary) bits.push(it.summary);
         if (it.time) bits.push(`temps: ${it.time}`);
         if (it.location) bits.push(`emplacement: ${it.location}`);
+      } else if (title === 'Liens' && sub === 'objets') {
+        if (it.owner) bits.push(`propriétaire: ${it.owner}`);
+        if (it.summary) bits.push(it.summary);
+        if (it.origin) bits.push(`origine: ${it.origin}`);
+      } else if (title === 'Liens' && sub === 'rapports') {
+        if (it.interlocutors) bits.push(`interlocuteurs: ${it.interlocutors}`);
+        else if (it.from || it.to) bits.push([it.from, it.to].filter(Boolean).join(' → '));
+        if (it.dynamics) bits.push(`dynamique: ${it.dynamics}`);
+        if (it.attitude) bits.push(`attitude: ${it.attitude}`);
+        if (it.attachmentLevel) bits.push(`attachement: ${it.attachmentLevel}`);
+        if (it.summary) bits.push(it.summary);
+      } else if (title === 'Liens' && sub === 'accords') {
+        bits.push(it.completed ? '✓ fait' : '○ en cours');
+        if (it.proposedBy) bits.push(`proposé par: ${it.proposedBy}`);
+        if (it.participants) bits.push(`participants: ${it.participants}`);
+        if (it.summary) bits.push(it.summary);
       } else {
         if (it.from || it.to) bits.push([it.from, it.to].filter(Boolean).join(' → '));
         if (it.summary) bits.push(it.summary);
@@ -528,12 +691,13 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
         title === 'Liens' && it.linkSubsection
           ? ` [${MEMORY_LINK_SUBSECTION_META[it.linkSubsection]?.label ?? it.linkSubsection}]`
           : '';
-      const persona = it.isPlayerPersona ? ' (persona joueur)' : '';
-      return `- ${it.name}${kind}${persona}: ${bits.filter(Boolean).join(' · ') || '—'}`;
+      const label = it.name;
+      return `- ${label}${kind}: ${bits.filter(Boolean).join(' · ') || '—'}`;
     });
     blocks.push(`#### ${title}\n${lines.join('\n')}`);
   };
-  pushSection('Personnages', memory.characters);
+  pushSection('Persona', memory.persona);
+  pushSection('Personnages', memory.characters.filter((c) => !c.isPlayerPersona));
   pushSection('Liens', memory.links);
   pushSection('Lieux clés', memory.places);
   if (!blocks.length && memory.entries.length) {
@@ -548,7 +712,7 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
   if (!blocks.length) return '';
   return [
     '### MÉMOIRE DE PARTIE — À RESPECTER',
-    'Résumé structuré du roleplay (personnages, relations, lieux).',
+    'Résumé structuré du roleplay (persona, personnages, relations, lieux).',
     'Priorité : sous les Règles du roleplay uniquement — ne contredis pas les règles.',
     'Ne réinvente pas un personnage / lieu déjà listé ; fusionne plutôt les infos.',
     ...blocks,
@@ -563,7 +727,7 @@ export function resolveMemoryWikilink(
   if (!memory) return null;
   const key = normalizeMemoryKey(target);
   if (!key) return null;
-  const sections: MemorySectionId[] = ['characters', 'links', 'places'];
+  const sections: MemorySectionId[] = ['persona', 'characters', 'links', 'places'];
   for (const section of sections) {
     const item = memory[section].find(
       (it) => it.key === key || normalizeMemoryKey(it.name) === key,
