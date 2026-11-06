@@ -1938,30 +1938,35 @@ export default function ChatScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: themeBgUri ? 'transparent' : undefined }} edges={['top']}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
 
-          {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: chatBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          {/* Header — compact, sans sous-titre bot/OnSpace AI */}
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            paddingHorizontal: Spacing.sm,
+            paddingTop: 2,
+            paddingBottom: 4,
+            backgroundColor: isSimulation ? 'transparent' : chatBg,
+            borderBottomWidth: isSimulation ? 0 : 1,
+            borderBottomColor: C.border,
+          }}>
             {/* Drawer toggle */}
             <View style={{ position: 'relative' }}>
-              <IconButton icon="menu" label="Historique des conversations" onPress={() => setDrawerOpen(true)} backgroundColor={C.bgCardAlt} boxSize={38} />
-              <View style={{ position: 'absolute', top: -4, right: -4, backgroundColor: C.primary, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }} pointerEvents="none">
-                <Text style={{ fontSize: 9, color: '#fff', fontWeight: '700' }}>{activeWorkspace.conversations.length}</Text>
+              <IconButton icon="menu" label="Historique des conversations" onPress={() => setDrawerOpen(true)} backgroundColor={isSimulation ? 'rgba(0,0,0,0.25)' : C.bgCardAlt} boxSize={32} />
+              <View style={{ position: 'absolute', top: -3, right: -3, backgroundColor: C.primary, borderRadius: 7, minWidth: 14, height: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 }} pointerEvents="none">
+                <Text style={{ fontSize: 8, color: '#fff', fontWeight: '700' }}>{activeWorkspace.conversations.length}</Text>
               </View>
             </View>
 
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexWrap: 'wrap' }}>
-                <View style={{ maxWidth: 180 }}>
-                  <Text style={{ fontSize: FontSize.body, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{activeConversation?.title || t('newConversation')}</Text>
-                  {activeConversation?.kind === 'simulation' ? (
-                    <Text style={{ fontSize: 10, color: '#9B59B6', fontWeight: '700', letterSpacing: 0.4 }}>SIMULATION</Text>
-                  ) : null}
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: activeWorkspace.color + '22' }}>
-                  <MaterialIcons name={activeWorkspace.icon as any} size={11} color={activeWorkspace.color} />
-                  <Text style={{ fontSize: 10, fontWeight: '600', color: activeWorkspace.color }}>{activeWorkspace.name}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                <Text style={{ flexShrink: 1, fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '700' }} numberOfLines={1}>{activeConversation?.title || t('newConversation')}</Text>
+                {activeConversation?.kind === 'simulation' ? (
+                  <Text style={{ fontSize: 9, color: '#9B59B6', fontWeight: '800', letterSpacing: 0.3 }}>SIMU</Text>
+                ) : null}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 5, paddingVertical: 1, borderRadius: Radius.pill, backgroundColor: activeWorkspace.color + '22' }}>
+                  <MaterialIcons name={activeWorkspace.icon as any} size={10} color={activeWorkspace.color} />
+                  <Text style={{ fontSize: 9, fontWeight: '600', color: activeWorkspace.color }} numberOfLines={1}>{activeWorkspace.name}</Text>
                 </View>
               </View>
-              <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 1, fontFamily: 'monospace' }}>{bot.name} · OnSpace AI</Text>
             </View>
 
             {isSimulation ? (
@@ -1970,8 +1975,8 @@ export default function ChatScreen() {
                   icon="psychology"
                   label="Mémoire du roleplay"
                   onPress={() => openSimMemory(null)}
-                  boxSize={36}
-                  backgroundColor={showSimMemory ? '#9B59B633' : C.bgCardAlt}
+                  boxSize={32}
+                  backgroundColor={showSimMemory ? '#9B59B633' : (isSimulation ? 'rgba(0,0,0,0.25)' : C.bgCardAlt)}
                   borderColor={showSimMemory ? '#9B59B688' : C.border}
                   color="#9B59B6"
                 />
@@ -1995,7 +2000,7 @@ export default function ChatScreen() {
                   icon="search"
                   label="Recherche globale (Ctrl+K)"
                   onPress={openPalette}
-                  boxSize={36}
+                  boxSize={32}
                   backgroundColor={C.bgCardAlt}
                   color={C.textMuted}
                 />
@@ -2004,7 +2009,7 @@ export default function ChatScreen() {
                   icon="download"
                   label="Exporter la conversation (.md)"
                   onPress={() => void handleExportConversation()}
-                  boxSize={36}
+                  boxSize={32}
                   backgroundColor={C.bgCardAlt}
                   color={C.textMuted}
                 />
@@ -2013,7 +2018,7 @@ export default function ChatScreen() {
                   icon="space-dashboard"
                   label="Panneau workspace (fichiers, instructions, sites)"
                   onPress={() => setShowSidePanel(v => !v)}
-                  boxSize={36}
+                  boxSize={32}
                   backgroundColor={showSidePanel ? C.accentGlow : C.bgCardAlt}
                   borderColor={showSidePanel ? C.accent + '55' : C.border}
                   color={showSidePanel ? C.accent : C.textMuted}
@@ -2348,7 +2353,7 @@ export default function ChatScreen() {
 
           {/* Astuce raccourci clavier (web/desktop uniquement) */}
           {Platform.OS === 'web' ? (
-            <View style={{ paddingHorizontal: Spacing.md, paddingTop: 2, backgroundColor: chatBg }}>
+            <View style={{ paddingHorizontal: Spacing.md, paddingTop: 0, backgroundColor: 'transparent' }}>
               <Text style={{ fontSize: 10, color: C.textMuted }}>↵ Envoyer · Maj + ↵ Nouvelle ligne · Échap ferme les panneaux</Text>
             </View>
           ) : null}
@@ -2465,14 +2470,16 @@ export default function ChatScreen() {
             />
           ) : null}
 
-          {/* Input bar */}
+          {/* Input bar — fond transparent (laisse voir l’arrière-plan), collée au bas */}
           <View style={{
             flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs,
-            paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
-            paddingBottom: insets.bottom + Spacing.sm,
-            backgroundColor: isSimulation && showPlusPopover ? (simThemeColors?.bgCard ?? C.bgCard) : chatBg,
-            borderTopWidth: isSimulation && showPlusPopover ? 0 : 1,
-            borderTopColor: C.border,
+            paddingHorizontal: Spacing.sm,
+            paddingTop: 4,
+            paddingBottom: Math.max(insets.bottom, 4),
+            backgroundColor: isSimulation && showPlusPopover
+              ? (simThemeColors?.bgCard ?? C.bgCard)
+              : 'transparent',
+            borderTopWidth: 0,
             zIndex: 160,
           }}>
             {/* Attach + mode + tools popover button */}
