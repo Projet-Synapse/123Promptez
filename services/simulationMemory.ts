@@ -26,6 +26,12 @@ import {
 import {
   emptyFeatureMessageItem,
   mergeInventoryItems,
+  removeInventoryItems,
+  mergeKnownNumbers,
+  extractPhones,
+  normalizePhone,
+  randomPhone,
+  type SimulationKnownNumber,
   type SimulationFeatureContent,
   type SimulationInventoryItem,
   type SimulationFeatureMessageItem,
@@ -288,7 +294,11 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
   "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
   "places": [{"name":"string","summary":"string"}],
   "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],
-  "contactMessages": [{"from":"string","content":"string","influence":"string?"}]
+  "contactMessages": [{"from":"string","content":"string","influence":"string?"}],
+  "inventoryRemoved": [{"name":"string","reason":"perdu|donné|consommé|volé|autre"}],
+  "discoveredNumbers": [{"name":"string","number":"xxx-xxx","source":"chat|paper"}],
+  "personaNumberGivenTo": ["string"],
+  "unknownMessages": [{"senderName":"string?","number":"xxx-xxx?","content":"string","suspicious":false}]
 }
 Règles STRICTES:
 - Pas de doublons de personnages (un nom = une entrée ; fusionne les alias).
@@ -305,12 +315,20 @@ Règles STRICTES:
 - Lieux clés seulement s'ils apparaissent vraiment.
 - "inventory" : UNIQUEMENT les objets que le persona JOUEUR porte actuellement sur lui (équipés / dans les poches / en main). carriedByPersona doit être true. Sinon tableau vide.
 - "contactMessages" : messages envoyés AU persona par des contacts listés (seulement si narrativement pertinent maintenant). from = nom exact du contact. Tableau vide si aucun.
+- "inventoryRemoved" : objets de l'INVENTAIRE ACTUEL qui ont quitté le persona dans l'historique récent (perdu, donné, consommé, volé). Nom EXACT de l'inventaire. Vide sinon.
+- Un papier/carte portant un numéro donné au persona = objet d'inventaire (ex. "Papier avec numéro de X", description contenant le numéro).
+- "discoveredNumbers" : numéros au format xxx-xxx (3 chiffres, tiret, 3 chiffres) qu'un personnage donne AU persona (oralement → chat, ou sur papier → paper), avec le nom du personnage. Vide sinon.
+- "personaNumberGivenTo" : noms des personnages à qui le JOUEUR vient de donner SON numéro (numéro du persona fourni). Vide sinon.
+- "unknownMessages" : messages SMS reçus d'un numéro non enregistré. Cas 1 : un personnage de la liste "ONT LE NUMÉRO DU PERSONA" écrit enfin (pas forcément tout de suite — seulement quand c'est naturel ; senderName = son nom). Cas 2 (TRÈS RARE, seulement si l'histoire s'y prête : mystère, danger) : un numéro étrange/suspect écrit (suspicious=true, senderName vide ou identité cachée). Vide la plupart du temps.
 - Priorise les cibles [[wikilink]] mentionnées dans l'historique récent.
 - Réponds en français.`;
 
 export type MemoryPassResult = {
   memory: SimulationMemory;
   inventoryAdded: SimulationInventoryItem[];
+  inventoryRemoved: SimulationInventoryItem[];
+  knownNumbersNext?: SimulationKnownNumber[];
+  pendingNext?: string[];
   messagesAdded: SimulationFeatureMessageItem[];
   /** true si le JSON LLM a été parsé */
   parsed: boolean;
@@ -352,6 +370,10 @@ export async function generateOrRefreshMemory(opts: {
   let llmPlaces: SimulationMemoryItem[] = [];
   let llmInventory: { name: string; quantity?: number; description?: string }[] = [];
   let llmContactMsgs: { from: string; content: string; influence?: string }[] = [];
+  let llmRemoved: string[] = [];
+  let llmNumbers: { number: string; name?: string; source?: SimulationKnownNumber['source'] }[] = [];
+  let llmGivenTo: string[] = [];
+  let llmUnknown: { senderName?: string; number?: string; content: string; suspicious?: boolean }[] = [];
   let parsed = false;
 
   try {
@@ -432,7 +454,7 @@ export async function generateOrRefreshMemory(opts: {
         : '## INVENTAIRE\nModule inactif — renvoie "inventory": [].',
       '',
       features.messages
-        ? `## CONTACTS (seuls autorisés à écrire)\n${contactNames.length ? contactNames.map((n) => `- ${n}`).join('\n') : '(aucun contact — contactMessages doit être [])'}`
+        ? `## NUMÉRO DU PERSONA\n${fc?.personaNumber || '(aucun)'}\n## ONT LE NUMÉRO DU PERSONA (peuvent écrire en numéro inconnu)\n${(fc?.pendingNumberGivenTo ?? []).join(', ') || '(personne)'}\n## CONTACTS (seuls autorisés à écrire)\n${contactNames.length ? contactNames.map((n) => `- ${n}`).join('\n') : '(aucun contact — contactMessages doit être [])'}`
         : '## MESSAGES CONTACTS\nModule inactif — renvoie "contactMessages": [].',
       '',
       '## HISTORIQUE',
@@ -486,6 +508,34 @@ export async function generateOrRefreshMemory(opts: {
         });
       }
     }
+    if (features.inventory && Array.isArray(json.inventoryRemoved)) {
+      llmRemoved = json.inventoryRemoved
+        .map((r: any) => String(typeof r === 'string' ? r : r?.name ?? '').trim())
+        .filter(Boolean);
+    }
+    if (features.messages) {
+      if (Array.isArray(json.discoveredNumbers)) {
+        for (const r of json.discoveredNumbers) {
+          const n = normalizePhone(r?.number);
+          if (n) llmNumbers.push({ number: n, name: String(r?.name ?? '').trim(), source: r?.source === 'paper' ? 'paper' : 'chat' });
+        }
+      }
+      if (Array.isArray(json.personaNumberGivenTo)) {
+        llmGivenTo = json.personaNumberGivenTo.map((s: any) => String(s ?? '').trim()).filter(Boolean);
+      }
+      if (Array.isArray(json.unknownMessages)) {
+        for (const r of json.unknownMessages) {
+          const content = String(r?.content ?? '').trim();
+          if (!content) continue;
+          llmUnknown.push({
+            senderName: String(r?.senderName ?? '').trim() || undefined,
+            number: normalizePhone(r?.number) ?? undefined,
+            content,
+            suspicious: r?.suspicious === true,
+          });
+        }
+      }
+    }
   } catch (e: any) {
     if (mode === 'refresh') {
       // Remonte l’erreur : le bouton Rafraîchir ne doit plus rester silencieux
@@ -516,31 +566,88 @@ export async function generateOrRefreshMemory(opts: {
   });
 
   let inventoryAdded: SimulationInventoryItem[] = [];
+  let inventoryRemoved: SimulationInventoryItem[] = [];
   let inventoryNext: SimulationInventoryItem[] | undefined;
   if (features.inventory) {
     const merged = mergeInventoryItems(fc?.inventory ?? [], llmInventory);
-    inventoryAdded = merged.added;
-    inventoryNext = merged.next;
+    const addedKeys = new Set(merged.added.map((a) => a.id));
+    const rem = removeInventoryItems(merged.next, llmRemoved);
+    inventoryAdded = merged.added.filter((a) => !rem.removed.some((r) => r.id === a.id));
+    inventoryRemoved = rem.removed.filter((r) => !addedKeys.has(r.id));
+    inventoryNext = rem.next;
+  }
+
+  // Numéros découverts : LLM + regex texte IA récent + papiers d’inventaire
+  let knownNumbersNext: SimulationKnownNumber[] | undefined;
+  let pendingNext: string[] | undefined;
+  if (features.messages) {
+    const recentAssistant = messages.slice(-2).filter((m) => m.role === 'assistant').map((m) => m.content).join('\n');
+    const personaN = fc?.personaNumber ? normalizePhone(fc.personaNumber) : null;
+    const regexNums = extractPhones(recentAssistant)
+      .filter((n) => n !== personaN && !llmNumbers.some((l) => l.number === n))
+      .map((n) => ({ number: n, name: '', source: 'chat' as const }));
+    const paperNums = (inventoryNext ?? fc?.inventory ?? []).flatMap((i) =>
+      extractPhones(`${i.name} ${i.description}`)
+        .filter((n) => n !== personaN && !llmNumbers.some((l) => l.number === n))
+        .map((n) => ({ number: n, name: '', source: 'paper' as const })),
+    );
+    knownNumbersNext = mergeKnownNumbers(fc?.knownNumbers ?? [], [
+      ...llmNumbers.filter((l) => l.number !== personaN), ...regexNums, ...paperNums,
+    ]);
+    const pend = new Set([...(fc?.pendingNumberGivenTo ?? []), ...llmGivenTo]);
+    // Messages numéro inconnu
+    for (const u of llmUnknown) {
+      const fromPending = u.senderName && Array.from(pend).some((p) => normalizeMemoryKey(p) === normalizeMemoryKey(u.senderName!));
+      if (!fromPending && !u.suspicious) continue;
+      const existing = knownNumbersNext.find((k) => u.senderName && normalizeMemoryKey(k.name) === normalizeMemoryKey(u.senderName));
+      const num = u.number || existing?.number || randomPhone();
+      if (fromPending) {
+        for (const p of Array.from(pend)) if (normalizeMemoryKey(p) === normalizeMemoryKey(u.senderName!)) pend.delete(p);
+      }
+      llmContactMsgs.push({ from: 'Numéro inconnu', content: u.content, influence: undefined });
+      (llmContactMsgs[llmContactMsgs.length - 1] as any).__unknown = {
+        fromNumber: num, hiddenName: u.senderName, suspicious: u.suspicious === true,
+      };
+    }
+    pendingNext = Array.from(pend);
   }
 
   let messagesAdded: SimulationFeatureMessageItem[] = [];
   let messagesNext: SimulationFeatureMessageItem[] | undefined;
   if (features.messages) {
     const existing = fc?.messages ?? [];
-    messagesAdded = llmContactMsgs.map((m) =>
-      emptyFeatureMessageItem({
+    const contacts = fc?.contacts ?? [];
+    messagesAdded = llmContactMsgs.map((m) => {
+      const u = (m as any).__unknown as { fromNumber: string; hiddenName?: string; suspicious: boolean } | undefined;
+      if (u) {
+        return emptyFeatureMessageItem({
+          from: `Numéro inconnu (${u.fromNumber})`,
+          content: m.content,
+          read: false,
+          fromNumber: u.fromNumber,
+          unknownSender: true,
+          hiddenName: u.hiddenName,
+          suspicious: u.suspicious,
+        });
+      }
+      const c = contacts.find((x) => normalizeMemoryKey(x.name) === normalizeMemoryKey(m.from));
+      return emptyFeatureMessageItem({
         from: m.from,
         content: m.content,
         influence: m.influence,
         read: false,
-      }),
-    );
+        fromNumber: c?.number,
+      });
+    });
     messagesNext = messagesAdded.length ? [...messagesAdded, ...existing] : existing;
   }
 
   return {
     memory: next,
     inventoryAdded,
+    inventoryRemoved,
+    knownNumbersNext,
+    pendingNext,
     messagesAdded,
     parsed,
     inventoryNext,

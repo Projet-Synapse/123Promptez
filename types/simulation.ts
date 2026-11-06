@@ -25,6 +25,7 @@ export type {
   SimulationSkillItem,
   SimulationFeatureMessageItem,
   SimulationContactItem,
+  SimulationKnownNumber,
 } from '@/types/simulationFeatureContent';
 export {
   emptyFeatureContent,
@@ -33,6 +34,12 @@ export {
   formatFeaturesForPrompt,
   countUnreadMessages,
   mergeInventoryItems,
+  removeInventoryItems,
+  mergeKnownNumbers,
+  addContactByNumber,
+  extractPhones,
+  normalizePhone,
+  randomPhone,
 } from '@/types/simulationFeatureContent';
 
 export type { SimulationThemeId } from '@/types/simulationTheme';
