@@ -76,6 +76,9 @@ import {
   seedMemoryFromWorld,
 } from '@/services/simulationMemory';
 import { Image } from 'expo-image';
+import {
+  TIME_MARKER_PREFIX, parseTimeMarker, advanceClock, clockDayChanged, formatClockFr, defaultClock, stripTimeMarker,
+} from '@/types/simulationClock';
 import { NarrationRadar } from '@/components/feature/NarrationRadar';
 import {
   NARRATION_STYLES,
@@ -1138,6 +1141,8 @@ export default function ChatScreen() {
   const [memoryRefreshError, setMemoryRefreshError] = useState<string | null>(null);
   const [memoryFocusItemId, setMemoryFocusItemId] = useState<string | null>(null);
   const memoryGenRef = useRef(false);
+  /** Dernière horloge in-game écrite (évite qu’une MAJ concurrente l’écrase) */
+  const clockOverrideRef = useRef<string | null>(null);
   const maybeAutoUpdateMemoryRef = useRef<(opts?: { lastUser?: string; lastAssistant?: string; messageCount?: number }) => void>(() => {});
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
@@ -1541,6 +1546,28 @@ export default function ChatScreen() {
         finalContent = stripQuestionnaire(finalContent);
       }
       setActivities([]);
+      // ── Temps in-game : [TEMPS:…] en tête → avance l’horloge ; marqueur seulement si le jour change ──
+      if (activeConversation?.kind === 'simulation' && simData) {
+        const tm = parseTimeMarker(finalContent);
+        if (tm) {
+          finalContent = tm.rest;
+          const before = clockOverrideRef.current ?? simData.world.clock ?? defaultClock();
+          const after = tm.absolute ?? (tm.minutes ? advanceClock(before, tm.minutes) : before);
+          if (after !== before) {
+            clockOverrideRef.current = after;
+            updateSimulation(activeWorkspace.id, activeConversation.id, {
+              ...simData,
+              world: { ...simData.world, clock: after },
+            });
+            if (clockDayChanged(before, after)) {
+              addMessageToConversation(activeWorkspace.id, activeConversation.id, {
+                role: 'assistant',
+                content: `${TIME_MARKER_PREFIX}${formatClockFr(after)}`,
+              });
+            }
+          }
+        }
+      }
       addMessageToConversation(activeWorkspace.id, activeConversation.id, {
         role: 'assistant',
         content: finalContent,
@@ -1781,6 +1808,10 @@ export default function ChatScreen() {
 
   const isSimulation = activeConversation?.kind === 'simulation';
   const simData = activeConversation?.simulation;
+  // Horloge in-game : la ref suit toujours la dernière valeur persistée
+  useEffect(() => {
+    clockOverrideRef.current = simData?.world?.clock ?? null;
+  }, [activeConversation?.id, simData?.world?.clock]);
   const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || simEditMode));
   const activeSimPersona = getActivePersona(simData);
   const simThemeId: SimulationThemeId = (simData?.theme as SimulationThemeId) || 'default';
@@ -1831,6 +1862,7 @@ export default function ChatScreen() {
       });
       updateSimulation(activeWorkspace.id, activeConversation.id, {
         ...simData,
+        world: { ...simData.world, clock: clockOverrideRef.current ?? simData.world.clock },
         memory: result.memory,
         featureContent: nextFc,
       });
@@ -2381,7 +2413,7 @@ export default function ChatScreen() {
               isSimulation ? (
                 <View style={{ marginBottom: Spacing.md, paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
                   <View style={{ flex: 1 }}>
-                    <MarkdownView content={throttledStream} variant="narration" />
+                    <MarkdownView content={stripTimeMarker(throttledStream)} variant="narration" />
                   </View>
                   <View style={{ width: 2, height: 18, backgroundColor: '#9B59B6', marginLeft: 4, alignSelf: 'center' }} />
                 </View>

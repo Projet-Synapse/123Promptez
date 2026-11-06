@@ -78,9 +78,10 @@ function Field({
 }
 
 function CardShell({
-  title, subtitle, open, onToggle, onRemove, children, C, header,
+  title, subtitle, open, onToggle, onRemove, children, C, header, createdAt,
 }: {
   header?: React.ReactNode;
+  createdAt?: string;
   title: string;
   subtitle?: string;
   open: boolean;
@@ -101,6 +102,11 @@ function CardShell({
             {title}
           </Text>
           {header}
+          {createdAt ? (
+            <Text style={{ fontSize: 9, color: C.textMuted, marginTop: 2, opacity: 0.8 }}>
+              Ajouté le {new Date(createdAt).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          ) : null}
           {!open && subtitle ? (
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }} numberOfLines={2}>
               {subtitle}
@@ -345,6 +351,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
             <CardShell
               key={it.id}
               title={`${it.name} ×${it.quantity}`}
+              createdAt={it.createdAt}
               subtitle={it.description}
               open={expandedId === it.id}
               onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
@@ -389,6 +396,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
               <CardShell
                 key={it.id}
                 title={`${it.name} · niv. ${it.level}/10`}
+                createdAt={it.createdAt}
                 subtitle={it.description}
                 open={expandedId === it.id}
                 onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
@@ -456,6 +464,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
           ? (content.lifeStages ?? []).map((it) => (
             <CardShell
               key={it.id}
+              createdAt={it.createdAt}
               title={it.title}
               subtitle={[it.when, it.impact].filter(Boolean).join(' · ')}
               open={expandedId === it.id}

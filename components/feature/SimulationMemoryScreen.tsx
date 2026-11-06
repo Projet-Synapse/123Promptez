@@ -308,6 +308,11 @@ function ItemCard({
               {preview}
             </Text>
           ) : null}
+          {it.createdAt ? (
+            <Text style={{ fontSize: 9, color: C.textMuted, marginTop: 2, opacity: 0.8 }}>
+              Ajouté le {new Date(it.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          ) : null}
         </View>
         <Pressable
           onPress={(e) => {

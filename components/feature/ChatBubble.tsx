@@ -10,6 +10,7 @@ import { ThinkingCard } from '@/components/feature/ThinkingCard';
 import { QuestionnaireCard, QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
 import { parseSimulationRoleplayContent } from '@/services/simulationRoleplayFormat';
 import { normalizeMemoryKey } from '@/types/simulationMemory';
+import { TIME_MARKER_PREFIX } from '@/types/simulationClock';
 
 const RP_ACCENT = '#9B59B6';
 
@@ -110,6 +111,22 @@ export function ChatBubble({
     if (!roleplayMode || isUser) return null;
     return parseSimulationRoleplayContent(message.content);
   }, [roleplayMode, isUser, message.content]);
+
+  if (message.content.startsWith(TIME_MARKER_PREFIX)) {
+    const label = message.content.slice(TIME_MARKER_PREFIX.length).trim();
+    return (
+      <View style={{ alignItems: 'center', marginVertical: Spacing.md }}>
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', gap: 6,
+          paddingHorizontal: 14, paddingVertical: 6, borderRadius: Radius.pill,
+          backgroundColor: 'rgba(12,12,18,0.55)', borderWidth: 1, borderColor: themeAccent + '66',
+        }}>
+          <MaterialIcons name="schedule" size={14} color="#fff" />
+          <Text style={{ fontSize: FontSize.sm, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>{label}</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (isSyntheticCard) {
     return (

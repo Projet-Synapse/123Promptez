@@ -6,6 +6,7 @@ import {
   normalizeSimulationMemory,
   type SimulationMemory,
 } from '@/types/simulationMemory';
+import { normalizeClock, clockPromptBlock } from '@/types/simulationClock';
 import { formatNarrationStyleForPrompt } from '@/types/simulationNarrationStyles';
 import { SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS } from '@/services/simulationRoleplayFormat';
 import {
@@ -136,6 +137,8 @@ export interface SimulationWorld {
    * Remplis à l'étape d'import (pas encore branché).
    */
   knowledgeFolderIds: string[];
+  /** Horloge in-game « YYYY-MM-DD HH:MM » (t232u) */
+  clock?: string;
 }
 
 /** Identifiants des modules gameplay optionnels (Simulation). */
@@ -331,6 +334,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       backgroundContext,
       rules: String(worldIn.rules ?? ''),
       synopsis: synopsis || undefined,
+      clock: normalizeClock(worldIn.clock),
       knowledgeFolderIds: Array.isArray(worldIn.knowledgeFolderIds)
         ? worldIn.knowledgeFolderIds.map(String)
         : [],
@@ -406,6 +410,8 @@ export function buildSimulationPromptInjection(
       w.rules.trim(),
     );
   }
+  // Temps in-game
+  lines.push(clockPromptBlock(w.clock));
   // Style de narration (après les règles prioritaires)
   lines.push(formatNarrationStyleForPrompt(sim.narrationStyleId));
   // Mémoire structurée — priorité juste sous les Règles
