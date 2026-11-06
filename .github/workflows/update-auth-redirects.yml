@@ -1,0 +1,71 @@
+name: Update Auth Redirect URLs (manual)
+on:
+  workflow_dispatch: {}
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge Redirect URLs into Supabase Auth config
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABBASE_ACCESS_TOKEN }}
+          PROJECT_REF: yvzqbjxngagapskqfcrm
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "Secret SUPABBASE_ACCESS_TOKEN missing" >&2
+            exit 1
+          fi
+          CFG=$(curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth")
+          python3 <<'PY'
+          import json, os, urllib.request
+          cfg = json.loads('''$CFG'''.replace("'''$CFG'''", open('/dev/stdin').read()) if False else '')
+          PY
+          # safer: write cfg to file
+          echo "$CFG" > /tmp/auth.json
+          python3 <<'PY'
+          import json, os, urllib.request
+          project = os.environ['PROJECT_REF']
+          token = os.environ['SUPABASE_ACCESS_TOKEN']
+          with open('/tmp/auth.json') as f:
+              cfg = json.load(f)
+          existing = cfg.get('uri_allow_list') or ''
+          if isinstance(existing, list):
+              urls = [str(u).strip() for u in existing if str(u).strip()]
+          else:
+              urls = [u.strip() for u in str(existing).split(',') if u.strip()]
+          add = [
+            'onspaceapp://auth',
+            'onspaceapp://**',
+            'com.promptez.app://auth',
+            'com.promptez.app://**',
+          ]
+          for p in range(47823, 47828):
+            add.append(f'http://127.0.0.1:{p}/**')
+            add.append(f'http://localhost:{p}/**')
+            add.append(f'http://127.0.0.1:{p}/login')
+            add.append(f'http://localhost:{p}/login')
+          # keep existing web URLs
+          merged = []
+          seen = set()
+          for u in urls + add:
+            if u not in seen:
+              seen.add(u)
+              merged.append(u)
+          body = json.dumps({'uri_allow_list': ','.join(merged)}).encode()
+          req = urllib.request.Request(
+            f'https://api.supabase.com/v1/projects/{project}/config/auth',
+            data=body,
+            headers={
+              'Authorization': f'Bearer {token}',
+              'Content-Type': 'application/json',
+            },
+            method='PATCH',
+          )
+          with urllib.request.urlopen(req) as resp:
+              out = json.load(resp)
+          allow = out.get('uri_allow_list') or ''
+          print('UPDATED uri_allow_list:')
+          for u in (allow.split(',') if isinstance(allow, str) else allow):
+              print(' ', u.strip())
+          PY
