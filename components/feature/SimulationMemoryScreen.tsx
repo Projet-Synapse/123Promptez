@@ -21,7 +21,6 @@ import {
   MEMORY_RELATION_FICHE_FIELDS,
   MEMORY_ACCORD_FICHE_FIELDS,
   MEMORY_PERSONA_FICHE_FIELDS,
-  MEMORY_AUTO_UPDATE_EVERY_N,
   MEMORY_PIN_MAX,
   countPinnedMemory,
   type MemorySectionId,
@@ -78,6 +77,8 @@ type Props = {
   onMarkSeen: (section: MemorySectionId, id: string) => void;
   /** Épingle / désépingle (retour false si quota MEMORY_PIN_MAX). */
   onTogglePin: (section: MemorySectionId, id: string) => boolean;
+  /** Erreur dernière génération (affichée sous le header) */
+  refreshError?: string | null;
 };
 
 function Field({
@@ -598,17 +599,22 @@ function SectionBlock({
       </View>
 
       {section === 'links' ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.sm }}>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginBottom: Spacing.sm, flexGrow: 0 }}
+          contentContainerStyle={{ alignItems: 'center', gap: 6, paddingVertical: 4, minHeight: 40 }}
+        >
             <Pressable
               onPress={() => setLinkFilter('all')}
               style={{
-                paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                paddingHorizontal: 12, paddingVertical: 8, minHeight: 32, borderRadius: Radius.pill,
                 backgroundColor: linkFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
                 borderWidth: 1, borderColor: linkFilter === 'all' ? ACCENT + '77' : C.border,
+                alignItems: 'center', justifyContent: 'center',
               }}
             >
-              <Text style={{ fontSize: 11, fontWeight: '700', color: linkFilter === 'all' ? ACCENT : C.textSecondary }}>Tout</Text>
+              <Text style={{ fontSize: 11, lineHeight: 16, fontWeight: '700', color: linkFilter === 'all' ? ACCENT : C.textSecondary, includeFontPadding: false }}>Tout</Text>
             </Pressable>
             {MEMORY_LINK_SUBSECTIONS.map((k) => {
               const on = linkFilter === k;
@@ -618,18 +624,18 @@ function SectionBlock({
                   key={k}
                   onPress={() => setLinkFilter(k)}
                   style={{
-                    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+                    paddingHorizontal: 12, paddingVertical: 8, minHeight: 32, borderRadius: Radius.pill,
                     backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
                     borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+                    alignItems: 'center', justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+                  <Text style={{ fontSize: 11, lineHeight: 16, fontWeight: '700', color: on ? ACCENT : C.textSecondary, includeFontPadding: false }}>
                     {MEMORY_LINK_SUBSECTION_META[k].label}{n ? ` · ${n}` : ''}
                   </Text>
                 </Pressable>
               );
             })}
-          </View>
         </ScrollView>
       ) : null}
 
@@ -714,7 +720,7 @@ function SectionBlock({
 }
 
 export function SimulationMemoryScreen({
-  memory, generating, focusItemId, personaBaseHint, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen, onTogglePin,
+  memory, generating, focusItemId, personaBaseHint, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen, onTogglePin, refreshError,
 }: Props) {
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
@@ -738,8 +744,6 @@ export function SimulationMemoryScreen({
     return tab === 'all' ? all : [tab];
   }, [tab]);
 
-  const everyN = memory.updateEveryN || MEMORY_AUTO_UPDATE_EVERY_N;
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top', 'bottom']}>
       <View style={{
@@ -761,7 +765,7 @@ export function SimulationMemoryScreen({
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: FontSize.md, fontWeight: '800', color: C.textPrimary }}>Mémoire</Text>
           <Text style={{ fontSize: FontSize.xs, color: ACCENT, fontWeight: '700', letterSpacing: 0.4 }}>
-            ROLEPLAY · MAJ auto tous les {everyN} messages
+            ROLEPLAY · MAJ sur [[wikilinks]]
             {' · '}📌 {countPinnedMemory(memory)}/{MEMORY_PIN_MAX}
           </Text>
         </View>
@@ -787,8 +791,30 @@ export function SimulationMemoryScreen({
         </Pressable>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <View style={{ flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm }}>
+      {refreshError ? (
+        <View style={{
+          marginHorizontal: Spacing.md, marginBottom: Spacing.xs,
+          paddingHorizontal: Spacing.sm, paddingVertical: 8,
+          borderRadius: Radius.sm, backgroundColor: C.error + '18', borderWidth: 1, borderColor: C.error + '55',
+        }}>
+          <Text style={{ fontSize: FontSize.xs, color: C.error, fontWeight: '600', lineHeight: 16 }}>
+            {refreshError}
+          </Text>
+        </View>
+      ) : null}
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border }}
+        contentContainerStyle={{
+          alignItems: 'center',
+          paddingHorizontal: Spacing.md,
+          paddingVertical: 10,
+          gap: Spacing.xs,
+          minHeight: 48,
+        }}
+      >
           {([
             { id: 'all' as const, label: 'Tout' },
             { id: 'persona' as const, label: 'Persona' },
@@ -808,18 +834,30 @@ export function SimulationMemoryScreen({
                 key={t.id}
                 onPress={() => setTab(t.id)}
                 style={{
-                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.pill,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  minHeight: 34,
+                  borderRadius: Radius.pill,
                   backgroundColor: on ? ACCENT + '22' : C.bgCardAlt,
                   borderWidth: 1, borderColor: on ? ACCENT + '66' : C.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <Text style={{ fontSize: FontSize.xs, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
+                <Text
+                  style={{
+                    fontSize: FontSize.xs,
+                    lineHeight: 18,
+                    fontWeight: '700',
+                    color: on ? ACCENT : C.textSecondary,
+                    includeFontPadding: false,
+                  }}
+                >
                   {t.label}{hasNew ? ' 🔴' : ''}
                 </Text>
               </Pressable>
             );
           })}
-        </View>
       </ScrollView>
 
       <ScrollView

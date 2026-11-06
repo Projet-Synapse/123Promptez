@@ -16,12 +16,20 @@ import {
   normalizeLinkSubsection,
   pickPrincipalByMentions,
   ensureSinglePrincipal,
+  extractWikilinkTargets,
   type SimulationMemory,
   type SimulationMemoryItem,
   type MemorySectionId,
   type MemoryCharacterCategory,
   type MemoryLinkSubsection,
 } from '@/types/simulationMemory';
+import {
+  emptyFeatureMessageItem,
+  mergeInventoryItems,
+  type SimulationFeatureContent,
+  type SimulationInventoryItem,
+  type SimulationFeatureMessageItem,
+} from '@/types/simulationFeatureContent';
 
 type ChatMsg = { role: 'user' | 'assistant' | 'system'; content: string };
 
@@ -277,14 +285,16 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
 {
   "persona": [{"name":"string","summary":"string"}],
   "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
-  "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","summary":"string?","completed":false}],
-  "places": [{"name":"string","summary":"string"}]
+  "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
+  "places": [{"name":"string","summary":"string"}],
+  "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],
+  "contactMessages": [{"from":"string","content":"string","influence":"string?"}]
 }
 Règles STRICTES:
 - Pas de doublons de personnages (un nom = une entrée ; fusionne les alias).
 - Faits vérifiables dans le worldbuilding / l'historique seulement — pas d'invention.
 - Summaries courtes (1–3 phrases).
-- "persona" = faits APPRIS en RP sur le persona joueur, STRICTEMENT différents de ce qui est déjà dans le persona de base (identité, physique, personnalité, goûts, arrière-plan fournis ci-dessous). N'y mets PAS de simple reformulation du persona de base.
+- "persona" = faits APPRIS en RP sur le persona joueur, STRICTEMENT différents de ce qui est déjà dans le persona de base. N'y mets PAS de simple reformulation du persona de base.
 - "characters" = PNJ seulement (jamais le persona joueur).
 - Pour chaque personnage, renseigne si possible : age, physique, personality, extraInfo, location.
 - linkSubsection:
@@ -293,12 +303,28 @@ Règles STRICTES:
   - evenements = évènements marquants (participants, summary=description, time, location)
   - accords = accords et tâches (proposedBy, participants, summary=description, completed true/false)
 - Lieux clés seulement s'ils apparaissent vraiment.
+- "inventory" : UNIQUEMENT les objets que le persona JOUEUR porte actuellement sur lui (équipés / dans les poches / en main). carriedByPersona doit être true. Sinon tableau vide.
+- "contactMessages" : messages envoyés AU persona par des contacts listés (seulement si narrativement pertinent maintenant). from = nom exact du contact. Tableau vide si aucun.
+- Priorise les cibles [[wikilink]] mentionnées dans l'historique récent.
 - Réponds en français.`;
 
+export type MemoryPassResult = {
+  memory: SimulationMemory;
+  inventoryAdded: SimulationInventoryItem[];
+  messagesAdded: SimulationFeatureMessageItem[];
+  /** true si le JSON LLM a été parsé */
+  parsed: boolean;
+  /** Inventaire fusionné (si features.inventory) — sinon undefined */
+  inventoryNext?: SimulationInventoryItem[];
+  /** Messages fusionnés (nouveaux en tête) — sinon undefined */
+  messagesNext?: SimulationFeatureMessageItem[];
+};
+
 /**
- * Génère ou met à jour la mémoire.
+ * Génère ou met à jour la mémoire (+ inventaire / messages contacts si demandés).
  * `mode: 'initial'` = première ouverture ; `'refresh'` = MAJ auto / manuelle.
  * Les items `userEdited` de `current` sont toujours préservés.
+ * En refresh : une erreur LLM ou un JSON illisible remonte (plus de silence).
  */
 export async function generateOrRefreshMemory(opts: {
   sim: SimulationData;
@@ -306,21 +332,37 @@ export async function generateOrRefreshMemory(opts: {
   bot: BotConfig;
   mode: 'initial' | 'refresh';
   signal?: AbortSignal;
-}): Promise<SimulationMemory> {
+  /** Modules actifs — extrait inventaire / messages contacts si true */
+  features?: { inventory?: boolean; messages?: boolean };
+  featureContent?: SimulationFeatureContent | null;
+}): Promise<MemoryPassResult> {
   const { sim, messages, bot, mode, signal } = opts;
   const current = normalizeOrEmpty(sim.memory);
   const seed = mode === 'initial' ? seedMemoryFromWorld(sim) : current;
+  const features = opts.features ?? {};
+  const fc = opts.featureContent;
+  const contactNames = (fc?.contacts ?? []).map((c) => c.name).filter(Boolean);
+  const recentWiki = messages
+    .slice(-6)
+    .flatMap((m) => extractWikilinkTargets(m.content));
 
   let llmPersona: SimulationMemoryItem[] = [];
   let llmCharacters: SimulationMemoryItem[] = [];
   let llmLinks: SimulationMemoryItem[] = [];
   let llmPlaces: SimulationMemoryItem[] = [];
+  let llmInventory: { name: string; quantity?: number; description?: string }[] = [];
+  let llmContactMsgs: { from: string; content: string; influence?: string }[] = [];
+  let parsed = false;
 
   try {
     const userPrompt = [
       mode === 'initial'
         ? 'Génère la mémoire INITIALE de cette simulation à partir du worldbuilding et de l’historique.'
         : 'METS À JOUR la mémoire : ajoute/affine uniquement les faits nouveaux de l’historique récent. Ne réinvente pas.',
+      '',
+      recentWiki.length
+        ? `## WIKILINKS RÉCENTS (prioritaires)\n${recentWiki.map((w) => `- [[${w}]]`).join('\n')}`
+        : '',
       '',
       '## WORLDBUILDING',
       buildWorldSnippet(sim),
@@ -385,9 +427,17 @@ export async function generateOrRefreshMemory(opts: {
         2,
       ),
       '',
+      features.inventory
+        ? `## INVENTAIRE ACTUEL\n${JSON.stringify((fc?.inventory ?? []).map((i) => ({ name: i.name, quantity: i.quantity, description: i.description })), null, 2)}\nN’ajoute que ce que le persona porte SUR LUI maintenant.`
+        : '## INVENTAIRE\nModule inactif — renvoie "inventory": [].',
+      '',
+      features.messages
+        ? `## CONTACTS (seuls autorisés à écrire)\n${contactNames.length ? contactNames.map((n) => `- ${n}`).join('\n') : '(aucun contact — contactMessages doit être [])'}`
+        : '## MESSAGES CONTACTS\nModule inactif — renvoie "contactMessages": [].',
+      '',
       '## HISTORIQUE',
       buildHistorySnippet(messages),
-    ].join('\n');
+    ].filter((s) => s !== undefined).join('\n');
 
     const raw = await completeOnce({
       model: bot.llmConfig?.model || 'claude-sonnet-5',
@@ -396,15 +446,52 @@ export async function generateOrRefreshMemory(opts: {
       user: userPrompt,
       signal,
     });
-    const parsed = extractJsonObject(raw);
-    if (parsed) {
-      llmPersona = itemsFromLlmArray(parsed.persona, 'persona');
-      llmCharacters = itemsFromLlmArray(parsed.characters, 'characters');
-      llmLinks = itemsFromLlmArray(parsed.links, 'links');
-      llmPlaces = itemsFromLlmArray(parsed.places, 'places');
+    if (!String(raw ?? '').trim()) {
+      throw new Error('Mémoire IA : réponse vide');
     }
-  } catch {
-    // Seed seul si LLM indisponible
+    const json = extractJsonObject(raw);
+    if (!json || typeof json !== 'object') {
+      throw new Error('Mémoire IA : JSON illisible');
+    }
+    parsed = true;
+    llmPersona = itemsFromLlmArray(json.persona, 'persona');
+    llmCharacters = itemsFromLlmArray(json.characters, 'characters');
+    llmLinks = itemsFromLlmArray(json.links, 'links');
+    llmPlaces = itemsFromLlmArray(json.places, 'places');
+    if (features.inventory && Array.isArray(json.inventory)) {
+      for (const r of json.inventory) {
+        if (!r || typeof r !== 'object') continue;
+        if (r.carriedByPersona === false) continue;
+        const name = String(r.name ?? '').trim();
+        if (!name) continue;
+        llmInventory.push({
+          name,
+          quantity: typeof r.quantity === 'number' ? r.quantity : 1,
+          description: String(r.description ?? r.summary ?? '').trim() || undefined,
+        });
+      }
+    }
+    if (features.messages && Array.isArray(json.contactMessages) && contactNames.length) {
+      const allowed = new Set(contactNames.map((n) => normalizeMemoryKey(n)));
+      for (const r of json.contactMessages) {
+        if (!r || typeof r !== 'object') continue;
+        const from = String(r.from ?? '').trim();
+        const content = String(r.content ?? r.text ?? '').trim();
+        if (!from || !content) continue;
+        if (!allowed.has(normalizeMemoryKey(from))) continue;
+        llmContactMsgs.push({
+          from,
+          content,
+          influence: String(r.influence ?? '').trim() || undefined,
+        });
+      }
+    }
+  } catch (e: any) {
+    if (mode === 'refresh') {
+      // Remonte l’erreur : le bouton Rafraîchir ne doit plus rester silencieux
+      throw e instanceof Error ? e : new Error(String(e?.message ?? e ?? 'Mémoire : échec'));
+    }
+    // initial : seed seul si LLM indisponible
   }
 
   const basePersona = mode === 'initial' ? seed.persona : current.persona;
@@ -427,7 +514,38 @@ export async function generateOrRefreshMemory(opts: {
     links: mergeMemoryItems(baseLinks, llmLinks),
     places: mergeMemoryItems(basePlaces, llmPlaces),
   });
-  return next;
+
+  let inventoryAdded: SimulationInventoryItem[] = [];
+  let inventoryNext: SimulationInventoryItem[] | undefined;
+  if (features.inventory) {
+    const merged = mergeInventoryItems(fc?.inventory ?? [], llmInventory);
+    inventoryAdded = merged.added;
+    inventoryNext = merged.next;
+  }
+
+  let messagesAdded: SimulationFeatureMessageItem[] = [];
+  let messagesNext: SimulationFeatureMessageItem[] | undefined;
+  if (features.messages) {
+    const existing = fc?.messages ?? [];
+    messagesAdded = llmContactMsgs.map((m) =>
+      emptyFeatureMessageItem({
+        from: m.from,
+        content: m.content,
+        influence: m.influence,
+        read: false,
+      }),
+    );
+    messagesNext = messagesAdded.length ? [...messagesAdded, ...existing] : existing;
+  }
+
+  return {
+    memory: next,
+    inventoryAdded,
+    messagesAdded,
+    parsed,
+    inventoryNext,
+    messagesNext,
+  };
 }
 
 function normalizeOrEmpty(mem: SimulationMemory | undefined): SimulationMemory {

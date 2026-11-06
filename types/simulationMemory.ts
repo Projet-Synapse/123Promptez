@@ -632,14 +632,45 @@ export function pickPrincipalByMentions(
   );
 }
 
+/** Extrait les cibles [[wikilink]] / [[cible|alias]] d’un texte. */
+export function extractWikilinkTargets(text: string): string[] {
+  const out: string[] = [];
+  const re = /\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g;
+  let m: RegExpExecArray | null;
+  const src = String(text ?? '');
+  while ((m = re.exec(src))) {
+    const target = (m[1] || '').trim();
+    if (target) out.push(target);
+  }
+  return out;
+}
+
+/** true si au moins un message contient des [[wikilinks]]. */
+export function messagesHaveWikilinks(
+  ...texts: (string | undefined | null)[]
+): boolean {
+  return texts.some((t) => !!t && /\[\[[^\]]+\]\]/.test(t));
+}
+
+/**
+ * Déclencheur MAJ mémoire (t227u) : dès qu’un message joueur ou IA
+ * contient des [[noms]] — plus tous les N messages.
+ * Conservé pour compat : `shouldAutoUpdateMemory` délègue ici si on passe des textes.
+ */
 export function shouldAutoUpdateMemory(
   memory: SimulationMemory,
   messageCount: number,
+  recentTexts?: (string | undefined | null)[],
 ): boolean {
   if (!memory.initialized) return false;
-  const every = memory.updateEveryN || MEMORY_AUTO_UPDATE_EVERY_N;
-  const since = messageCount - (memory.messageCountAtLastUpdate || 0);
-  return since >= every;
+  if (recentTexts && recentTexts.length > 0) {
+    return messagesHaveWikilinks(...recentTexts);
+  }
+  // Legacy fallback (sans textes) : ancien seuil N — désactivé en pratique
+  // (les appelants passent les textes). Garde-fou : ne jamais auto-MAJ.
+  void messageCount;
+  void MEMORY_AUTO_UPDATE_EVERY_N;
+  return false;
 }
 
 /** Résumé injecté dans le prompt (sous les Règles). */

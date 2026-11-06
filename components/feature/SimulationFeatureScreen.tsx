@@ -25,7 +25,9 @@ import {
   emptyAlbumItem,
   emptySkillItem,
   emptyFeatureMessageItem,
+  emptyContactItem,
 } from '@/types/simulationFeatureContent';
+import { normalizeMemoryKey } from '@/types/simulationMemory';
 
 const ACCENT = '#9B59B6';
 
@@ -34,6 +36,8 @@ type Props = {
   content: SimulationFeatureContent;
   onChange: (next: SimulationFeatureContent) => void;
   onClose: () => void;
+  /** Personnages mémoire (pour ajouter des contacts) */
+  memoryCharacters?: { name: string; key?: string }[];
 };
 
 function Field({
@@ -121,7 +125,7 @@ function CardShell({
   );
 }
 
-export function SimulationFeatureScreen({ featureId, content, onChange, onClose }: Props) {
+export function SimulationFeatureScreen({ featureId, content, onChange, onClose, memoryCharacters }: Props) {
   const C = useThemeColors();
   const meta = SIMULATION_FEATURE_META[featureId];
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -345,11 +349,78 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
           ))
           : null}
 
+        {featureId === 'messages' ? (
+          <View style={{ marginBottom: Spacing.md, gap: Spacing.xs }}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '800', color: ACCENT, letterSpacing: 0.4 }}>
+              CONTACTS
+            </Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginBottom: 4, lineHeight: 16 }}>
+              Personnages autorisés à t’envoyer des messages (depuis la mémoire).
+            </Text>
+            {(content.contacts ?? []).map((c) => (
+              <View
+                key={c.id}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                  paddingVertical: 8, paddingHorizontal: Spacing.sm,
+                  borderRadius: Radius.md, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCard,
+                }}
+              >
+                <MaterialIcons name="person" size={16} color={ACCENT} />
+                <Text style={{ flex: 1, fontSize: FontSize.sm, fontWeight: '600', color: C.textPrimary }}>{c.name}</Text>
+                <Pressable
+                  onPress={() => onChange({
+                    ...content,
+                    contacts: (content.contacts ?? []).filter((x) => x.id !== c.id),
+                  })}
+                  hitSlop={8}
+                  accessibilityLabel={`Retirer ${c.name}`}
+                >
+                  <MaterialIcons name="close" size={18} color={C.textMuted} />
+                </Pressable>
+              </View>
+            ))}
+            {(memoryCharacters ?? [])
+              .filter((ch) => {
+                const k = normalizeMemoryKey(ch.key || ch.name);
+                return !(content.contacts ?? []).some((c) => c.key === k);
+              })
+              .slice(0, 12)
+              .map((ch) => {
+                const k = normalizeMemoryKey(ch.key || ch.name);
+                return (
+                  <Pressable
+                    key={k}
+                    onPress={() => {
+                      const next = emptyContactItem({ key: k, name: ch.name });
+                      onChange({
+                        ...content,
+                        contacts: [...(content.contacts ?? []), next],
+                      });
+                    }}
+                    style={({ pressed }) => [{
+                      flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingVertical: 8, paddingHorizontal: Spacing.sm,
+                    }, pressed && { opacity: 0.7 }]}
+                  >
+                    <MaterialIcons name="person-add" size={16} color={ACCENT} />
+                    <Text style={{ fontSize: FontSize.sm, color: ACCENT, fontWeight: '700' }}>
+                      Ajouter « {ch.name} »
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '800', color: C.textMuted, marginTop: Spacing.sm, letterSpacing: 0.4 }}>
+              BOÎTE DE RÉCEPTION
+            </Text>
+          </View>
+        ) : null}
+
         {featureId === 'messages'
           ? content.messages.map((it) => (
             <CardShell
               key={it.id}
-              title={it.from}
+              title={`${it.from}${it.read ? '' : ' · nouveau'}`}
               subtitle={it.content}
               open={expandedId === it.id}
               onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}

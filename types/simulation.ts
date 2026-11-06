@@ -24,11 +24,15 @@ export type {
   SimulationAlbumItem,
   SimulationSkillItem,
   SimulationFeatureMessageItem,
+  SimulationContactItem,
 } from '@/types/simulationFeatureContent';
 export {
   emptyFeatureContent,
+  emptyContactItem,
   normalizeFeatureContent,
   formatFeaturesForPrompt,
+  countUnreadMessages,
+  mergeInventoryItems,
 } from '@/types/simulationFeatureContent';
 
 export type { SimulationThemeId } from '@/types/simulationTheme';
@@ -53,6 +57,8 @@ export {
   normalizeMemoryKey,
   resolveMemoryWikilink,
   shouldAutoUpdateMemory,
+  extractWikilinkTargets,
+  messagesHaveWikilinks,
   mergeMemoryItems,
   formatMemoryForPrompt,
   emptySimulationMemory,
