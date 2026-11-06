@@ -7,6 +7,18 @@ import {
   type SimulationMemory,
 } from '@/types/simulationMemory';
 import { SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS } from '@/services/simulationRoleplayFormat';
+import {
+  normalizeSimulationThemeId,
+  type SimulationThemeId,
+} from '@/types/simulationTheme';
+
+export type { SimulationThemeId } from '@/types/simulationTheme';
+export {
+  SIMULATION_THEME_META,
+  resolveSimulationThemeColors,
+  simulationThemeLabel,
+  normalizeSimulationThemeId,
+} from '@/types/simulationTheme';
 
 export type {
   SimulationMemory,
@@ -169,6 +181,11 @@ export interface SimulationData {
    * Défauts off ; le moteur qui remplit inventaire/album/etc. viendra plus tard.
    */
   features: SimulationFeatures;
+  /**
+   * Thème UI de cette conversation uniquement (fond + bulles).
+   * `default` = thème global de l’app.
+   */
+  theme: SimulationThemeId;
 }
 
 function newId(prefix: string): string {
@@ -207,6 +224,7 @@ export function emptySimulationData(): SimulationData {
     notes: '',
     setupComplete: false,
     features: emptySimulationFeatures(),
+    theme: 'default',
   };
 }
 
@@ -286,6 +304,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       skills: !!(sim.features && sim.features.skills),
       messages: !!(sim.features && sim.features.messages),
     }),
+    theme: normalizeSimulationThemeId(sim.theme),
   };
 }
 
