@@ -1816,7 +1816,7 @@ export default function ChatScreen() {
         messages: history,
         bot,
         mode,
-        features: { inventory: !!feats.inventory, messages: !!feats.messages },
+        features: { inventory: !!feats.inventory, messages: !!feats.messages, skills: !!feats.skills },
         featureContent: simData.featureContent ?? emptyFeatureContent(),
       });
       const fc = emptyFeatureContent(simData.featureContent);
@@ -1825,6 +1825,8 @@ export default function ChatScreen() {
         inventory: result.inventoryNext ?? fc.inventory,
         messages: result.messagesNext ?? fc.messages,
         knownNumbers: result.knownNumbersNext ?? fc.knownNumbers,
+        skills: result.skillsNext ?? fc.skills,
+        lifeStages: result.lifeStagesNext ?? fc.lifeStages,
         pendingNumberGivenTo: result.pendingNext ?? fc.pendingNumberGivenTo,
       });
       updateSimulation(activeWorkspace.id, activeConversation.id, {
@@ -1841,6 +1843,15 @@ export default function ChatScreen() {
       }
       if (result.inventoryAdded.length > 0) {
         showToast('Nouvel objet dans l\'inventaire', { tone: 'success' });
+      }
+      for (const s of result.skillsCreated) {
+        showToast(`Nouvelle compétence : ${s.name}`, { tone: 'success' });
+      }
+      for (const u of result.levelUps) {
+        showToast(`A acquis le niveau ${u.level} de la compétence ${u.name}`, { tone: 'success' });
+      }
+      if (result.lifeStagesAdded.length > 0) {
+        showToast('Nouvelle étape de vie', { tone: 'success' });
       }
       if (result.inventoryRemoved.length > 0) {
         showToast('Objet retiré de l\'inventaire', { tone: 'info' });
@@ -1899,7 +1910,9 @@ export default function ChatScreen() {
     // Personnages ayant notre numéro : chance d’écrire « tôt ou tard »
     const pendingChance = !!feats.messages && (fc?.pendingNumberGivenTo?.length ?? 0) > 0 && Math.random() < 0.25;
     const wiki = shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant]);
-    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance)) return;
+    // Carnet d’acquisitions : passe régulière (≈ tous les 2 échanges) pour l’XP
+    const skillsTick = !!feats.skills && count % 4 === 0;
+    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance && !skillsTick)) return;
     void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone });
   };
   maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;

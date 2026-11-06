@@ -28,12 +28,37 @@ export interface SimulationAlbumItem {
   updatedAt: string;
 }
 
+export const SKILL_MAX_LEVEL = 10;
+export const SKILL_XP_PER_LEVEL = 100;
+/** Gain max d’XP par passe d’extraction (progression douce) */
+export const SKILL_MAX_XP_PER_PASS = 60;
+
+export interface SkillNotion {
+  level: number;
+  text: string;
+}
+
 export interface SimulationSkillItem {
   id: string;
   name: string;
-  /** Niveau libre (ex. « Novice », « 3/10 ») */
-  level: string;
+  /** Niveau 0–10 */
+  level: number;
+  /** XP partielle vers le niveau suivant (0–99) */
+  xp: number;
   description: string;
+  /** Notions acquises par palier */
+  notions: SkillNotion[];
+  updatedAt: string;
+}
+
+/** Étape de vie du persona (impact sur son avenir) */
+export interface SimulationLifeStage {
+  id: string;
+  title: string;
+  description: string;
+  /** Moment / date RP */
+  when: string;
+  impact: string;
   updatedAt: string;
 }
 
@@ -77,6 +102,7 @@ export interface SimulationFeatureContent {
   inventory: SimulationInventoryItem[];
   album: SimulationAlbumItem[];
   skills: SimulationSkillItem[];
+  lifeStages: SimulationLifeStage[];
   messages: SimulationFeatureMessageItem[];
   contacts: SimulationContactItem[];
   knownNumbers: SimulationKnownNumber[];
@@ -93,6 +119,7 @@ export function emptyFeatureContent(
     inventory: Array.isArray(partial?.inventory) ? partial!.inventory! : [],
     album: Array.isArray(partial?.album) ? partial!.album! : [],
     skills: Array.isArray(partial?.skills) ? partial!.skills! : [],
+    lifeStages: Array.isArray(partial?.lifeStages) ? partial!.lifeStages! : [],
     messages: Array.isArray(partial?.messages) ? partial!.messages! : [],
     contacts: Array.isArray(partial?.contacts) ? partial!.contacts! : [],
     knownNumbers: Array.isArray(partial?.knownNumbers) ? partial!.knownNumbers! : [],
@@ -126,14 +153,106 @@ export function emptyAlbumItem(partial?: Partial<SimulationAlbumItem>): Simulati
   };
 }
 
-export function emptySkillItem(partial?: Partial<SimulationSkillItem>): SimulationSkillItem {
+function clampInt(v: unknown, min: number, max: number, dflt: number): number {
+  const n = typeof v === 'number' ? v : parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : dflt;
+}
+
+export function emptySkillItem(partial?: Partial<SimulationSkillItem> & { level?: unknown; xp?: unknown }): SimulationSkillItem {
+  const level = clampInt(partial?.level, 0, SKILL_MAX_LEVEL, 0);
   return {
     id: partial?.id ?? newId('skl'),
     name: optStr(partial?.name) || 'Compétence',
-    level: optStr(partial?.level) || '1',
+    level,
+    xp: level >= SKILL_MAX_LEVEL ? 0 : clampInt(partial?.xp, 0, SKILL_XP_PER_LEVEL - 1, 0),
     description: optStr(partial?.description),
+    notions: Array.isArray(partial?.notions)
+      ? partial!.notions!
+        .filter((n: any) => n && optStr(n.text))
+        .map((n: any) => ({ level: clampInt(n.level, 0, SKILL_MAX_LEVEL, level), text: optStr(n.text) }))
+      : [],
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
   };
+}
+
+export function emptyLifeStage(partial?: Partial<SimulationLifeStage>): SimulationLifeStage {
+  return {
+    id: partial?.id ?? newId('life'),
+    title: optStr(partial?.title) || 'Étape de vie',
+    description: optStr(partial?.description),
+    when: optStr(partial?.when),
+    impact: optStr(partial?.impact),
+    updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+const normKey = (n: string) => n.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+
+export type SkillGain = { name: string; xp: number; description?: string; notion?: string };
+
+/**
+ * Applique des gains d’XP (progressifs, plafonnés par passe).
+ * Renvoie les compétences créées et les montées de niveau.
+ */
+export function applySkillGains(
+  existing: SimulationSkillItem[],
+  gains: SkillGain[],
+): {
+  next: SimulationSkillItem[];
+  created: SimulationSkillItem[];
+  levelUps: { name: string; level: number }[];
+} {
+  const list = existing.map((s) => ({ ...s, notions: [...s.notions] }));
+  const created: SimulationSkillItem[] = [];
+  const levelUps: { name: string; level: number }[] = [];
+  for (const g of gains) {
+    const name = optStr(g.name);
+    if (!name) continue;
+    const xpGain = clampInt(g.xp, 0, SKILL_MAX_XP_PER_PASS, 0);
+    let sk = list.find((s) => normKey(s.name) === normKey(name));
+    if (!sk) {
+      sk = emptySkillItem({ name, description: g.description });
+      list.push(sk);
+      created.push(sk);
+    }
+    if (sk.level >= SKILL_MAX_LEVEL) continue;
+    const before = sk.level;
+    let xp = sk.xp + xpGain;
+    let level = sk.level;
+    while (xp >= SKILL_XP_PER_LEVEL && level < SKILL_MAX_LEVEL) {
+      xp -= SKILL_XP_PER_LEVEL;
+      level += 1;
+    }
+    if (level >= SKILL_MAX_LEVEL) xp = 0;
+    sk.level = level;
+    sk.xp = xp;
+    if (!sk.description && g.description) sk.description = optStr(g.description);
+    if (level > before) {
+      levelUps.push({ name: sk.name, level });
+      const notion = optStr(g.notion);
+      if (notion && !sk.notions.some((n) => normKey(n.text) === normKey(notion))) {
+        sk.notions.push({ level, text: notion });
+      }
+    }
+    sk.updatedAt = new Date().toISOString();
+  }
+  return { next: list, created, levelUps };
+}
+
+export function mergeLifeStages(
+  existing: SimulationLifeStage[],
+  incoming: Partial<SimulationLifeStage>[],
+): { next: SimulationLifeStage[]; added: SimulationLifeStage[] } {
+  const next = [...existing];
+  const added: SimulationLifeStage[] = [];
+  for (const r of incoming) {
+    const title = optStr(r.title);
+    if (!title || next.some((s) => normKey(s.title) === normKey(title))) continue;
+    const it = emptyLifeStage(r);
+    next.unshift(it);
+    added.push(it);
+  }
+  return { next, added };
 }
 
 export function emptyFeatureMessageItem(
@@ -260,8 +379,20 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
       emptySkillItem({
         id: r.id ? String(r.id) : undefined,
         name: String(r.name ?? ''),
-        level: String(r.level ?? r.rank ?? '1'),
+        level: r.level ?? r.rank ?? 0,
+        xp: r.xp ?? 0,
         description: String(r.description ?? ''),
+        notions: Array.isArray(r.notions) ? r.notions : [],
+        updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
+      }),
+    ),
+    lifeStages: normalizeList(src.lifeStages, (r) =>
+      emptyLifeStage({
+        id: r.id ? String(r.id) : undefined,
+        title: String(r.title ?? r.name ?? ''),
+        description: String(r.description ?? ''),
+        when: String(r.when ?? r.date ?? ''),
+        impact: String(r.impact ?? ''),
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       }),
     ),
@@ -371,9 +502,21 @@ export function formatFeaturesForPrompt(
   if (features.skills && content.skills.length) {
     const lines = content.skills.slice(0, maxPer).map((it) => {
       const desc = it.description ? ` — ${it.description}` : '';
-      return `- ${it.name} (niv. ${it.level})${desc}`;
+      const notions = it.notions.length ? ` | notions acquises : ${it.notions.map((n) => n.text).join(' ; ')}` : '';
+      return `- ${it.name} : niveau ${it.level}/10${desc}${notions}`;
     });
-    blocks.push(`#### Compétences / acquisitions\n${lines.join('\n')}`);
+    blocks.push([
+      '#### Compétences du persona (niveaux 0–10)',
+      ...lines,
+      'Tiens compte du niveau pour décider du succès ou de l’échec des actions : niveau bas = maladresse/échecs fréquents, niveau élevé = réussite plus probable et actions avancées possibles.',
+      'N’autorise PAS d’action clairement hors de portée du niveau actuel (ou compétence absente) : elle échoue ou reste partielle de façon crédible.',
+      'Le persona connaît les notions acquises listées.',
+    ].join('\n'));
+  }
+  if (features.skills && content.lifeStages?.length) {
+    const lines = content.lifeStages.slice(0, maxPer).map((s) =>
+      `- ${s.title}${s.when ? ` (${s.when})` : ''}${s.description ? ` — ${s.description}` : ''}${s.impact ? ` → impact : ${s.impact}` : ''}`);
+    blocks.push(`#### Étapes de vie du persona (faits établis, à respecter)\n${lines.join('\n')}`);
   }
   if (features.album && content.album.length) {
     const lines = content.album.slice(0, maxPer).map((it) => {

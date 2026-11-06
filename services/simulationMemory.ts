@@ -27,6 +27,11 @@ import {
   emptyFeatureMessageItem,
   mergeInventoryItems,
   removeInventoryItems,
+  applySkillGains,
+  mergeLifeStages,
+  type SkillGain,
+  type SimulationSkillItem,
+  type SimulationLifeStage,
   mergeKnownNumbers,
   extractPhones,
   normalizePhone,
@@ -298,6 +303,8 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
   "inventoryRemoved": [{"name":"string","reason":"perdu|donné|consommé|volé|autre"}],
   "discoveredNumbers": [{"name":"string","number":"xxx-xxx","source":"chat|paper"}],
   "personaNumberGivenTo": ["string"],
+  "skillXp": [{"name":"string","xp":10,"description":"string?","notion":"string?"}],
+  "lifeStages": [{"title":"string","description":"string","when":"string?","impact":"string"}],
   "unknownMessages": [{"senderName":"string?","number":"xxx-xxx?","content":"string","suspicious":false}]
 }
 Règles STRICTES:
@@ -320,6 +327,8 @@ Règles STRICTES:
 - "discoveredNumbers" : numéros au format xxx-xxx (3 chiffres, tiret, 3 chiffres) qu'un personnage donne AU persona (oralement → chat, ou sur papier → paper), avec le nom du personnage. Vide sinon.
 - "personaNumberGivenTo" : noms des personnages à qui le JOUEUR vient de donner SON numéro (numéro du persona fourni). Vide sinon.
 - "unknownMessages" : messages SMS reçus d'un numéro non enregistré. Cas 1 : un personnage de la liste "ONT LE NUMÉRO DU PERSONA" écrit enfin (pas forcément tout de suite — seulement quand c'est naturel ; senderName = son nom). Cas 2 (TRÈS RARE, seulement si l'histoire s'y prête : mystère, danger) : un numéro étrange/suspect écrit (suspicious=true, senderName vide ou identité cachée). Vide la plupart du temps.
+- "skillXp" : compétences que le PERSONA JOUEUR vient d'exercer par ses choix/actions dans l'historique RÉCENT (pas les PNJ). xp = 5 à 40 selon l'intensité/réussite (progression douce, jamais de saut). Réutilise le nom EXACT d'une compétence existante si c'est la même. "notion" = notion apprise concrète (courte), utile si l'action marque un vrai apprentissage. Vide si aucune.
+- "lifeStages" : étapes MAJEURES de la vie du persona qui viennent d'arriver et auront un impact durable (ex. "A appris à faire du vélo", "A trouvé un travail", "A déménagé"). Rare. N'en répète pas une existante. Vide sinon.
 - Priorise les cibles [[wikilink]] mentionnées dans l'historique récent.
 - Réponds en français.`;
 
@@ -327,6 +336,11 @@ export type MemoryPassResult = {
   memory: SimulationMemory;
   inventoryAdded: SimulationInventoryItem[];
   inventoryRemoved: SimulationInventoryItem[];
+  skillsNext?: SimulationSkillItem[];
+  skillsCreated: SimulationSkillItem[];
+  levelUps: { name: string; level: number }[];
+  lifeStagesNext?: SimulationLifeStage[];
+  lifeStagesAdded: SimulationLifeStage[];
   knownNumbersNext?: SimulationKnownNumber[];
   pendingNext?: string[];
   messagesAdded: SimulationFeatureMessageItem[];
@@ -351,7 +365,7 @@ export async function generateOrRefreshMemory(opts: {
   mode: 'initial' | 'refresh';
   signal?: AbortSignal;
   /** Modules actifs — extrait inventaire / messages contacts si true */
-  features?: { inventory?: boolean; messages?: boolean };
+  features?: { inventory?: boolean; messages?: boolean; skills?: boolean };
   featureContent?: SimulationFeatureContent | null;
 }): Promise<MemoryPassResult> {
   const { sim, messages, bot, mode, signal } = opts;
@@ -371,6 +385,8 @@ export async function generateOrRefreshMemory(opts: {
   let llmInventory: { name: string; quantity?: number; description?: string }[] = [];
   let llmContactMsgs: { from: string; content: string; influence?: string }[] = [];
   let llmRemoved: string[] = [];
+  const llmSkills: SkillGain[] = [];
+  const llmLife: Partial<SimulationLifeStage>[] = [];
   let llmNumbers: { number: string; name?: string; source?: SimulationKnownNumber['source'] }[] = [];
   let llmGivenTo: string[] = [];
   let llmUnknown: { senderName?: string; number?: string; content: string; suspicious?: boolean }[] = [];
@@ -457,6 +473,10 @@ export async function generateOrRefreshMemory(opts: {
         ? `## NUMÉRO DU PERSONA\n${fc?.personaNumber || '(aucun)'}\n## ONT LE NUMÉRO DU PERSONA (peuvent écrire en numéro inconnu)\n${(fc?.pendingNumberGivenTo ?? []).join(', ') || '(personne)'}\n## CONTACTS (seuls autorisés à écrire)\n${contactNames.length ? contactNames.map((n) => `- ${n}`).join('\n') : '(aucun contact — contactMessages doit être [])'}`
         : '## MESSAGES CONTACTS\nModule inactif — renvoie "contactMessages": [].',
       '',
+      features.skills
+        ? `## COMPÉTENCES ACTUELLES\n${JSON.stringify((fc?.skills ?? []).map((s) => ({ name: s.name, level: s.level, xp: s.xp })))}\n## ÉTAPES DE VIE EXISTANTES\n${(fc?.lifeStages ?? []).map((s) => `- ${s.title}`).join('\n') || '(aucune)'}`
+        : '## COMPÉTENCES / ÉTAPES\nModule inactif — renvoie "skillXp": [] et "lifeStages": [].',
+      '',
       '## HISTORIQUE',
       buildHistorySnippet(messages),
     ].filter((s) => s !== undefined).join('\n');
@@ -506,6 +526,32 @@ export async function generateOrRefreshMemory(opts: {
           content,
           influence: String(r.influence ?? '').trim() || undefined,
         });
+      }
+    }
+    if (features.skills) {
+      if (Array.isArray(json.skillXp)) {
+        for (const r of json.skillXp) {
+          const name = String(r?.name ?? '').trim();
+          if (!name) continue;
+          llmSkills.push({
+            name,
+            xp: Number(r?.xp) || 0,
+            description: String(r?.description ?? '').trim() || undefined,
+            notion: String(r?.notion ?? '').trim() || undefined,
+          });
+        }
+      }
+      if (Array.isArray(json.lifeStages)) {
+        for (const r of json.lifeStages) {
+          const title = String(r?.title ?? '').trim();
+          if (!title) continue;
+          llmLife.push({
+            title,
+            description: String(r?.description ?? '').trim(),
+            when: String(r?.when ?? '').trim(),
+            impact: String(r?.impact ?? '').trim(),
+          });
+        }
       }
     }
     if (features.inventory && Array.isArray(json.inventoryRemoved)) {
@@ -577,6 +623,18 @@ export async function generateOrRefreshMemory(opts: {
     inventoryNext = rem.next;
   }
 
+  let skillsNext: SimulationSkillItem[] | undefined;
+  let skillsCreated: SimulationSkillItem[] = [];
+  let levelUps: { name: string; level: number }[] = [];
+  let lifeStagesNext: SimulationLifeStage[] | undefined;
+  let lifeStagesAdded: SimulationLifeStage[] = [];
+  if (features.skills) {
+    const sg = applySkillGains(fc?.skills ?? [], llmSkills);
+    skillsNext = sg.next; skillsCreated = sg.created; levelUps = sg.levelUps;
+    const ls = mergeLifeStages(fc?.lifeStages ?? [], llmLife);
+    lifeStagesNext = ls.next; lifeStagesAdded = ls.added;
+  }
+
   // Numéros découverts : LLM + regex texte IA récent + papiers d’inventaire
   let knownNumbersNext: SimulationKnownNumber[] | undefined;
   let pendingNext: string[] | undefined;
@@ -646,6 +704,11 @@ export async function generateOrRefreshMemory(opts: {
     memory: next,
     inventoryAdded,
     inventoryRemoved,
+    skillsNext,
+    skillsCreated,
+    levelUps,
+    lifeStagesNext,
+    lifeStagesAdded,
     knownNumbersNext,
     pendingNext,
     messagesAdded,
