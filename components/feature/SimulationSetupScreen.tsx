@@ -2,6 +2,7 @@
  * Page de création Simulation (avant le chat) — worldbuilding + persona.
  * Mobile-first ; usable aussi sur desktop.
  */
+import { defaultClock, normalizeClock } from '@/types/simulationClock';
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, Image, Platform,
@@ -117,6 +118,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
   const [welcomeMessage, setWelcomeMessage] = useState(seed.world.welcomeMessage);
   const [backgroundContext, setBackgroundContext] = useState(seed.world.backgroundContext);
   const [rules, setRules] = useState(seed.world.rules ?? '');
+  const [clock, setClock] = useState(seed.world.clock ?? defaultClock());
   const [title, setTitle] = useState(seed.world.title);
 
   const [personas, setPersonas] = useState<SimulationPersona[]>(seed.personas);
@@ -192,6 +194,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
         welcomeMessage,
         backgroundContext,
         rules,
+        clock: normalizeClock(clock) ?? seed.world.clock ?? defaultClock(),
       },
       personas: personas.map((p) => ({
         ...p,
@@ -278,6 +281,12 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
               placeholder="Ce que l’IA doit respecter absolument (ton, limites, style, interdits…) — priorité maximale."
               multiline
               minHeight={140}
+            />
+            <Field
+              label="Date et heure in-game (AAAA-MM-JJ HH:MM)"
+              value={clock}
+              onChange={setClock}
+              placeholder="2026-03-12 07:30"
             />
           </>
         ) : null}

@@ -196,6 +196,8 @@ export interface SimulationMemoryItem {
   /** Accords : case cochée = fait / tenu */
   completed?: boolean;
   updatedAt: string;
+  /** Date réelle d’ajout / génération (absente pour les anciennes entrées) */
+  createdAt?: string;
   /** true = nouveauté non encore consultée → badge 🔴 */
   isNew?: boolean;
   /** Épinglé (max MEMORY_PIN_MAX au total) */
@@ -317,6 +319,7 @@ export function emptyMemoryItem(
     task: optStr(partial?.task),
     completed: partial?.completed === true,
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    createdAt: optStr(partial?.createdAt),
     isNew: partial?.isNew === true,
     pinned: partial?.pinned === true,
     avatarUri: optStr(partial?.avatarUri),
@@ -415,6 +418,7 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
       task: r.task ?? r.tache,
       completed: r.completed === true || r.done === true || r.coche === true,
       updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
+      createdAt: r.createdAt ? String(r.createdAt) : undefined,
       isNew: r.isNew === true,
       pinned: r.pinned === true,
       avatarUri: r.avatarUri ? String(r.avatarUri) : undefined,
@@ -492,6 +496,7 @@ export function mergeMemoryItems(
       // Ajout manuel (userEdited) : pas de badge ; ajout IA / seed → nouveauté
       map.set(item.key, {
         ...item,
+        createdAt: item.createdAt ?? new Date().toISOString(),
         userEdited: item.userEdited === true,
         isNew: item.userEdited === true ? false : true,
       });

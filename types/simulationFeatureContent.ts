@@ -17,6 +17,8 @@ export interface SimulationInventoryItem {
   quantity: number;
   description: string;
   updatedAt: string;
+  /** Date réelle d’ajout (absente pour les anciennes entrées) */
+  createdAt?: string;
 }
 
 export interface SimulationAlbumItem {
@@ -49,6 +51,8 @@ export interface SimulationSkillItem {
   /** Notions acquises par palier */
   notions: SkillNotion[];
   updatedAt: string;
+  /** Date réelle d’ajout (absente pour les anciennes entrées) */
+  createdAt?: string;
 }
 
 /** Étape de vie du persona (impact sur son avenir) */
@@ -60,6 +64,8 @@ export interface SimulationLifeStage {
   when: string;
   impact: string;
   updatedAt: string;
+  /** Date réelle d’ajout (absente pour les anciennes entrées) */
+  createdAt?: string;
 }
 
 export interface SimulationFeatureMessageItem {
@@ -140,6 +146,7 @@ export function emptyInventoryItem(
     quantity: qty,
     description: optStr(partial?.description),
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    createdAt: partial?.createdAt ?? (partial?.id ? undefined : new Date().toISOString()),
   };
 }
 
@@ -172,6 +179,7 @@ export function emptySkillItem(partial?: Partial<SimulationSkillItem> & { level?
         .map((n: any) => ({ level: clampInt(n.level, 0, SKILL_MAX_LEVEL, level), text: optStr(n.text) }))
       : [],
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    createdAt: partial?.createdAt ?? (partial?.id ? undefined : new Date().toISOString()),
   };
 }
 
@@ -183,6 +191,7 @@ export function emptyLifeStage(partial?: Partial<SimulationLifeStage>): Simulati
     when: optStr(partial?.when),
     impact: optStr(partial?.impact),
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    createdAt: partial?.createdAt ?? (partial?.id ? undefined : new Date().toISOString()),
   };
 }
 
@@ -363,6 +372,7 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
         name: String(r.name ?? ''),
         quantity: typeof r.quantity === 'number' ? r.quantity : Number(r.qty ?? 1) || 1,
         description: String(r.description ?? ''),
+        createdAt: r.createdAt ? String(r.createdAt) : undefined,
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       }),
     ),
@@ -383,6 +393,7 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
         xp: r.xp ?? 0,
         description: String(r.description ?? ''),
         notions: Array.isArray(r.notions) ? r.notions : [],
+        createdAt: r.createdAt ? String(r.createdAt) : undefined,
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       }),
     ),
@@ -393,6 +404,7 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
         description: String(r.description ?? ''),
         when: String(r.when ?? r.date ?? ''),
         impact: String(r.impact ?? ''),
+        createdAt: r.createdAt ? String(r.createdAt) : undefined,
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       }),
     ),
