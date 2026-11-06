@@ -457,6 +457,7 @@ export function applyManualMemoryEdit(
       time: pick('time', it.time),
       userEdited: true,
       updatedAt: new Date().toISOString(),
+      isNew: false,
     });
   });
   if (section === 'characters') list = ensureSinglePrincipal(list);

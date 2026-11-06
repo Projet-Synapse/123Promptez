@@ -126,6 +126,8 @@ export interface SimulationMemoryItem {
   /** Évènements : temps / moment */
   time?: string;
   updatedAt: string;
+  /** true = nouveauté non encore consultée → badge 🔴 */
+  isNew?: boolean;
 }
 
 export interface SimulationMemory {
@@ -214,6 +216,7 @@ export function emptyMemoryItem(
     participants: optStr(partial?.participants),
     time: optStr(partial?.time),
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
+    isNew: partial?.isNew === true,
   };
 }
 
@@ -281,6 +284,7 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
       participants: r.participants,
       time: r.time ?? r.temps ?? r.when,
       updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
+      isNew: r.isNew === true,
     });
     if (!item.key || seen.has(item.key)) continue;
     seen.add(item.key);
@@ -345,7 +349,12 @@ export function mergeMemoryItems(
     seenIncoming.add(item.key);
     const prev = map.get(item.key);
     if (!prev) {
-      map.set(item.key, { ...item, userEdited: false });
+      // Ajout manuel (userEdited) : pas de badge ; ajout IA / seed → nouveauté
+      map.set(item.key, {
+        ...item,
+        userEdited: item.userEdited === true,
+        isNew: item.userEdited === true ? false : true,
+      });
       continue;
     }
     if (prev.userEdited) {
@@ -365,6 +374,7 @@ export function mergeMemoryItems(
         participants: prev.participants || item.participants,
         time: prev.time || item.time,
         updatedAt: prev.updatedAt,
+        isNew: prev.isNew === true,
       });
       continue;
     }
@@ -386,6 +396,7 @@ export function mergeMemoryItems(
       time: item.time || prev.time,
       userEdited: false,
       updatedAt: new Date().toISOString(),
+      isNew: true,
     });
   }
   return ensureSinglePrincipal(Array.from(map.values()));
@@ -468,6 +479,28 @@ export function shouldAutoUpdateMemory(
 }
 
 /** Résumé injecté dans le prompt (sous les Règles). */
+/** Retire le badge nouveauté après consultation d'une fiche. */
+export function markMemoryItemSeen(
+  memory: SimulationMemory,
+  section: MemorySectionId,
+  itemId: string,
+): SimulationMemory {
+  const list = memory[section].map((it) =>
+    it.id === itemId && it.isNew ? { ...it, isNew: false } : it,
+  );
+  return emptySimulationMemory({ ...memory, [section]: list });
+}
+
+/** true s'il reste au moins une nouveauté non consultée. */
+export function memoryHasUnseen(memory: SimulationMemory | undefined | null): boolean {
+  if (!memory) return false;
+  return (
+    memory.characters.some((it) => it.isNew) ||
+    memory.links.some((it) => it.isNew) ||
+    memory.places.some((it) => it.isNew)
+  );
+}
+
 export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 24): string {
   if (!memory.initialized) return '';
   const blocks: string[] = [];
