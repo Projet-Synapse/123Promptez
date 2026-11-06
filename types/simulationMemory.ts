@@ -9,11 +9,11 @@ export const MEMORY_AUTO_UPDATE_EVERY_N = 10;
 
 export type MemorySectionId = 'characters' | 'links' | 'places';
 
-/** Catégories Personnages (bulles) — Principal = 1 PNJ max, jamais le persona joueur. */
+/** Catégories Personnages — LEGACY (bulles retirées t209u). Conservé pour migration. */
 export type MemoryCharacterCategory = 'principal' | 'secondaires' | 'enjeux' | 'anecdotiques';
 
-/** Sous-sections Liens (extensible — 3ᵉ possible plus tard). */
-export type MemoryLinkSubsection = 'objets' | 'rapports';
+/** Sous-sections Liens : Objets / Rapports / Évènements marquants. */
+export type MemoryLinkSubsection = 'objets' | 'rapports' | 'evenements';
 
 export const MEMORY_CHARACTER_CATEGORY_META: Record<
   MemoryCharacterCategory,
@@ -49,7 +49,36 @@ export const MEMORY_LINK_SUBSECTION_META: Record<
     label: 'Rapports',
     hint: 'Liens relationnels entre personnages',
   },
+  evenements: {
+    label: 'Évènements marquants',
+    hint: 'Moments clés du roleplay',
+  },
 };
+
+/** Champs fiche Personnage (remplacent les bulles catégories). */
+export const MEMORY_CHARACTER_FICHE_FIELDS: {
+  key: 'age' | 'physique' | 'personality' | 'extraInfo' | 'location';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'age', label: 'Âge' },
+  { key: 'physique', label: 'Description physique', multiline: true },
+  { key: 'personality', label: 'Personnalité', multiline: true },
+  { key: 'extraInfo', label: 'Informations complémentaires', multiline: true },
+  { key: 'location', label: 'Emplacement' },
+];
+
+/** Champs fiche Évènement marquant (Description = summary). */
+export const MEMORY_EVENT_FICHE_FIELDS: {
+  key: 'participants' | 'summary' | 'time' | 'location';
+  label: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'participants', label: 'Participants' },
+  { key: 'summary', label: 'Description', multiline: true },
+  { key: 'time', label: 'Temps' },
+  { key: 'location', label: 'Emplacement' },
+];
 
 export const MEMORY_CHARACTER_CATEGORIES: MemoryCharacterCategory[] = [
   'principal',
@@ -58,7 +87,7 @@ export const MEMORY_CHARACTER_CATEGORIES: MemoryCharacterCategory[] = [
   'anecdotiques',
 ];
 
-export const MEMORY_LINK_SUBSECTIONS: MemoryLinkSubsection[] = ['objets', 'rapports'];
+export const MEMORY_LINK_SUBSECTIONS: MemoryLinkSubsection[] = ['objets', 'rapports', 'evenements'];
 
 
 export interface SimulationMemoryEntry {
@@ -76,17 +105,26 @@ export interface SimulationMemoryItem {
   userEdited: boolean;
   /** Clé normalisée (accents/casse) pour fusion et résolution [[wikilink]] */
   key: string;
-  /** Liens uniquement : extrémités optionnelles */
+  /** Liens objets/rapports : extrémités optionnelles */
   from?: string;
   to?: string;
-  /** Personnages : catégorie (bulles). Défaut secondaires. */
+  /** Personnages : catégorie LEGACY (bulles retirées). Conservée en migration. */
   characterCategory?: MemoryCharacterCategory;
-  /**
-   * Personnages : true si c'est le persona joueur — ne peut PAS être Principal.
-   */
+  /** Personnages : true si c'est le persona joueur */
   isPlayerPersona?: boolean;
-  /** Liens : sous-section (Objets clés / Rapports). Défaut rapports. */
+  /** Liens : Objets clés / Rapports / Évènements marquants */
   linkSubsection?: MemoryLinkSubsection;
+  /** Fiche personnage */
+  age?: string;
+  physique?: string;
+  personality?: string;
+  extraInfo?: string;
+  /** Emplacement (personnage ou évènement) */
+  location?: string;
+  /** Évènements : participants */
+  participants?: string;
+  /** Évènements : temps / moment */
+  time?: string;
   updatedAt: string;
 }
 
@@ -145,6 +183,11 @@ export function normalizeMemoryKey(name: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function optStr(v: unknown): string | undefined {
+  const s = String(v ?? '').trim();
+  return s ? s : undefined;
+}
+
 export function emptyMemoryItem(
   partial?: Partial<SimulationMemoryItem> & { name?: string },
 ): SimulationMemoryItem {
@@ -158,11 +201,18 @@ export function emptyMemoryItem(
     summary: String(partial?.summary ?? ''),
     userEdited: partial?.userEdited === true,
     key: key || normalizeMemoryKey(name) || newId('key'),
-    from: partial?.from ? String(partial.from) : undefined,
-    to: partial?.to ? String(partial.to) : undefined,
+    from: optStr(partial?.from),
+    to: optStr(partial?.to),
     characterCategory,
     isPlayerPersona: partial?.isPlayerPersona === true,
     linkSubsection,
+    age: optStr(partial?.age),
+    physique: optStr(partial?.physique),
+    personality: optStr(partial?.personality),
+    extraInfo: optStr(partial?.extraInfo),
+    location: optStr(partial?.location),
+    participants: optStr(partial?.participants),
+    time: optStr(partial?.time),
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
   };
 }
@@ -176,8 +226,16 @@ export function normalizeCharacterCategory(raw: any): MemoryCharacterCategory {
 }
 
 export function normalizeLinkSubsection(raw: any): MemoryLinkSubsection {
-  const v = String(raw ?? '').toLowerCase().trim();
-  if (v === 'objets' || v === 'objet' || v === 'objets cles' || v === 'objets clés') return 'objets';
+  const v = String(raw ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (v === 'objets' || v === 'objet' || v === 'objets cles' || v.includes('objet')) return 'objets';
+  if (
+    v === 'evenements' ||
+    v === 'evenement' ||
+    v.includes('evenement') ||
+    v.includes('event')
+  ) {
+    return 'evenements';
+  }
   return 'rapports';
 }
 
@@ -207,7 +265,7 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
     const item = emptyMemoryItem({
       id: r.id ? String(r.id) : undefined,
       name: String(r.name ?? ''),
-      summary: String(r.summary ?? ''),
+      summary: String(r.summary ?? r.description ?? ''),
       userEdited: r.userEdited === true,
       key: r.key ? String(r.key) : undefined,
       from: r.from ? String(r.from) : undefined,
@@ -215,6 +273,13 @@ function normalizeItemList(raw: any): SimulationMemoryItem[] {
       characterCategory: r.characterCategory,
       isPlayerPersona: r.isPlayerPersona === true,
       linkSubsection: r.linkSubsection,
+      age: r.age,
+      physique: r.physique ?? r.physicalDescription ?? r.descriptionPhysique,
+      personality: r.personality ?? r.personnalite,
+      extraInfo: r.extraInfo ?? r.infosComplementaires ?? r.notes,
+      location: r.location ?? r.emplacement ?? r.place,
+      participants: r.participants,
+      time: r.time ?? r.temps ?? r.when,
       updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
     });
     if (!item.key || seen.has(item.key)) continue;
@@ -284,7 +349,7 @@ export function mergeMemoryItems(
       continue;
     }
     if (prev.userEdited) {
-      // Préserve nom + résumé + catégorie manuels ; enrichit from/to vides seulement
+      // Préserve fiche manuelle ; enrichit seulement les champs vides
       map.set(item.key, {
         ...prev,
         from: prev.from || item.from,
@@ -292,6 +357,13 @@ export function mergeMemoryItems(
         characterCategory: prev.characterCategory ?? item.characterCategory,
         linkSubsection: prev.linkSubsection ?? item.linkSubsection,
         isPlayerPersona: prev.isPlayerPersona || item.isPlayerPersona,
+        age: prev.age || item.age,
+        physique: prev.physique || item.physique,
+        personality: prev.personality || item.personality,
+        extraInfo: prev.extraInfo || item.extraInfo,
+        location: prev.location || item.location,
+        participants: prev.participants || item.participants,
+        time: prev.time || item.time,
         updatedAt: prev.updatedAt,
       });
       continue;
@@ -305,6 +377,13 @@ export function mergeMemoryItems(
       characterCategory: item.characterCategory ?? prev.characterCategory,
       linkSubsection: item.linkSubsection ?? prev.linkSubsection,
       isPlayerPersona: prev.isPlayerPersona || item.isPlayerPersona,
+      age: item.age || prev.age,
+      physique: item.physique || prev.physique,
+      personality: item.personality || prev.personality,
+      extraInfo: item.extraInfo || prev.extraInfo,
+      location: item.location || prev.location,
+      participants: item.participants || prev.participants,
+      time: item.time || prev.time,
       userEdited: false,
       updatedAt: new Date().toISOString(),
     });
@@ -395,16 +474,29 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
   const pushSection = (title: string, items: SimulationMemoryItem[]) => {
     if (!items.length) return;
     const lines = items.slice(0, maxPerSection).map((it) => {
-      const extra =
-        it.from || it.to ? ` (${[it.from, it.to].filter(Boolean).join(' → ')})` : '';
-      const cat =
-        title === 'Personnages' && it.characterCategory
-          ? ` [${MEMORY_CHARACTER_CATEGORY_META[it.characterCategory]?.label ?? it.characterCategory}]`
-          : title === 'Liens' && it.linkSubsection
-            ? ` [${MEMORY_LINK_SUBSECTION_META[it.linkSubsection]?.label ?? it.linkSubsection}]`
-            : '';
+      const bits: string[] = [];
+      if (title === 'Personnages') {
+        if (it.age) bits.push(`âge: ${it.age}`);
+        if (it.physique) bits.push(`physique: ${it.physique}`);
+        if (it.personality) bits.push(`personnalité: ${it.personality}`);
+        if (it.extraInfo) bits.push(`infos: ${it.extraInfo}`);
+        if (it.location) bits.push(`emplacement: ${it.location}`);
+        if (it.summary) bits.push(it.summary);
+      } else if (title === 'Liens' && it.linkSubsection === 'evenements') {
+        if (it.participants) bits.push(`participants: ${it.participants}`);
+        if (it.summary) bits.push(it.summary);
+        if (it.time) bits.push(`temps: ${it.time}`);
+        if (it.location) bits.push(`emplacement: ${it.location}`);
+      } else {
+        if (it.from || it.to) bits.push([it.from, it.to].filter(Boolean).join(' → '));
+        if (it.summary) bits.push(it.summary);
+      }
+      const kind =
+        title === 'Liens' && it.linkSubsection
+          ? ` [${MEMORY_LINK_SUBSECTION_META[it.linkSubsection]?.label ?? it.linkSubsection}]`
+          : '';
       const persona = it.isPlayerPersona ? ' (persona joueur)' : '';
-      return `- ${it.name}${cat}${persona}${extra}: ${it.summary || '—'}`;
+      return `- ${it.name}${kind}${persona}: ${bits.filter(Boolean).join(' · ') || '—'}`;
     });
     blocks.push(`#### ${title}\n${lines.join('\n')}`);
   };

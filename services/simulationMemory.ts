@@ -61,6 +61,13 @@ function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places')
       to: r.to ? String(r.to) : undefined,
       userEdited: false,
       isPlayerPersona: r.isPlayerPersona === true,
+      age: r.age != null ? String(r.age) : undefined,
+      physique: r.physique ?? r.physicalDescription ?? r.descriptionPhysique,
+      personality: r.personality ?? r.personnalite,
+      extraInfo: r.extraInfo ?? r.infosComplementaires ?? r.notes,
+      location: r.location ?? r.emplacement ?? r.place,
+      participants: r.participants,
+      time: r.time ?? r.temps ?? r.when,
     };
     if (section === 'characters') {
       base.characterCategory = normalizeCharacterCategory(
@@ -93,6 +100,12 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
         userEdited: false,
         isPlayerPersona: true,
         characterCategory: 'secondaires',
+        physique: String(p.physique ?? '').trim() || undefined,
+        personality: String(p.personality ?? '').trim() || undefined,
+        extraInfo: [p.identity, p.tastes, p.background]
+          .map((s) => String(s ?? '').trim())
+          .filter(Boolean)
+          .join(' · ') || undefined,
       }),
     );
   }
@@ -107,6 +120,8 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
         userEdited: false,
         isPlayerPersona: false,
         characterCategory: 'secondaires',
+        physique: String(c.description ?? '').trim() || undefined,
+        personality: Array.isArray(c.traits) && c.traits.length ? c.traits.join(', ') : undefined,
       }),
     );
   }
@@ -259,23 +274,20 @@ function buildWorldSnippet(sim: SimulationData): string {
 const EXTRACT_SYSTEM = `Tu es un extracteur de mémoire pour un roleplay.
 Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), schéma:
 {
-  "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","isPlayerPersona":false}],
-  "links": [{"name":"string","summary":"string","linkSubsection":"objets|rapports","from":"string?","to":"string?"}],
+  "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?","isPlayerPersona":false}],
+  "links": [{"name":"string","summary":"string","linkSubsection":"objets|rapports|evenements","from":"string?","to":"string?","participants":"string?","time":"string?","location":"string?"}],
   "places": [{"name":"string","summary":"string"}]
 }
 Règles STRICTES:
 - Pas de doublons de personnages (un nom = une entrée ; fusionne les alias).
 - Faits vérifiables dans le worldbuilding / l'historique seulement — pas d'invention.
 - Summaries courtes (1–3 phrases).
-- characterCategory:
-  - principal = UN SEUL PNJ le plus parlé / le plus d'interactions (JAMAIS le persona joueur)
-  - secondaires = récurrents importants
-  - enjeux = liés aux conflits / enjeux
-  - anecdotiques = apparitions ponctuelles
-- isPlayerPersona=true uniquement pour le/les persona(s) joueur ; ils ne sont jamais principal.
+- Pour chaque personnage, renseigne si possible : age, physique, personality, extraInfo, location (emplacement actuel).
+- isPlayerPersona=true uniquement pour le/les persona(s) joueur.
 - linkSubsection:
   - objets = objets clés narratifs
-  - rapports = liens relationnels entre personnages
+  - rapports = liens relationnels entre personnages (from/to)
+  - evenements = évènements marquants (participants, summary=description, time, location)
 - Lieux clés seulement s'ils apparaissent vraiment.
 - Réponds en français.`;
 
@@ -314,8 +326,12 @@ export async function generateOrRefreshMemory(opts: {
           characters: current.characters.map((c) => ({
             name: c.name,
             summary: c.summary,
+            age: c.age,
+            physique: c.physique,
+            personality: c.personality,
+            extraInfo: c.extraInfo,
+            location: c.location,
             userEdited: c.userEdited,
-            characterCategory: c.characterCategory,
             isPlayerPersona: c.isPlayerPersona,
           })),
           links: current.links.map((c) => ({
@@ -323,6 +339,9 @@ export async function generateOrRefreshMemory(opts: {
             summary: c.summary,
             from: c.from,
             to: c.to,
+            participants: c.participants,
+            time: c.time,
+            location: c.location,
             userEdited: c.userEdited,
             linkSubsection: c.linkSubsection,
           })),
@@ -395,6 +414,13 @@ export function applyManualMemoryEdit(
     to?: string;
     characterCategory?: MemoryCharacterCategory;
     linkSubsection?: MemoryLinkSubsection;
+    age?: string;
+    physique?: string;
+    personality?: string;
+    extraInfo?: string;
+    location?: string;
+    participants?: string;
+    time?: string;
   },
 ): SimulationMemory {
   let list = memory[section].map((it) => {
@@ -411,6 +437,8 @@ export function applyManualMemoryEdit(
         characterCategory = 'secondaires';
       }
     }
+    const pick = (k: keyof typeof patch, cur?: string) =>
+      patch[k] !== undefined ? (String(patch[k] ?? '').trim() || undefined) : cur;
     return emptyMemoryItem({
       ...it,
       name,
@@ -420,6 +448,13 @@ export function applyManualMemoryEdit(
       to: patch.to !== undefined ? (patch.to || undefined) : it.to,
       characterCategory,
       linkSubsection: patch.linkSubsection ?? it.linkSubsection,
+      age: pick('age', it.age),
+      physique: pick('physique', it.physique),
+      personality: pick('personality', it.personality),
+      extraInfo: pick('extraInfo', it.extraInfo),
+      location: pick('location', it.location),
+      participants: pick('participants', it.participants),
+      time: pick('time', it.time),
       userEdited: true,
       updatedAt: new Date().toISOString(),
     });
