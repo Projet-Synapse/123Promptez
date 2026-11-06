@@ -55,6 +55,7 @@ import {
   SIMULATION_FEATURE_META,
   emptySimulationFeatures,
   emptyFeatureContent,
+  countUnreadMessages,
   resolveMemoryWikilink,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
@@ -338,7 +339,7 @@ function PlusPopover({
 /** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
 function SimulationPlusPanel({
   view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
-  features, onToggleFeature, onOpenFeature,
+  features, onToggleFeature, onOpenFeature, unreadMessagesCount = 0,
   themeId, onSelectTheme, themeBackgroundUri, onPickThemeBackground, onClearThemeBackground, C,
 }: {
   view: 'menu' | 'models' | 'features' | 'theme';
@@ -351,6 +352,7 @@ function SimulationPlusPanel({
   features: SimulationFeatures;
   onToggleFeature: (id: SimulationFeatureId) => void;
   onOpenFeature: (id: SimulationFeatureId) => void;
+  unreadMessagesCount?: number;
   themeId: SimulationThemeId;
   onSelectTheme: (id: SimulationThemeId) => void;
   themeBackgroundUri?: string;
@@ -459,9 +461,19 @@ function SimulationPlusPanel({
                     <MaterialIcons name={meta.icon as any} size={20} color={on ? ACCENT : C.textMuted} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: on ? C.textPrimary : C.textSecondary }}>
-                      {meta.label}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: on ? C.textPrimary : C.textSecondary }}>
+                        {meta.label}
+                      </Text>
+                      {id === 'messages' && unreadMessagesCount > 0 ? (
+                        <View style={{
+                          minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
+                          backgroundColor: C.error, alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Text style={{ fontSize: 10, color: '#fff', fontWeight: '800' }}>{unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted }} numberOfLines={2}>
                       {meta.description}
                     </Text>
@@ -1075,9 +1087,10 @@ export default function ChatScreen() {
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
   const [showSimMemory, setShowSimMemory] = useState(false);
   const [memoryGenerating, setMemoryGenerating] = useState(false);
+  const [memoryRefreshError, setMemoryRefreshError] = useState<string | null>(null);
   const [memoryFocusItemId, setMemoryFocusItemId] = useState<string | null>(null);
   const memoryGenRef = useRef(false);
-  const maybeAutoUpdateMemoryRef = useRef<(n?: number) => void>(() => {});
+  const maybeAutoUpdateMemoryRef = useRef<(opts?: { lastUser?: string; lastAssistant?: string; messageCount?: number }) => void>(() => {});
   const [showSidePanel, setShowSidePanel] = useState(false);
   // Mode de réponse conservé d'une session à l'autre (web/desktop)
   const [responseMode, setResponseMode] = useState<ResponseMode>(() => {
@@ -1486,8 +1499,12 @@ export default function ChatScreen() {
         thinking: (activeConversation?.kind === 'simulation' ? undefined : (lastThinkingRef.current || undefined)),
         questionnaire: questionnaireData ?? undefined,
       });
-      // Mémoire Simulation : MAJ auto tous les N messages
-      maybeAutoUpdateMemoryRef.current((activeConversation.messages?.length ?? 0) + 1);
+      // Mémoire Simulation : MAJ si [[wikilinks]] dans le tour (user + IA)
+      maybeAutoUpdateMemoryRef.current({
+        lastUser: lastUserMsgRef.current,
+        lastAssistant: finalContent,
+        messageCount: (activeConversation.messages?.length ?? 0) + 1,
+      });
       // NB : seuls les marqueurs [x:task-…] (voir ci-dessus) cochent les tâches.
       // On ne coche PAS toutes les tâches dues automatiquement : une tâche non
       // traitée par l'agent doit rester ouverte jusqu'à être réellement faite.
@@ -1722,25 +1739,56 @@ export default function ChatScreen() {
     });
   };
 
-  const runMemoryGeneration = async (mode: 'initial' | 'refresh') => {
+  const runMemoryGeneration = async (
+    mode: 'initial' | 'refresh',
+    opts?: { silentToast?: boolean; fromWikilink?: boolean },
+  ) => {
     if (!activeConversation || !simData || memoryGenRef.current) return;
     memoryGenRef.current = true;
     setMemoryGenerating(true);
+    setMemoryRefreshError(null);
     try {
       const history = (activeConversation.messages ?? []).map((m: any) => ({
         role: m.role as 'user' | 'assistant' | 'system',
         content: String(m.content ?? ''),
       }));
-      const next = await generateOrRefreshMemory({
+      const feats = simData.features ?? emptySimulationFeatures();
+      const result = await generateOrRefreshMemory({
         sim: simData,
         messages: history,
         bot,
         mode,
+        features: { inventory: !!feats.inventory, messages: !!feats.messages },
+        featureContent: simData.featureContent ?? emptyFeatureContent(),
       });
-      persistSimMemory(next);
+      const fc = emptyFeatureContent(simData.featureContent);
+      const nextFc = emptyFeatureContent({
+        ...fc,
+        inventory: result.inventoryNext ?? fc.inventory,
+        messages: result.messagesNext ?? fc.messages,
+      });
+      updateSimulation(activeWorkspace.id, activeConversation.id, {
+        ...simData,
+        memory: result.memory,
+        featureContent: nextFc,
+      });
+      if (!opts?.silentToast) {
+        if (mode === 'refresh') {
+          showToast('Mémoire mise à jour', { tone: 'success' });
+        }
+      } else if (opts?.fromWikilink) {
+        showToast('Mémoire mise à jour', { tone: 'success' });
+      }
+      if (result.inventoryAdded.length > 0) {
+        showToast('Nouvel objet dans l\'inventaire', { tone: 'success' });
+      }
+      if (result.messagesAdded.length > 0) {
+        showToast('Vous avez reçu un nouveau message', { tone: 'info' });
+      }
     } catch (e: any) {
-      showToast(e?.message ? String(e.message).slice(0, 120) : 'Mémoire : génération impossible', { tone: 'error' });
-      // Seed minimal si première ouverture échoue totalement
+      const msg = e?.message ? String(e.message).slice(0, 160) : 'Mémoire : génération impossible';
+      setMemoryRefreshError(msg);
+      showToast(msg, { tone: 'error' });
       if (mode === 'initial' && !simData.memory?.initialized) {
         persistSimMemory(seedMemoryFromWorld(simData));
       }
@@ -1770,14 +1818,18 @@ export default function ChatScreen() {
     }
   };
 
-  const maybeAutoUpdateMemory = (messageCountOverride?: number) => {
+  const maybeAutoUpdateMemory = (opts?: {
+    lastUser?: string;
+    lastAssistant?: string;
+    messageCount?: number;
+  }) => {
     if (!activeConversation || !simData || activeConversation.kind !== 'simulation') return;
     const mem = simData.memory ?? emptySimulationMemory();
-    const count = typeof messageCountOverride === 'number'
-      ? messageCountOverride
+    const count = typeof opts?.messageCount === 'number'
+      ? opts.messageCount
       : (activeConversation.messages?.length ?? 0);
-    if (!shouldAutoUpdateMemory(mem, count)) return;
-    void runMemoryGeneration('refresh');
+    if (!shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant])) return;
+    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: true });
   };
   maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;
 
@@ -1889,6 +1941,9 @@ export default function ChatScreen() {
         <SimulationFeatureScreen
           featureId={simFeatureScreen}
           content={simData.featureContent ?? emptyFeatureContent()}
+          memoryCharacters={(simData.memory?.characters ?? [])
+            .filter((c) => !c.isPlayerPersona)
+            .map((c) => ({ name: c.name, key: c.key }))}
           onChange={(featureContent) => {
             updateSimulation(activeWorkspace.id, activeConversation!.id, {
               ...simData,
@@ -1907,6 +1962,7 @@ export default function ChatScreen() {
         <SimulationMemoryScreen
           memory={simData.memory ?? emptySimulationMemory()}
           generating={memoryGenerating}
+          refreshError={memoryRefreshError}
           focusItemId={memoryFocusItemId}
           personaBaseHint={(simData.personas ?? [])
             .map((p) => {
@@ -2428,6 +2484,7 @@ export default function ChatScreen() {
                   features: next,
                 });
               }}
+              unreadMessagesCount={countUnreadMessages(simData?.featureContent)}
               onOpenFeature={(id) => {
                 setShowPlusPopover(false);
                 setSimPlusView('menu');

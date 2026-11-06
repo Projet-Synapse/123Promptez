@@ -47,11 +47,21 @@ export interface SimulationFeatureMessageItem {
   updatedAt: string;
 }
 
+/** Contact = personnage mémoire autorisé à envoyer des messages. */
+export interface SimulationContactItem {
+  id: string;
+  /** Clé normalisée (mémoire) */
+  key: string;
+  name: string;
+  addedAt: string;
+}
+
 export interface SimulationFeatureContent {
   inventory: SimulationInventoryItem[];
   album: SimulationAlbumItem[];
   skills: SimulationSkillItem[];
   messages: SimulationFeatureMessageItem[];
+  contacts: SimulationContactItem[];
 }
 
 export function emptyFeatureContent(
@@ -62,6 +72,7 @@ export function emptyFeatureContent(
     album: Array.isArray(partial?.album) ? partial!.album! : [],
     skills: Array.isArray(partial?.skills) ? partial!.skills! : [],
     messages: Array.isArray(partial?.messages) ? partial!.messages! : [],
+    contacts: Array.isArray(partial?.contacts) ? partial!.contacts! : [],
   };
 }
 
@@ -113,6 +124,19 @@ export function emptyFeatureMessageItem(
   };
 }
 
+export function emptyContactItem(
+  partial?: Partial<SimulationContactItem>,
+): SimulationContactItem {
+  const name = optStr(partial?.name) || 'Contact';
+  const key = optStr(partial?.key) || name.toLowerCase();
+  return {
+    id: partial?.id ?? newId('ctc'),
+    key,
+    name,
+    addedAt: partial?.addedAt ?? new Date().toISOString(),
+  };
+}
+
 function normalizeList<T>(
   raw: any,
   factory: (r: any) => T,
@@ -161,7 +185,57 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
         updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
       }),
     ),
+    contacts: normalizeList(src.contacts, (r) =>
+      emptyContactItem({
+        id: r.id ? String(r.id) : undefined,
+        key: String(r.key ?? r.name ?? ''),
+        name: String(r.name ?? r.key ?? ''),
+        addedAt: r.addedAt ? String(r.addedAt) : undefined,
+      }),
+    ),
   });
+}
+
+/** Fusion inventaire : ajoute / incrémente par nom (casse-insensible). */
+export function mergeInventoryItems(
+  existing: SimulationInventoryItem[],
+  incoming: { name: string; quantity?: number; description?: string }[],
+): { next: SimulationInventoryItem[]; added: SimulationInventoryItem[] } {
+  const map = new Map<string, SimulationInventoryItem>();
+  const keyOf = (n: string) => n.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  for (const e of existing) map.set(keyOf(e.name), e);
+  const added: SimulationInventoryItem[] = [];
+  for (const raw of incoming) {
+    const name = String(raw.name ?? '').trim();
+    if (!name) continue;
+    const k = keyOf(name);
+    const qty = typeof raw.quantity === 'number' && Number.isFinite(raw.quantity)
+      ? Math.max(1, Math.floor(raw.quantity))
+      : 1;
+    const prev = map.get(k);
+    if (!prev) {
+      const it = emptyInventoryItem({
+        name,
+        quantity: qty,
+        description: String(raw.description ?? '').trim(),
+      });
+      map.set(k, it);
+      added.push(it);
+    } else {
+      map.set(k, {
+        ...prev,
+        quantity: Math.max(prev.quantity, qty),
+        description: prev.description || String(raw.description ?? '').trim(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+  return { next: Array.from(map.values()), added };
+}
+
+export function countUnreadMessages(content: SimulationFeatureContent | undefined | null): number {
+  if (!content?.messages) return 0;
+  return content.messages.filter((m) => !m.read).length;
 }
 
 /** Injection prompt — uniquement les modules activés. */
@@ -194,12 +268,21 @@ export function formatFeaturesForPrompt(
     });
     blocks.push(`#### Album photo\n${lines.join('\n')}`);
   }
-  if (features.messages && content.messages.length) {
-    const lines = content.messages.slice(0, maxPer).map((it) => {
-      const inf = it.influence ? ` [influence: ${it.influence}]` : '';
-      return `- De ${it.from}: ${it.content || '—'}${inf}`;
-    });
-    blocks.push(`#### Messages d’interaction\n${lines.join('\n')}`);
+  if (features.messages) {
+    if (content.contacts?.length) {
+      blocks.push(
+        `#### Contacts (peuvent écrire au persona)\n`
+        + content.contacts.slice(0, maxPer).map((c) => `- ${c.name}`).join('\n'),
+      );
+    }
+    if (content.messages.length) {
+      const lines = content.messages.slice(0, maxPer).map((it) => {
+        const inf = it.influence ? ` [influence: ${it.influence}]` : '';
+        const lu = it.read ? '' : ' [NON LU]';
+        return `- De ${it.from}: ${it.content || '—'}${inf}${lu}`;
+      });
+      blocks.push(`#### Messages d’interaction\n${lines.join('\n')}`);
+    }
   }
 
   if (!blocks.length) return '';
