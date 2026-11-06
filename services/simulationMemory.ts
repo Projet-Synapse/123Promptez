@@ -18,6 +18,7 @@ import {
   ensureSinglePrincipal,
   type SimulationMemory,
   type SimulationMemoryItem,
+  type MemorySectionId,
   type MemoryCharacterCategory,
   type MemoryLinkSubsection,
 } from '@/types/simulationMemory';
@@ -46,21 +47,24 @@ function extractJsonObject(text: string): any | null {
   }
 }
 
-function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places'): SimulationMemoryItem[] {
+function itemsFromLlmArray(
+  arr: any,
+  section: 'persona' | 'characters' | 'links' | 'places',
+): SimulationMemoryItem[] {
   if (!Array.isArray(arr)) return [];
   const out: SimulationMemoryItem[] = [];
   for (const r of arr) {
     if (!r || typeof r !== 'object') continue;
-    const name = String(r.name ?? r.title ?? '').trim();
+    const name = String(r.name ?? r.title ?? r.task ?? r.tache ?? r.fait ?? '').trim();
     if (!name) continue;
-    const summary = String(r.summary ?? r.description ?? r.text ?? '').trim();
+    const summary = String(r.summary ?? r.description ?? r.text ?? r.task ?? r.tache ?? '').trim();
     const base: Partial<SimulationMemoryItem> & { name: string } = {
       name,
       summary,
       from: r.from ? String(r.from) : undefined,
       to: r.to ? String(r.to) : undefined,
       userEdited: false,
-      isPlayerPersona: r.isPlayerPersona === true,
+      isPlayerPersona: false,
       age: r.age != null ? String(r.age) : undefined,
       physique: r.physique ?? r.physicalDescription ?? r.descriptionPhysique,
       personality: r.personality ?? r.personnalite,
@@ -68,6 +72,15 @@ function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places')
       location: r.location ?? r.emplacement ?? r.place,
       participants: r.participants,
       time: r.time ?? r.temps ?? r.when,
+      owner: r.owner ?? r.proprietaire,
+      origin: r.origin ?? r.origine,
+      interlocutors: r.interlocutors ?? r.interlocuteurs,
+      dynamics: r.dynamics ?? r.dynamique,
+      attitude: r.attitude,
+      attachmentLevel: r.attachmentLevel ?? r.niveauAttachement ?? r.attachement,
+      proposedBy: r.proposedBy ?? r.proposePar,
+      task: r.task ?? r.tache,
+      completed: r.completed === true || r.done === true,
     };
     if (section === 'characters') {
       base.characterCategory = normalizeCharacterCategory(
@@ -78,6 +91,10 @@ function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places')
       base.linkSubsection = normalizeLinkSubsection(
         r.linkSubsection ?? r.subsection ?? r.kind ?? r.type,
       );
+      if (base.linkSubsection === 'accords' && !base.task) base.task = name;
+      if (base.linkSubsection === 'rapports' && !base.interlocutors && (base.from || base.to)) {
+        base.interlocutors = [base.from, base.to].filter(Boolean).join(' / ');
+      }
     }
     out.push(emptyMemoryItem(base));
   }
@@ -86,29 +103,9 @@ function itemsFromLlmArray(arr: any, section: 'characters' | 'links' | 'places')
 
 /** Seed déterministe à partir du worldbuilding (personas, PNJ, titre). */
 export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
+  // Persona de base reste dans sim.personas — la section mémoire « persona »
+  // ne liste que les faits APPRIS en RP (différents du persona de base).
   const characters: SimulationMemoryItem[] = [];
-  for (const p of sim.personas ?? []) {
-    const name = (p.name || '').trim();
-    if (!name) continue;
-    const parts = [p.identity, p.physique, p.personality, p.tastes, p.background]
-      .map((s) => String(s ?? '').trim())
-      .filter(Boolean);
-    characters.push(
-      emptyMemoryItem({
-        name,
-        summary: parts.join(' · ').slice(0, 600) || 'Persona joueur',
-        userEdited: false,
-        isPlayerPersona: true,
-        characterCategory: 'secondaires',
-        physique: String(p.physique ?? '').trim() || undefined,
-        personality: String(p.personality ?? '').trim() || undefined,
-        extraInfo: [p.identity, p.tastes, p.background]
-          .map((s) => String(s ?? '').trim())
-          .filter(Boolean)
-          .join(' · ') || undefined,
-      }),
-    );
-  }
   for (const c of sim.characters ?? []) {
     const name = (c.name || '').trim();
     if (!name) continue;
@@ -150,6 +147,7 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
           summary: 'Relation à préciser au fil du roleplay',
           from: persona.name.trim(),
           to: c.name.trim(),
+          interlocutors: `${persona.name.trim()} / ${c.name.trim()}`,
           userEdited: false,
           linkSubsection: 'rapports',
         }),
@@ -163,6 +161,7 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
     lastUpdatedAt: new Date().toISOString(),
     messageCountAtLastUpdate: 0,
     updateEveryN: sim.memory?.updateEveryN,
+    persona: [],
     characters: mergedChars,
     links: mergeMemoryItems([], links),
     places: mergeMemoryItems([], places),
@@ -274,20 +273,23 @@ function buildWorldSnippet(sim: SimulationData): string {
 const EXTRACT_SYSTEM = `Tu es un extracteur de mémoire pour un roleplay.
 Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), schéma:
 {
-  "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?","isPlayerPersona":false}],
-  "links": [{"name":"string","summary":"string","linkSubsection":"objets|rapports|evenements","from":"string?","to":"string?","participants":"string?","time":"string?","location":"string?"}],
+  "persona": [{"name":"string","summary":"string"}],
+  "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
+  "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","task":"string?","completed":false}],
   "places": [{"name":"string","summary":"string"}]
 }
 Règles STRICTES:
 - Pas de doublons de personnages (un nom = une entrée ; fusionne les alias).
 - Faits vérifiables dans le worldbuilding / l'historique seulement — pas d'invention.
 - Summaries courtes (1–3 phrases).
-- Pour chaque personnage, renseigne si possible : age, physique, personality, extraInfo, location (emplacement actuel).
-- isPlayerPersona=true uniquement pour le/les persona(s) joueur.
+- "persona" = faits APPRIS en RP sur le persona joueur, STRICTEMENT différents de ce qui est déjà dans le persona de base (identité, physique, personnalité, goûts, arrière-plan fournis ci-dessous). N'y mets PAS de simple reformulation du persona de base.
+- "characters" = PNJ seulement (jamais le persona joueur).
+- Pour chaque personnage, renseigne si possible : age, physique, personality, extraInfo, location.
 - linkSubsection:
-  - objets = objets clés narratifs
-  - rapports = liens relationnels entre personnages (from/to)
+  - objets = objets clés (owner=propriétaire, name=nom article, summary=description, origin=origine)
+  - rapports = liens relationnels (interlocutors, dynamics, attitude, attachmentLevel)
   - evenements = évènements marquants (participants, summary=description, time, location)
+  - accords = accords et tâches (proposedBy, participants, task, completed true/false)
 - Lieux clés seulement s'ils apparaissent vraiment.
 - Réponds en français.`;
 
@@ -307,6 +309,7 @@ export async function generateOrRefreshMemory(opts: {
   const current = normalizeOrEmpty(sim.memory);
   const seed = mode === 'initial' ? seedMemoryFromWorld(sim) : current;
 
+  let llmPersona: SimulationMemoryItem[] = [];
   let llmCharacters: SimulationMemoryItem[] = [];
   let llmLinks: SimulationMemoryItem[] = [];
   let llmPlaces: SimulationMemoryItem[] = [];
@@ -320,10 +323,29 @@ export async function generateOrRefreshMemory(opts: {
       '## WORLDBUILDING',
       buildWorldSnippet(sim),
       '',
+      '## PERSONA DE BASE (ne PAS recopier dans persona — seulement faits nouveaux du RP)',
+      JSON.stringify(
+        (sim.personas ?? []).map((p) => ({
+          name: p.name,
+          identity: p.identity,
+          physique: p.physique,
+          personality: p.personality,
+          tastes: p.tastes,
+          background: p.background,
+        })),
+        null,
+        2,
+      ),
+      '',
       '## MÉMOIRE ACTUELLE (à respecter / fusionner)',
       JSON.stringify(
         {
-          characters: current.characters.map((c) => ({
+          persona: current.persona.map((c) => ({
+            name: c.name,
+            summary: c.summary,
+            userEdited: c.userEdited,
+          })),
+          characters: current.characters.filter((c) => !c.isPlayerPersona).map((c) => ({
             name: c.name,
             summary: c.summary,
             age: c.age,
@@ -332,18 +354,24 @@ export async function generateOrRefreshMemory(opts: {
             extraInfo: c.extraInfo,
             location: c.location,
             userEdited: c.userEdited,
-            isPlayerPersona: c.isPlayerPersona,
           })),
           links: current.links.map((c) => ({
             name: c.name,
             summary: c.summary,
-            from: c.from,
-            to: c.to,
+            linkSubsection: c.linkSubsection,
+            owner: c.owner,
+            origin: c.origin,
+            interlocutors: c.interlocutors,
+            dynamics: c.dynamics,
+            attitude: c.attitude,
+            attachmentLevel: c.attachmentLevel,
             participants: c.participants,
             time: c.time,
             location: c.location,
+            proposedBy: c.proposedBy,
+            task: c.task,
+            completed: c.completed === true,
             userEdited: c.userEdited,
-            linkSubsection: c.linkSubsection,
           })),
           places: current.places.map((c) => ({
             name: c.name,
@@ -368,6 +396,7 @@ export async function generateOrRefreshMemory(opts: {
     });
     const parsed = extractJsonObject(raw);
     if (parsed) {
+      llmPersona = itemsFromLlmArray(parsed.persona, 'persona');
       llmCharacters = itemsFromLlmArray(parsed.characters, 'characters');
       llmLinks = itemsFromLlmArray(parsed.links, 'links');
       llmPlaces = itemsFromLlmArray(parsed.places, 'places');
@@ -376,6 +405,7 @@ export async function generateOrRefreshMemory(opts: {
     // Seed seul si LLM indisponible
   }
 
+  const basePersona = mode === 'initial' ? seed.persona : current.persona;
   const baseChars = mode === 'initial' ? seed.characters : current.characters;
   const baseLinks = mode === 'initial' ? seed.links : current.links;
   const basePlaces = mode === 'initial' ? seed.places : current.places;
@@ -390,6 +420,7 @@ export async function generateOrRefreshMemory(opts: {
     lastUpdatedAt: new Date().toISOString(),
     messageCountAtLastUpdate: messages.length,
     updateEveryN: current.updateEveryN,
+    persona: mergeMemoryItems(basePersona, llmPersona),
     characters: mergedCharacters,
     links: mergeMemoryItems(baseLinks, llmLinks),
     places: mergeMemoryItems(basePlaces, llmPlaces),
@@ -405,7 +436,7 @@ function normalizeOrEmpty(mem: SimulationMemory | undefined): SimulationMemory {
 /** Applique une édition manuelle (marque userEdited). */
 export function applyManualMemoryEdit(
   memory: SimulationMemory,
-  section: 'characters' | 'links' | 'places',
+  section: MemorySectionId,
   itemId: string,
   patch: {
     name?: string;
@@ -421,6 +452,15 @@ export function applyManualMemoryEdit(
     location?: string;
     participants?: string;
     time?: string;
+    owner?: string;
+    origin?: string;
+    interlocutors?: string;
+    dynamics?: string;
+    attitude?: string;
+    attachmentLevel?: string;
+    proposedBy?: string;
+    task?: string;
+    completed?: boolean;
   },
 ): SimulationMemory {
   let list = memory[section].map((it) => {
@@ -455,6 +495,15 @@ export function applyManualMemoryEdit(
       location: pick('location', it.location),
       participants: pick('participants', it.participants),
       time: pick('time', it.time),
+      owner: pick('owner', it.owner),
+      origin: pick('origin', it.origin),
+      interlocutors: pick('interlocutors', it.interlocutors),
+      dynamics: pick('dynamics', it.dynamics),
+      attitude: pick('attitude', it.attitude),
+      attachmentLevel: pick('attachmentLevel', it.attachmentLevel),
+      proposedBy: pick('proposedBy', it.proposedBy),
+      task: pick('task', it.task),
+      completed: patch.completed !== undefined ? patch.completed === true : it.completed === true,
       userEdited: true,
       updatedAt: new Date().toISOString(),
       isNew: false,
@@ -466,7 +515,7 @@ export function applyManualMemoryEdit(
 
 export function addManualMemoryItem(
   memory: SimulationMemory,
-  section: 'characters' | 'links' | 'places',
+  section: MemorySectionId,
   name: string,
   opts?: { characterCategory?: MemoryCharacterCategory; linkSubsection?: MemoryLinkSubsection },
 ): SimulationMemory {
@@ -476,6 +525,9 @@ export function addManualMemoryItem(
     userEdited: true,
     characterCategory: section === 'characters' ? (opts?.characterCategory ?? 'anecdotiques') : undefined,
     linkSubsection: section === 'links' ? (opts?.linkSubsection ?? 'rapports') : undefined,
+    task: section === 'links' && (opts?.linkSubsection ?? 'rapports') === 'accords'
+      ? (name.trim() || 'Nouvelle tâche')
+      : undefined,
     isPlayerPersona: false,
   });
   let list = mergeMemoryItems(memory[section], [item]);
@@ -488,7 +540,7 @@ export function addManualMemoryItem(
 
 export function removeMemoryItem(
   memory: SimulationMemory,
-  section: 'characters' | 'links' | 'places',
+  section: MemorySectionId,
   itemId: string,
 ): SimulationMemory {
   return emptySimulationMemory({

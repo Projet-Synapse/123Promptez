@@ -1862,6 +1862,17 @@ export default function ChatScreen() {
           memory={simData.memory ?? emptySimulationMemory()}
           generating={memoryGenerating}
           focusItemId={memoryFocusItemId}
+          personaBaseHint={(simData.personas ?? [])
+            .map((p) => {
+              const bits = [
+                p.name ? `« ${p.name} »` : '',
+                p.identity, p.physique, p.personality, p.tastes, p.background,
+              ].map((s) => String(s ?? '').trim()).filter(Boolean);
+              return bits.join(' · ');
+            })
+            .filter(Boolean)
+            .join('\n')
+            .slice(0, 800) || undefined}
           onClose={() => { setShowSimMemory(false); setMemoryFocusItemId(null); }}
           onRefresh={() => void runMemoryGeneration(simData.memory?.initialized ? 'refresh' : 'initial')}
           onAdd={(section, name, opts) => persistSimMemory(addManualMemoryItem(simData.memory ?? emptySimulationMemory(), section, name, opts))}

@@ -1,5 +1,5 @@
 /**
- * Page Mémoire Simulation — fiches Personnages / Liens (Objets, Rapports, Évènements) / Lieux.
+ * Page Mémoire Simulation — Persona / Personnages / Liens (Objets, Relationnels, Évènements, Accords) / Lieux.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -15,6 +15,10 @@ import {
   MEMORY_LINK_SUBSECTION_META,
   MEMORY_CHARACTER_FICHE_FIELDS,
   MEMORY_EVENT_FICHE_FIELDS,
+  MEMORY_OBJECT_FICHE_FIELDS,
+  MEMORY_RELATION_FICHE_FIELDS,
+  MEMORY_ACCORD_FICHE_FIELDS,
+  MEMORY_PERSONA_FICHE_FIELDS,
   MEMORY_AUTO_UPDATE_EVERY_N,
   type MemorySectionId,
   type MemoryLinkSubsection,
@@ -37,12 +41,23 @@ type EditPatch = {
   location?: string;
   participants?: string;
   time?: string;
+  owner?: string;
+  origin?: string;
+  interlocutors?: string;
+  dynamics?: string;
+  attitude?: string;
+  attachmentLevel?: string;
+  proposedBy?: string;
+  task?: string;
+  completed?: boolean;
 };
 
 type Props = {
   memory: SimulationMemory;
   generating: boolean;
   focusItemId?: string | null;
+  /** Infos déjà dans le persona de base (pour le rappel sous l’onglet Persona). */
+  personaBaseHint?: string;
   onClose: () => void;
   onRefresh: () => void;
   onAdd: (
@@ -129,13 +144,29 @@ function LinkKindChips({
 }
 
 function previewLine(section: MemorySectionId, it: SimulationMemoryItem): string {
+  if (section === 'persona') {
+    return it.summary || '';
+  }
   if (section === 'characters') {
     const bits = [it.age ? `${it.age} ans` : '', it.location, it.personality || it.summary]
       .filter(Boolean);
     return bits.join(' · ');
   }
-  if (section === 'links' && it.linkSubsection === 'evenements') {
-    return [it.time, it.participants, it.summary].filter(Boolean).join(' · ');
+  if (section === 'links') {
+    const sub = it.linkSubsection ?? 'rapports';
+    if (sub === 'evenements') {
+      return [it.time, it.participants, it.summary].filter(Boolean).join(' · ');
+    }
+    if (sub === 'objets') {
+      return [it.owner, it.summary, it.origin].filter(Boolean).join(' · ');
+    }
+    if (sub === 'rapports') {
+      return [it.interlocutors, it.dynamics, it.attitude, it.attachmentLevel].filter(Boolean).join(' · ');
+    }
+    if (sub === 'accords') {
+      const mark = it.completed ? '✓' : '○';
+      return [mark, it.proposedBy, it.participants, it.task || it.summary].filter(Boolean).join(' · ');
+    }
   }
   return it.summary || '';
 }
@@ -157,12 +188,15 @@ function ItemCard({
   onRemove: Props['onRemove'];
   C: ReturnType<typeof useThemeColors>;
 }) {
+  const sub = it.linkSubsection ?? 'rapports';
   const kindLabel =
-    section === 'links' && it.linkSubsection
-      ? MEMORY_LINK_SUBSECTION_META[it.linkSubsection].label
+    section === 'links'
+      ? MEMORY_LINK_SUBSECTION_META[sub].label
       : null;
-  const isEvent = section === 'links' && (it.linkSubsection ?? 'rapports') === 'evenements';
   const preview = previewLine(section, it);
+  const displayName = section === 'links' && sub === 'accords'
+    ? (it.task || it.name)
+    : it.name;
 
   return (
     <View
@@ -178,8 +212,11 @@ function ItemCard({
       <Pressable onPress={onToggle} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {section === 'links' && sub === 'accords' ? (
+              <Text style={{ fontSize: 14 }}>{it.completed ? '☑️' : '⬜'}</Text>
+            ) : null}
             <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
-              {it.name}
+              {displayName}
             </Text>
             {it.isNew ? (
               <Text style={{ fontSize: 10, lineHeight: 12 }} accessibilityLabel="Nouveauté">🔴</Text>
@@ -220,15 +257,24 @@ function ItemCard({
 
       {open ? (
         <View style={{ marginTop: Spacing.sm, gap: Spacing.sm }}>
-          <Field
-            label="Nom"
-            value={it.name}
-            onChange={(v) => onEditItem(section, it.id, { name: v })}
-            C={C}
-          />
+          {section === 'links' && sub === 'accords' ? (
+            <Pressable
+              onPress={() => onEditItem(section, it.id, { completed: !it.completed })}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}
+            >
+              <MaterialIcons
+                name={it.completed ? 'check-box' : 'check-box-outline-blank'}
+                size={22}
+                color={it.completed ? ACCENT : C.textMuted}
+              />
+              <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
+                {it.completed ? 'Fait / tenu' : 'À faire'}
+              </Text>
+            </Pressable>
+          ) : null}
 
-          {section === 'characters' ? (
-            MEMORY_CHARACTER_FICHE_FIELDS.map((f) => (
+          {section === 'persona' ? (
+            MEMORY_PERSONA_FICHE_FIELDS.map((f) => (
               <Field
                 key={f.key}
                 label={f.label}
@@ -240,17 +286,46 @@ function ItemCard({
             ))
           ) : null}
 
+          {section === 'characters' ? (
+            <>
+              <Field
+                label="Nom"
+                value={it.name}
+                onChange={(v) => onEditItem(section, it.id, { name: v })}
+                C={C}
+              />
+              {MEMORY_CHARACTER_FICHE_FIELDS.map((f) => (
+                <Field
+                  key={f.key}
+                  label={f.label}
+                  value={String(it[f.key] ?? '')}
+                  multiline={f.multiline}
+                  onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
+                  C={C}
+                />
+              ))}
+              <Field
+                label="Notes"
+                value={it.summary}
+                multiline
+                onChange={(v) => onEditItem(section, it.id, { summary: v })}
+                placeholder="Notes libres…"
+                C={C}
+              />
+            </>
+          ) : null}
+
           {section === 'links' ? (
             <>
               <View>
                 <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>TYPE</Text>
                 <LinkKindChips
-                  value={it.linkSubsection ?? 'rapports'}
+                  value={sub}
                   onChange={(k) => onEditItem(section, it.id, { linkSubsection: k })}
                   C={C}
                 />
               </View>
-              {isEvent ? (
+              {sub === 'evenements' ? (
                 MEMORY_EVENT_FICHE_FIELDS.map((f) => (
                   <Field
                     key={f.key}
@@ -261,59 +336,67 @@ function ItemCard({
                     C={C}
                   />
                 ))
-              ) : (
-                <>
-                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                    <View style={{ flex: 1 }}>
-                      <Field
-                        label="De"
-                        value={it.from ?? ''}
-                        onChange={(v) => onEditItem(section, it.id, { from: v })}
-                        C={C}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Field
-                        label="Vers"
-                        value={it.to ?? ''}
-                        onChange={(v) => onEditItem(section, it.id, { to: v })}
-                        C={C}
-                      />
-                    </View>
-                  </View>
+              ) : null}
+              {sub === 'objets' ? (
+                MEMORY_OBJECT_FICHE_FIELDS.map((f) => (
                   <Field
-                    label="Résumé"
-                    value={it.summary}
-                    multiline
-                    onChange={(v) => onEditItem(section, it.id, { summary: v })}
-                    placeholder="Faits à retenir…"
+                    key={f.key}
+                    label={f.label}
+                    value={String(it[f.key] ?? '')}
+                    multiline={f.multiline}
+                    onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
                     C={C}
                   />
-                </>
-              )}
+                ))
+              ) : null}
+              {sub === 'rapports' ? (
+                MEMORY_RELATION_FICHE_FIELDS.map((f) => (
+                  <Field
+                    key={f.key}
+                    label={f.label}
+                    value={String(it[f.key] ?? '')}
+                    multiline={f.multiline}
+                    onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
+                    C={C}
+                  />
+                ))
+              ) : null}
+              {sub === 'accords' ? (
+                MEMORY_ACCORD_FICHE_FIELDS.map((f) => (
+                  <Field
+                    key={f.key}
+                    label={f.label}
+                    value={String((f.key === 'task' ? (it.task || it.name) : it[f.key]) ?? '')}
+                    multiline={f.multiline}
+                    onChange={(v) => onEditItem(
+                      section,
+                      it.id,
+                      f.key === 'task' ? { task: v, name: v } : { [f.key]: v },
+                    )}
+                    C={C}
+                  />
+                ))
+              ) : null}
             </>
           ) : null}
 
           {section === 'places' ? (
-            <Field
-              label="Résumé"
-              value={it.summary}
-              multiline
-              onChange={(v) => onEditItem(section, it.id, { summary: v })}
-              placeholder="Faits à retenir…"
-              C={C}
-            />
-          ) : null}
-
-          {section === 'characters' ? (
-            <Field
-              label="Notes"
-              value={it.summary}
-              multiline
-              onChange={(v) => onEditItem(section, it.id, { summary: v })}
-              placeholder="Notes libres…"
-              C={C}
-            />
+            <>
+              <Field
+                label="Nom"
+                value={it.name}
+                onChange={(v) => onEditItem(section, it.id, { name: v })}
+                C={C}
+              />
+              <Field
+                label="Résumé"
+                value={it.summary}
+                multiline
+                onChange={(v) => onEditItem(section, it.id, { summary: v })}
+                placeholder="Faits à retenir…"
+                C={C}
+              />
+            </>
           ) : null}
 
           <Pressable
@@ -525,7 +608,7 @@ function SectionBlock({
 }
 
 export function SimulationMemoryScreen({
-  memory, generating, focusItemId, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen,
+  memory, generating, focusItemId, personaBaseHint, onClose, onRefresh, onEditItem, onAdd, onRemove, onMarkSeen,
 }: Props) {
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
@@ -535,7 +618,7 @@ export function SimulationMemoryScreen({
   useEffect(() => {
     if (!focusItemId) return;
     setExpandedId(focusItemId);
-    for (const s of ['characters', 'links', 'places'] as MemorySectionId[]) {
+    for (const s of ['persona', 'characters', 'links', 'places'] as MemorySectionId[]) {
       const hit = memory[s].find((it) => it.id === focusItemId);
       if (hit?.isNew) {
         onMarkSeen(s, focusItemId);
@@ -545,7 +628,7 @@ export function SimulationMemoryScreen({
   }, [focusItemId]);
 
   const sections = useMemo(() => {
-    const all: MemorySectionId[] = ['characters', 'links', 'places'];
+    const all: MemorySectionId[] = ['persona', 'characters', 'links', 'places'];
     return tab === 'all' ? all : [tab];
   }, [tab]);
 
@@ -601,13 +684,15 @@ export function SimulationMemoryScreen({
         <View style={{ flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm }}>
           {([
             { id: 'all' as const, label: 'Tout' },
+            { id: 'persona' as const, label: 'Persona' },
             { id: 'characters' as const, label: 'Personnages' },
             { id: 'links' as const, label: 'Liens' },
             { id: 'places' as const, label: 'Lieux' },
           ]).map((t) => {
             const on = tab === t.id;
             const hasNew = t.id === 'all'
-              ? (memory.characters.some((it) => it.isNew)
+              ? (memory.persona.some((it) => it.isNew)
+                || memory.characters.some((it) => it.isNew)
                 || memory.links.some((it) => it.isNew)
                 || memory.places.some((it) => it.isNew))
               : memory[t.id].some((it) => it.isNew);
@@ -643,11 +728,30 @@ export function SimulationMemoryScreen({
           </View>
         ) : null}
 
+        {(tab === 'all' || tab === 'persona') && personaBaseHint ? (
+          <View style={{
+            marginBottom: Spacing.md, padding: Spacing.sm, borderRadius: Radius.md,
+            backgroundColor: ACCENT + '14', borderWidth: 1, borderColor: ACCENT + '44',
+          }}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '800', color: ACCENT, marginBottom: 4 }}>
+              PERSONA DE BASE (référence — ne pas dupliquer)
+            </Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, lineHeight: 16 }}>
+              {personaBaseHint}
+            </Text>
+            <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 6 }}>
+              Ci-dessous : uniquement les faits appris en RP, différents de ces infos.
+            </Text>
+          </View>
+        ) : null}
+
         {sections.map((section) => (
           <SectionBlock
             key={section}
             section={section}
-            items={memory[section]}
+            items={section === 'characters'
+              ? memory.characters.filter((c) => !c.isPlayerPersona)
+              : memory[section]}
             C={C}
             expandedId={expandedId}
             setExpandedId={setExpandedId}
