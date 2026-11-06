@@ -1,6 +1,6 @@
 // Theme fix: inline styles with useThemeColors()
-import React, { useState } from 'react';
-import { View, Text, Pressable, Modal, Platform } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, Modal, Platform, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Radius, Spacing, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
@@ -8,6 +8,16 @@ import { ChatMessage } from '@/contexts/BotContext';
 import { MarkdownView } from '@/components/feature/Markdown';
 import { ThinkingCard } from '@/components/feature/ThinkingCard';
 import { QuestionnaireCard, QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
+import { parseSimulationRoleplayContent } from '@/services/simulationRoleplayFormat';
+import { normalizeMemoryKey } from '@/types/simulationMemory';
+
+const RP_ACCENT = '#9B59B6';
+
+export type SimCharacterLook = {
+  name: string;
+  avatarUri?: string;
+  avatarColor?: string;
+};
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -15,25 +25,67 @@ interface ChatBubbleProps {
   botColor: string;
   onCopy?: () => void;
   onRegenerate?: () => void;
-  /** Éditer ce message (utilisateur ou assistant) */
   onEdit?: () => void;
-  /** Repartir d'ici : garder ce message, tronquer la suite */
   onRestartFromHere?: () => void;
-  /** Supprimer ce message */
   onDelete?: () => void;
   showActions?: boolean;
-  /** Mettre en avant le bouton régénérer (Simulation) */
   emphasizeRegenerate?: boolean;
   questionnaireAnswered?: boolean;
   onAnswerQuestionnaire?: (answers: QuestionnaireAnswer[]) => void;
-  /** Clic [[wikilink]] — Simulation / mémoire */
   onWikilinkPress?: (target: string) => void;
+  /**
+   * Simulation : pas de thinking, pas d’avatar LLM / label bot,
+   * narration en italique, bulles personnage dédiées.
+   */
+  roleplayMode?: boolean;
+  /** PNJ connus pour résoudre icône / couleur par nom */
+  simCharacters?: SimCharacterLook[];
+}
+
+function colorFromName(name: string): string {
+  const palette = ['#9B59B6', '#3498DB', '#E67E22', '#1ABC9C', '#E74C3C', '#8E44AD', '#16A085', '#D35400'];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
+function resolveLook(name: string, chars?: SimCharacterLook[]): SimCharacterLook {
+  const key = normalizeMemoryKey(name);
+  const hit = (chars ?? []).find((c) => normalizeMemoryKey(c.name) === key);
+  return {
+    name,
+    avatarUri: hit?.avatarUri,
+    avatarColor: hit?.avatarColor || colorFromName(name),
+  };
+}
+
+function CharAvatar({ look, size = 28 }: { look: SimCharacterLook; size?: number }) {
+  const bg = look.avatarColor || RP_ACCENT;
+  if (look.avatarUri) {
+    return (
+      <Image
+        source={{ uri: look.avatarUri }}
+        style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg }}
+      />
+    );
+  }
+  return (
+    <View style={{
+      width: size, height: size, borderRadius: size / 2,
+      backgroundColor: bg, alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Text style={{ color: '#fff', fontWeight: '800', fontSize: size * 0.4 }}>
+        {(look.name || '?').trim().charAt(0).toUpperCase()}
+      </Text>
+    </View>
+  );
 }
 
 export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
   onRestartFromHere, onDelete, showActions, emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
+  roleplayMode, simCharacters,
 }: ChatBubbleProps) {
   const C = useThemeColors();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -45,6 +97,11 @@ export function ChatBubble({
   const actionsVisible = !isSyntheticCard && showActions !== false && (
     !!onCopy || (!isUser && !!onRegenerate) || !!onEdit || !!onRestartFromHere || !!onDelete
   );
+
+  const rpSegments = useMemo(() => {
+    if (!roleplayMode || isUser) return null;
+    return parseSimulationRoleplayContent(message.content);
+  }, [roleplayMode, isUser, message.content]);
 
   if (isSyntheticCard) {
     return (
@@ -71,6 +128,159 @@ export function ChatBubble({
     onDelete ? { key: 'delete', label: 'Supprimer', icon: 'delete-outline', color: C.error, action: onDelete } : null,
   ].filter(Boolean) as any[];
 
+  const actionsRow = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4, marginLeft: roleplayMode && !isUser ? 0 : 4, flexWrap: 'wrap' }}>
+      <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+        {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+      {actionsVisible ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+          {onCopy ? (
+            <Pressable onPress={onCopy} hitSlop={8} accessibilityLabel="Copier" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+              <MaterialIcons name="content-copy" size={13} color={C.textMuted} />
+            </Pressable>
+          ) : null}
+          {hasLongPress ? (
+            <Pressable onPress={openMenu} hitSlop={8} accessibilityLabel="Options du message" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+              <MaterialIcons name="more-horiz" size={14} color={C.textMuted} />
+            </Pressable>
+          ) : null}
+          {!isUser && onRegenerate ? (
+            emphasizeRegenerate ? (
+              <Pressable
+                onPress={onRegenerate}
+                hitSlop={6}
+                accessibilityLabel="Régénérer"
+                style={({ pressed }) => [{
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                  paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill,
+                  borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt,
+                }, pressed && { opacity: 0.7 }]}
+              >
+                <MaterialIcons name="refresh" size={13} color={C.textSecondary} />
+                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>Régénérer</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={onRegenerate} hitSlop={8} accessibilityLabel="Régénérer" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
+                <MaterialIcons name="refresh" size={14} color={C.textMuted} />
+              </Pressable>
+            )
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const menuModal = (
+    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <Pressable
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
+        onPress={() => setMenuOpen(false)}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation?.()}
+          style={{
+            backgroundColor: C.bgCard,
+            borderTopLeftRadius: Radius.lg,
+            borderTopRightRadius: Radius.lg,
+            paddingTop: Spacing.md,
+            paddingBottom: Spacing.xl,
+            paddingHorizontal: Spacing.md,
+            gap: 2,
+            borderWidth: Platform.OS === 'web' ? 1 : 0,
+            borderColor: C.border,
+            maxWidth: 480,
+            width: '100%',
+            alignSelf: 'center',
+          }}
+        >
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', marginBottom: Spacing.sm, letterSpacing: 0.5 }}>
+            MESSAGE
+          </Text>
+          {menuItems.map((it) => (
+            <Pressable
+              key={it.key}
+              onPress={() => { setMenuOpen(false); it.action?.(); }}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+                paddingVertical: 14, paddingHorizontal: Spacing.sm, borderRadius: Radius.md,
+              }, pressed && { backgroundColor: C.bgCardAlt }]}
+            >
+              <MaterialIcons name={it.icon} size={20} color={it.color || C.textPrimary} />
+              <Text style={{ fontSize: FontSize.body, fontWeight: '600', color: it.color || C.textPrimary }}>{it.label}</Text>
+            </Pressable>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+
+  // ── Simulation RP : segments narration / personnage ──────────────────────
+  if (roleplayMode && !isUser && rpSegments) {
+    return (
+      <View style={{ marginBottom: Spacing.md, gap: Spacing.sm }}>
+        <Pressable
+          onLongPress={openMenu}
+          delayLongPress={380}
+          {...(Platform.OS === 'web' ? { onContextMenu: (e: any) => { e?.preventDefault?.(); openMenu(); } } as any : null)}
+        >
+          <View style={{ gap: Spacing.sm }}>
+            {/* Pas de ThinkingCard en Simulation */}
+            {rpSegments.map((seg, idx) => {
+              if (seg.kind === 'char') {
+                const look = resolveLook(seg.name || 'Personnage', simCharacters);
+                return (
+                  <View
+                    key={`char-${idx}-${look.name}`}
+                    style={{
+                      flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-start',
+                    }}
+                  >
+                    <CharAvatar look={look} />
+                    <View style={{
+                      flex: 1,
+                      backgroundColor: C.bgCard,
+                      borderRadius: Radius.lg,
+                      borderBottomLeftRadius: 4,
+                      borderWidth: 1,
+                      borderColor: (look.avatarColor || RP_ACCENT) + '44',
+                      paddingHorizontal: Spacing.md,
+                      paddingVertical: Spacing.sm + 2,
+                    }}>
+                      <Text style={{
+                        fontSize: FontSize.xs, fontWeight: '800', color: look.avatarColor || RP_ACCENT,
+                        letterSpacing: 0.4, marginBottom: 4, textTransform: 'uppercase',
+                      }}>
+                        {look.name}
+                      </Text>
+                      <MarkdownView content={seg.content} variant="narration" onWikilinkPress={onWikilinkPress} />
+                    </View>
+                  </View>
+                );
+              }
+              // Narration générale — pas d’icône LLM, italique
+              return (
+                <View key={`narr-${idx}`} style={{ paddingHorizontal: Spacing.xs }}>
+                  <MarkdownView content={seg.content} variant="narration" onWikilinkPress={onWikilinkPress} />
+                </View>
+              );
+            })}
+            {message.questionnaire ? (
+              <QuestionnaireCard
+                data={message.questionnaire}
+                answered={questionnaireAnswered}
+                onSubmit={onAnswerQuestionnaire}
+              />
+            ) : null}
+          </View>
+        </Pressable>
+        {actionsRow}
+        {menuModal}
+      </View>
+    );
+  }
+
+  // ── Classique (et user Simulation) ───────────────────────────────────────
   return (
     <View style={{
       flexDirection: 'row',
@@ -137,46 +347,7 @@ export function ChatBubble({
           </View>
         ) : null}
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4, marginLeft: 4, flexWrap: 'wrap' }}>
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
-            {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-          {actionsVisible ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              {onCopy ? (
-                <Pressable onPress={onCopy} hitSlop={8} accessibilityLabel="Copier" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-                  <MaterialIcons name="content-copy" size={13} color={C.textMuted} />
-                </Pressable>
-              ) : null}
-              {hasLongPress ? (
-                <Pressable onPress={openMenu} hitSlop={8} accessibilityLabel="Options du message" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-                  <MaterialIcons name="more-horiz" size={14} color={C.textMuted} />
-                </Pressable>
-              ) : null}
-              {!isUser && onRegenerate ? (
-                emphasizeRegenerate ? (
-                  <Pressable
-                    onPress={onRegenerate}
-                    hitSlop={6}
-                    accessibilityLabel="Régénérer"
-                    style={({ pressed }) => [{
-                      flexDirection: 'row', alignItems: 'center', gap: 4,
-                      paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.pill,
-                      borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt,
-                    }, pressed && { opacity: 0.7 }]}
-                  >
-                    <MaterialIcons name="refresh" size={13} color={C.textSecondary} />
-                    <Text style={{ fontSize: FontSize.xs, color: C.textSecondary, fontWeight: '600' }}>Régénérer</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable onPress={onRegenerate} hitSlop={8} accessibilityLabel="Régénérer" style={({ pressed }) => [{ padding: 3, borderRadius: 4 }, pressed && { opacity: 0.6 }]}>
-                    <MaterialIcons name="refresh" size={14} color={C.textMuted} />
-                  </Pressable>
-                )
-              ) : null}
-            </View>
-          ) : null}
-        </View>
+        {actionsRow}
       </View>
 
       {isUser ? (
@@ -185,61 +356,7 @@ export function ChatBubble({
         </View>
       ) : null}
 
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
-          onPress={() => setMenuOpen(false)}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation?.()}
-            style={{
-              backgroundColor: C.bgCard,
-              borderTopLeftRadius: Radius.lg,
-              borderTopRightRadius: Radius.lg,
-              paddingTop: Spacing.md,
-              paddingBottom: Spacing.xl,
-              paddingHorizontal: Spacing.md,
-              gap: 2,
-              borderWidth: Platform.OS === 'web' ? 1 : 0,
-              borderColor: C.border,
-              maxWidth: 480,
-              width: '100%',
-              alignSelf: 'center',
-            }}
-          >
-            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700', marginBottom: Spacing.sm, paddingHorizontal: 8 }}>
-              OPTIONS DU MESSAGE
-            </Text>
-            {menuItems.map((item) => (
-              <Pressable
-                key={item.key}
-                onPress={() => {
-                  setMenuOpen(false);
-                  item.action?.();
-                }}
-                style={({ pressed }) => [{
-                  flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-                  paddingVertical: 14, paddingHorizontal: 12, borderRadius: Radius.md,
-                }, pressed && { backgroundColor: C.bgCardAlt }]}
-              >
-                <MaterialIcons name={item.icon} size={20} color={item.color ?? C.textPrimary} />
-                <Text style={{ fontSize: FontSize.body, color: item.color ?? C.textPrimary, fontWeight: '600' }}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            ))}
-            <Pressable
-              onPress={() => setMenuOpen(false)}
-              style={({ pressed }) => [{
-                marginTop: Spacing.sm, paddingVertical: 12, alignItems: 'center',
-                borderRadius: Radius.md, backgroundColor: C.bgCardAlt,
-              }, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={{ color: C.textSecondary, fontWeight: '700' }}>Annuler</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {menuModal}
     </View>
   );
 }

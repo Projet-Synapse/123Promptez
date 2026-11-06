@@ -1119,7 +1119,7 @@ export default function ChatScreen() {
     if (target) {
       if (streamingText.trim()) {
         // Keep partial response if any
-        addMessageToConversation(target.wsId, target.convId, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_', thinking: lastThinkingRef.current || undefined });
+        addMessageToConversation(target.wsId, target.convId, { role: 'assistant', content: streamingText + '\n\n_[Génération interrompue]_', thinking: (activeConversation?.kind === 'simulation' ? undefined : (lastThinkingRef.current || undefined)) });
       } else {
         // Arrêt AVANT le premier token : une bulle explicite évite le message
         // utilisateur orphelin (et garde l'affordance « régénérer » visible).
@@ -1236,7 +1236,7 @@ export default function ChatScreen() {
           supabaseTools: bot.connectedApps.some(a => a.enabled && (a.id === 'supabase' || a.presetId === 'supabase')),
           enabledTools: bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id),
           // Raisonnement étendu visible : activé par le mode Réfléchie
-          thinking: responseMode === 'deep',
+          thinking: !isSimulation && responseMode === 'deep',
           onThinking: (full) => {
             lastThinkingRef.current = full;
             setThinkingText(full);
@@ -1283,7 +1283,7 @@ export default function ChatScreen() {
         // le réémettra au tour suivant, après avoir vu les résultats d'outils.
         const cleanContent = stripQuestionnaire(stripToolCalls(finalContent, toolCalls));
         if (cleanContent.trim()) {
-          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent, thinking: lastThinkingRef.current || undefined });
+          addMessageToConversation(activeWorkspace.id, activeConversation.id, { role: 'assistant', content: cleanContent, thinking: (activeConversation?.kind === 'simulation' ? undefined : (lastThinkingRef.current || undefined)) });
         }
         try {
           const outcomes: { call: ClientToolCall; outcome: ToolOutcome }[] = [];
@@ -1372,7 +1372,7 @@ export default function ChatScreen() {
       addMessageToConversation(activeWorkspace.id, activeConversation.id, {
         role: 'assistant',
         content: finalContent,
-        thinking: lastThinkingRef.current || undefined,
+        thinking: (activeConversation?.kind === 'simulation' ? undefined : (lastThinkingRef.current || undefined)),
         questionnaire: questionnaireData ?? undefined,
       });
       // Mémoire Simulation : MAJ auto tous les N messages
@@ -1965,9 +1965,25 @@ export default function ChatScreen() {
               <ChatBubble
                 key={msg.id}
                 message={msg}
-                botName={isSimulation ? (activeSimPersona?.name || bot.name) : bot.name}
-                botColor={isSimulation ? '#9B59B6' : bot.avatarColor}
+                botName={bot.name}
+                botColor={bot.avatarColor}
                 emphasizeRegenerate={!!isSimulation}
+                roleplayMode={!!isSimulation}
+                simCharacters={
+                  isSimulation
+                    ? [
+                        ...(simData?.characters ?? []).map((c: any) => ({
+                          name: c.name,
+                          avatarUri: c.avatarUri,
+                          avatarColor: c.avatarColor,
+                        })),
+                        ...(simData?.memory?.characters ?? []).map((c: any) => ({
+                          name: c.name,
+                          avatarColor: undefined,
+                        })),
+                      ]
+                    : undefined
+                }
                 onWikilinkPress={isSimulation ? handleSimWikilink : undefined}
                 onCopy={() => handleCopyMessage(msg.content)}
                 onEdit={
@@ -2002,37 +2018,52 @@ export default function ChatScreen() {
             ))}
 
             {streamingText ? (
-              <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-end', marginBottom: Spacing.md }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="smart-toy" size={14} color="#fff" />
+              isSimulation ? (
+                <View style={{ marginBottom: Spacing.md, paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
+                  <View style={{ flex: 1 }}>
+                    <MarkdownView content={throttledStream} variant="narration" />
+                  </View>
+                  <View style={{ width: 2, height: 18, backgroundColor: '#9B59B6', marginLeft: 4, alignSelf: 'center' }} />
                 </View>
-                <View style={{ flex: 1, gap: Spacing.xs }}>
-                  <ActivityFeed activities={activities} />
-                  {thinkingText ? <ThinkingCard text={thinkingText} live={isLoading} /> : null}
-                  <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
-                    <View style={{ flex: 1 }}>
-                      <MarkdownView content={throttledStream} />
+              ) : (
+                <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-end', marginBottom: Spacing.md }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
+                    <MaterialIcons name="smart-toy" size={14} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, gap: Spacing.xs }}>
+                    <ActivityFeed activities={activities} />
+                    {thinkingText ? <ThinkingCard text={thinkingText} live={isLoading} /> : null}
+                    <View style={{ paddingHorizontal: Spacing.xs, flexDirection: 'row' }}>
+                      <View style={{ flex: 1 }}>
+                        <MarkdownView content={throttledStream} />
+                      </View>
+                      <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
                     </View>
-                    <View style={{ width: 2, height: 18, backgroundColor: C.accent, marginLeft: 4, alignSelf: 'center' }} />
                   </View>
                 </View>
-              </View>
+              )
             ) : null}
 
             {isLoading && !streamingText ? (
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, marginBottom: Spacing.md }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
-                  <ActivityIndicator size="small" color="#fff" />
+              isSimulation ? (
+                <View style={{ marginBottom: Spacing.md, paddingHorizontal: Spacing.xs, paddingTop: 4 }}>
+                  <ActivityIndicator size="small" color="#9B59B6" />
                 </View>
-                <View style={{ flex: 1, paddingTop: 8 }}>
-                  <ActivityFeed activities={activities} />
-                  {thinkingText ? <ThinkingCard text={thinkingText} live /> : null}
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, marginBottom: Spacing.md }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bot.avatarColor, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, paddingTop: 8 }}>
+                    <ActivityFeed activities={activities} />
+                    {thinkingText ? <ThinkingCard text={thinkingText} live /> : null}
+                  </View>
                 </View>
-              </View>
+              )
             ) : null}
 
-            {/* Suggestions de relance sous la dernière réponse de l'IA */}
-            {!isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' ? (
+            {/* Suggestions de relance — Classique uniquement (Simulation : bouton » au-dessus d’Envoyer) */}
+            {!isSimulation && !isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.md, paddingLeft: 40 }}>
                 {['Continue', 'Peux-tu détailler ?', 'Concrètement, je fais quoi ?'].map(s => (
                   <Pressable
@@ -2268,30 +2299,48 @@ export default function ChatScreen() {
               ) : null}
             </View>
 
-            {isLoading ? (
-              <IconButton
-                icon="stop"
-                label="Arrêter la génération"
-                onPress={handleStop}
-                boxSize={44}
-                backgroundColor={C.error}
-                borderColor="transparent"
-                color="#fff"
-                style={{ borderRadius: 22 }}
-              />
-            ) : (
-              <IconButton
-                icon="send"
-                label="Envoyer"
-                onPress={() => handleSend()}
-                disabled={!input.trim() && !pendingAttachment}
-                boxSize={44}
-                backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
-                borderColor="transparent"
-                color={(input.trim() || pendingAttachment) ? C.bg : C.textMuted}
-                style={{ borderRadius: 22 }}
-              />
-            )}
+            <View style={{ alignItems: 'center', gap: 4 }}>
+              {isSimulation && !isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === 'assistant' ? (
+                <Pressable
+                  onPress={() => handleSend('»')}
+                  accessibilityLabel="Continuer le roleplay"
+                  hitSlop={6}
+                  style={({ pressed }) => [{
+                    minWidth: 44, height: 28, borderRadius: Radius.pill,
+                    alignItems: 'center', justifyContent: 'center',
+                    paddingHorizontal: 10,
+                    backgroundColor: '#9B59B622',
+                    borderWidth: 1, borderColor: '#9B59B666',
+                  }, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#9B59B6', lineHeight: 20, letterSpacing: -1 }}>»</Text>
+                </Pressable>
+              ) : null}
+              {isLoading ? (
+                <IconButton
+                  icon="stop"
+                  label="Arrêter la génération"
+                  onPress={handleStop}
+                  boxSize={44}
+                  backgroundColor={C.error}
+                  borderColor="transparent"
+                  color="#fff"
+                  style={{ borderRadius: 22 }}
+                />
+              ) : (
+                <IconButton
+                  icon="send"
+                  label="Envoyer"
+                  onPress={() => handleSend()}
+                  disabled={!input.trim() && !pendingAttachment}
+                  boxSize={44}
+                  backgroundColor={(input.trim() || pendingAttachment) ? C.accent : C.bgCardAlt}
+                  borderColor="transparent"
+                  color={(input.trim() || pendingAttachment) ? C.bg : C.textMuted}
+                  style={{ borderRadius: 22 }}
+                />
+              )}
+            </View>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
