@@ -5,6 +5,7 @@ import {
   View, Text, ScrollView, Pressable,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
   Animated, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent,
+  ImageBackground,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,6 +60,9 @@ import {
   emptySimulationMemory,
   markMemoryItemSeen,
   memoryHasUnseen,
+  toggleMemoryPin,
+  MEMORY_PIN_MAX,
+  listPinnedMemoryItems,
   SIMULATION_THEME_META,
   resolveSimulationThemeColors,
   simulationThemeLabel,
@@ -335,7 +339,7 @@ function PlusPopover({
 function SimulationPlusPanel({
   view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
   features, onToggleFeature, onOpenFeature,
-  themeId, onSelectTheme, C,
+  themeId, onSelectTheme, themeBackgroundUri, onPickThemeBackground, onClearThemeBackground, C,
 }: {
   view: 'menu' | 'models' | 'features' | 'theme';
   onChangeView: (v: 'menu' | 'models' | 'features' | 'theme') => void;
@@ -349,6 +353,9 @@ function SimulationPlusPanel({
   onOpenFeature: (id: SimulationFeatureId) => void;
   themeId: SimulationThemeId;
   onSelectTheme: (id: SimulationThemeId) => void;
+  themeBackgroundUri?: string;
+  onPickThemeBackground: () => void;
+  onClearThemeBackground: () => void;
   C: ReturnType<typeof useThemeColors>;
 }) {
   const ACCENT = '#9B59B6';
@@ -528,6 +535,32 @@ function SimulationPlusPanel({
             );
           })}
         </ScrollView>
+        <View style={{
+          marginTop: Spacing.xs, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: C.border, gap: Spacing.sm,
+        }}>
+          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>
+            ARRIÈRE-PLAN PERSONNALISÉ
+          </Text>
+          <Pressable
+            onPress={onPickThemeBackground}
+            style={({ pressed }) => [{
+              flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+              paddingVertical: 12, paddingHorizontal: Spacing.sm, borderRadius: Radius.md,
+              backgroundColor: themeBackgroundUri ? ACCENT + '18' : C.bgCardAlt,
+              borderWidth: 1, borderColor: themeBackgroundUri ? ACCENT + '66' : C.border,
+            }, pressed && { opacity: 0.85 }]}
+          >
+            <MaterialIcons name="image" size={20} color={ACCENT} />
+            <Text style={{ flex: 1, fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }}>
+              {themeBackgroundUri ? 'Changer l’image…' : 'Importer mon arrière-plan…'}
+            </Text>
+          </Pressable>
+          {themeBackgroundUri ? (
+            <Pressable onPress={onClearThemeBackground} style={{ paddingVertical: 6, paddingHorizontal: Spacing.sm }}>
+              <Text style={{ fontSize: FontSize.sm, color: C.error, fontWeight: '700' }}>Retirer l’arrière-plan</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     );
   }
@@ -1879,14 +1912,30 @@ export default function ChatScreen() {
           onRemove={(section, id) => persistSimMemory(removeMemoryItem(simData.memory ?? emptySimulationMemory(), section, id))}
           onEditItem={(section, id, patch) => persistSimMemory(applyManualMemoryEdit(simData.memory ?? emptySimulationMemory(), section, id, patch))}
           onMarkSeen={(section, id) => persistSimMemory(markMemoryItemSeen(simData.memory ?? emptySimulationMemory(), section, id))}
+          onTogglePin={(section, id) => {
+            const next = toggleMemoryPin(simData.memory ?? emptySimulationMemory(), section, id);
+            if (!next) {
+              showToast(`Maximum ${MEMORY_PIN_MAX} infos épinglées`, { tone: 'error' });
+              return false;
+            }
+            persistSimMemory(next);
+            return true;
+          }}
         />
       </View>
     );
   }
 
+  const themeBgUri = isSimulation ? simData?.themeBackgroundUri : undefined;
+  const ChatRoot: any = themeBgUri ? ImageBackground : View;
+  const chatRootProps = themeBgUri
+    ? { source: { uri: themeBgUri }, style: { flex: 1 }, imageStyle: { opacity: 0.35 }, resizeMode: 'cover' as const }
+    : { style: { flex: 1, backgroundColor: chatBg } };
+
   return (
-    <View style={{ flex: 1, backgroundColor: chatBg }}>
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+    <ChatRoot {...chatRootProps}>
+      {!themeBgUri ? null : <View style={{ ...({ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: chatBg, opacity: 0.72 } as any) }} pointerEvents="none" />}
+      <SafeAreaView style={{ flex: 1, backgroundColor: themeBgUri ? 'transparent' : undefined }} edges={['top']}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
 
           {/* Header */}
@@ -2075,6 +2124,35 @@ export default function ChatScreen() {
               )
             ) : null}
 
+
+            {isSimulation && simData?.memory ? (() => {
+              const pinnedChars = listPinnedMemoryItems(simData.memory)
+                .filter((p) => p.section === 'characters' && p.item.avatarUri);
+              const persona = activeSimPersona;
+              if (!persona?.avatarUri && pinnedChars.length === 0) return null;
+              return (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ flexGrow: 0, marginBottom: Spacing.sm }}
+                  contentContainerStyle={{ gap: 10, paddingHorizontal: Spacing.xs, alignItems: 'center' }}
+                >
+                  {persona?.avatarUri ? (
+                    <View style={{ alignItems: 'center', gap: 2 }}>
+                      <Image source={{ uri: persona.avatarUri }} style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#9B59B6' }} />
+                      <Text style={{ fontSize: 9, color: C.textMuted, fontWeight: '700', maxWidth: 56 }} numberOfLines={1}>{persona.name || 'Moi'}</Text>
+                    </View>
+                  ) : null}
+                  {pinnedChars.map(({ item }) => (
+                    <View key={item.id} style={{ alignItems: 'center', gap: 2 }}>
+                      <Image source={{ uri: item.avatarUri! }} style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: C.border }} />
+                      <Text style={{ fontSize: 9, color: C.textMuted, fontWeight: '700', maxWidth: 56 }} numberOfLines={1}>{item.name}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              );
+            })() : null}
+
             {chatMessages.map((msg: any, mi: number) => (
               <ChatBubble
                 key={msg.id}
@@ -2084,6 +2162,15 @@ export default function ChatScreen() {
                 emphasizeRegenerate={!!isSimulation}
                 roleplayMode={!!isSimulation}
                 simThemeColors={simThemeColors}
+                personaLook={
+                  isSimulation && activeSimPersona
+                    ? {
+                        name: activeSimPersona.name || 'Persona',
+                        avatarUri: activeSimPersona.avatarUri,
+                        avatarColor: '#9B59B6',
+                      }
+                    : null
+                }
                 simCharacters={
                   isSimulation
                     ? [
@@ -2092,10 +2179,13 @@ export default function ChatScreen() {
                           avatarUri: c.avatarUri,
                           avatarColor: c.avatarColor,
                         })),
-                        ...(simData?.memory?.characters ?? []).map((c: any) => ({
-                          name: c.name,
-                          avatarColor: undefined,
-                        })),
+                        ...(simData?.memory?.characters ?? [])
+                          .filter((c: any) => !c.isPlayerPersona)
+                          .map((c: any) => ({
+                            name: c.name,
+                            avatarUri: c.avatarUri,
+                            avatarColor: c.avatarColor,
+                          })),
                       ]
                     : undefined
                 }
@@ -2326,6 +2416,7 @@ export default function ChatScreen() {
                 setSimFeatureScreen(id);
               }}
               themeId={simThemeId}
+              themeBackgroundUri={simData?.themeBackgroundUri}
               onSelectTheme={(id) => {
                 if (!activeConversation || !simData) return;
                 updateSimulation(activeWorkspace.id, activeConversation.id, {
@@ -2333,6 +2424,42 @@ export default function ChatScreen() {
                   theme: id,
                 });
                 showToast(`Thème : ${simulationThemeLabel(id)}`, { tone: 'success' });
+              }}
+              onPickThemeBackground={async () => {
+                if (!activeConversation || !simData) return;
+                try {
+                  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (status !== 'granted') {
+                    showAlert('Permission requise', "L'accès à la galerie est nécessaire pour importer un arrière-plan.");
+                    return;
+                  }
+                  const result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    allowsEditing: true,
+                    quality: 0.75,
+                    base64: true,
+                  });
+                  if (result.canceled || !result.assets?.[0]) return;
+                  const asset = result.assets[0];
+                  const uri = asset.base64
+                    ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+                    : asset.uri;
+                  updateSimulation(activeWorkspace.id, activeConversation.id, {
+                    ...simData,
+                    themeBackgroundUri: uri,
+                  });
+                  showToast('Arrière-plan importé', { tone: 'success' });
+                } catch (e: any) {
+                  showAlert('Erreur', e?.message ?? "Impossible d'importer l'image");
+                }
+              }}
+              onClearThemeBackground={() => {
+                if (!activeConversation || !simData) return;
+                updateSimulation(activeWorkspace.id, activeConversation.id, {
+                  ...simData,
+                  themeBackgroundUri: undefined,
+                });
+                showToast('Arrière-plan retiré', { tone: 'info' });
               }}
               C={C}
             />
@@ -2569,6 +2696,6 @@ export default function ChatScreen() {
           setNewConvModalWsId(null);
         }}
       />
-    </View>
+    </ChatRoot>
   );
 }
