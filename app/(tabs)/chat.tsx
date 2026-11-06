@@ -43,7 +43,7 @@ import { AGENT_TOOLS, CONNECTOR_PRESETS, LLM_MODELS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
-import SimulationSetupScreen from '@/components/feature/SimulationSetupScreen';
+import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScreen';
 import { Toggle } from '@/components/ui/Toggle';
@@ -327,13 +327,14 @@ function PlusPopover({
 
 /** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
 function SimulationPlusPanel({
-  view, onChangeView, onReset, onPersona, onSelectModel, currentModelId,
+  view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
   features, onToggleFeature, onOpenFeature, C,
 }: {
   view: 'menu' | 'models' | 'features';
   onChangeView: (v: 'menu' | 'models' | 'features') => void;
   onReset: () => void;
   onPersona: () => void;
+  onRoleplay: () => void;
   onSelectModel: (id: string) => void;
   currentModelId: string;
   features: SimulationFeatures;
@@ -473,8 +474,15 @@ function SimulationPlusPanel({
       key: 'persona',
       icon: 'person',
       label: 'Persona',
-      desc: 'Changer ou éditer ton personnage joueur',
+      desc: 'Liste et édition de tes personnages joueur',
       onPress: onPersona,
+    },
+    {
+      key: 'roleplay',
+      icon: 'public',
+      label: 'Roleplay',
+      desc: 'Monde, introduction, bienvenue, contexte, règles…',
+      onPress: onRoleplay,
     },
     {
       key: 'models',
@@ -946,7 +954,7 @@ export default function ChatScreen() {
   /** Workspace pour lequel on choisit Classique / Simulation (null = fermé). */
   const [newConvModalWsId, setNewConvModalWsId] = useState<string | null>(null);
   /** Réouvrir la fiche monde/persona d'une simulation déjà démarrée. */
-  const [editSimSetup, setEditSimSetup] = useState(false);
+  const [simEditMode, setSimEditMode] = useState<SimulationSetupMode | null>(null);
   /** Édition in-place d'un message assistant (contenu brut). */
   const [editingAssistant, setEditingAssistant] = useState<{ id: string; content: string } | null>(null);
 
@@ -1587,7 +1595,7 @@ export default function ChatScreen() {
 
   const isSimulation = activeConversation?.kind === 'simulation';
   const simData = activeConversation?.simulation;
-  const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || editSimSetup));
+  const needsSimSetup = !!(isSimulation && simData && (!simData.setupComplete || simEditMode));
   const activeSimPersona = getActivePersona(simData);
   const roleplayLimits = getRoleplaySettings(profile);
   const inputMaxLength = isSimulation ? roleplayLimits.maxUserChars : 4000;
@@ -1673,7 +1681,7 @@ export default function ChatScreen() {
     if (!activeConversation) return;
     updateSimulation(activeWorkspace.id, activeConversation.id, data);
     renameConversation(activeWorkspace.id, activeConversation.id, data.world.title || 'Nouvelle simulation');
-    setEditSimSetup(false);
+    setSimEditMode(null);
     // Premier message de bienvenue si la conversation est encore vide
     if (
       activeConversation.messages.length === 0 &&
@@ -1725,9 +1733,10 @@ export default function ChatScreen() {
         <SimulationSetupScreen
           initial={simData}
           workspaceName={activeWorkspace.name}
+          mode={simEditMode ?? 'full'}
           onCancel={
             simData?.setupComplete
-              ? () => setEditSimSetup(false)
+              ? () => setSimEditMode(null)
               : () => {
                   // Marque comme terminé sans forcer les champs — évite de bloquer
                   const skipped = {
@@ -1908,7 +1917,7 @@ export default function ChatScreen() {
                     </Text>
                   ) : null}
                   <Pressable
-                    onPress={() => setEditSimSetup(true)}
+                    onPress={() => setSimEditMode('personas')}
                     style={({ pressed }) => [{
                       flexDirection: 'row', alignItems: 'center', gap: 6,
                       paddingHorizontal: 12, paddingVertical: 8, borderRadius: Radius.pill,
@@ -2131,7 +2140,7 @@ export default function ChatScreen() {
                         });
                         setShowPlusPopover(false);
                         setSimPlusView('menu');
-                        setEditSimSetup(false);
+                        setSimEditMode(null);
                       },
                     },
                   ],
@@ -2140,7 +2149,12 @@ export default function ChatScreen() {
               onPersona={() => {
                 setShowPlusPopover(false);
                 setSimPlusView('menu');
-                setEditSimSetup(true);
+                setSimEditMode('personas');
+              }}
+              onRoleplay={() => {
+                setShowPlusPopover(false);
+                setSimPlusView('menu');
+                setSimEditMode('world');
               }}
               onSelectModel={(id) => {
                 updateLLMConfig({ model: id });
@@ -2297,14 +2311,6 @@ export default function ChatScreen() {
         onToggleAgentTool={toggleAgentTool}
         bottomInset={insets.bottom}
       />
-
-      {/* Assombrir le fil quand le panneau Roleplay est soulevé */}
-      {isSimulation && showPlusPopover ? (
-        <Pressable
-          onPress={() => { setShowPlusPopover(false); setSimPlusView('menu'); }}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 140 }}
-        />
-      ) : null}
 
       {/* Panneau latéral droit (façon Grok) : fichiers, instructions, sites web / sandbox */}
       <WorkspaceSidePanel

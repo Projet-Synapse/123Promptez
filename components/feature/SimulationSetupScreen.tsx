@@ -22,9 +22,17 @@ import {
 
 const ACCENT = '#9B59B6';
 
+export type SimulationSetupMode = 'full' | 'personas' | 'world';
+
 interface Props {
   initial: SimulationData | undefined;
   workspaceName: string;
+  /**
+   * `full` = création initiale (monde + personas).
+   * `personas` = liste / édition des personas joueur uniquement.
+   * `world` = édition des infos du roleplay (monde, règles…) uniquement.
+   */
+  mode?: SimulationSetupMode;
   onCancel?: () => void;
   onComplete: (data: SimulationData) => void;
 }
@@ -98,7 +106,7 @@ function AvatarBubble({
   );
 }
 
-export default function SimulationSetupScreen({ initial, workspaceName, onCancel, onComplete }: Props) {
+export default function SimulationSetupScreen({ initial, workspaceName, mode = 'full', onCancel, onComplete }: Props) {
   const C = useThemeColors();
   const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
@@ -214,63 +222,72 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
             SIMULATION · {workspaceName}
           </Text>
           <Text style={{ fontSize: FontSize.xl, fontWeight: '800', color: C.textPrimary }}>
-            Créer ton monde
+            {mode === 'personas' ? 'Tes personas' : mode === 'world' ? 'Éditer le roleplay' : 'Créer ton monde'}
           </Text>
           <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, lineHeight: 20 }}>
-            Avant le chat : pose le décor, le message d’accueil, puis ton persona joueur.
+            {mode === 'personas'
+              ? 'Choisis, ajoute ou édite les personnages joueur de cette simulation.'
+              : mode === 'world'
+                ? 'Modifie le monde, l’introduction, le bienvenue, le contexte et les règles.'
+                : 'Avant le chat : pose le décor, le message d’accueil, puis ton persona joueur.'}
           </Text>
         </View>
 
-        {/* Icône monde */}
-        <View style={{ alignItems: 'center', gap: Spacing.sm }}>
-          <AvatarBubble uri={iconUri} onPress={() => void pickImage('world')} fallbackIcon="public" />
-          <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>Icône du monde — appuie pour importer</Text>
-        </View>
+        {/* Monde / roleplay */}
+        {mode !== 'personas' ? (
+          <>
+            <View style={{ alignItems: 'center', gap: Spacing.sm }}>
+              <AvatarBubble uri={iconUri} onPress={() => void pickImage('world')} fallbackIcon="public" />
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>Icône du monde — appuie pour importer</Text>
+            </View>
 
-        <Field
-          label="Titre (optionnel)"
-          value={title}
-          onChange={setTitle}
-          placeholder="Ex. L’Enchanteresse — Livre I"
-        />
-        <Field
-          label="Introduction"
-          value={introduction}
-          onChange={setIntroduction}
-          placeholder="Le contexte primordial de l’histoire…"
-          multiline
-          minHeight={88}
-        />
-        <Field
-          label="Message de bienvenue"
-          value={welcomeMessage}
-          onChange={setWelcomeMessage}
-          placeholder="Le premier message immersif que verra le joueur…"
-          multiline
-          minHeight={120}
-        />
-        <Field
-          label="Contexte d’arrière-plan"
-          value={backgroundContext}
-          onChange={setBackgroundContext}
-          placeholder="Monde, lieux, personnages importants…"
-          multiline
-          minHeight={160}
-        />
-        <Field
-          label="Règles du roleplay"
-          value={rules}
-          onChange={setRules}
-          placeholder="Ce que l’IA doit respecter absolument (ton, limites, style, interdits…) — priorité maximale."
-          multiline
-          minHeight={140}
-        />
+            <Field
+              label="Titre (optionnel)"
+              value={title}
+              onChange={setTitle}
+              placeholder="Ex. L’Enchanteresse — Livre I"
+            />
+            <Field
+              label="Introduction"
+              value={introduction}
+              onChange={setIntroduction}
+              placeholder="Le contexte primordial de l’histoire…"
+              multiline
+              minHeight={88}
+            />
+            <Field
+              label="Message de bienvenue"
+              value={welcomeMessage}
+              onChange={setWelcomeMessage}
+              placeholder="Le premier message immersif que verra le joueur…"
+              multiline
+              minHeight={120}
+            />
+            <Field
+              label="Contexte d’arrière-plan"
+              value={backgroundContext}
+              onChange={setBackgroundContext}
+              placeholder="Monde, lieux, personnages importants…"
+              multiline
+              minHeight={160}
+            />
+            <Field
+              label="Règles du roleplay"
+              value={rules}
+              onChange={setRules}
+              placeholder="Ce que l’IA doit respecter absolument (ton, limites, style, interdits…) — priorité maximale."
+              multiline
+              minHeight={140}
+            />
+          </>
+        ) : null}
 
         {/* Personas */}
+        {mode !== 'world' ? (
         <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ fontSize: FontSize.md, fontWeight: '700', color: C.textPrimary }}>
-              Ton persona
+              {mode === 'personas' ? 'Liste des personas' : 'Ton persona'}
             </Text>
             <Pressable
               onPress={addPersona}
@@ -377,6 +394,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
             </View>
           ) : null}
         </View>
+        ) : null}
       </ScrollView>
 
       {/* Barre d’actions */}
@@ -398,7 +416,9 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
               alignItems: 'center', borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCardAlt,
             }, pressed && { opacity: 0.8 }]}
           >
-            <Text style={{ color: C.textSecondary, fontWeight: '700' }}>Plus tard</Text>
+            <Text style={{ color: C.textSecondary, fontWeight: '700' }}>
+              {mode === 'full' ? 'Plus tard' : 'Annuler'}
+            </Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -409,8 +429,10 @@ export default function SimulationSetupScreen({ initial, workspaceName, onCancel
             flexDirection: 'row', justifyContent: 'center', gap: 8,
           }, pressed && { opacity: 0.9 }]}
         >
-          <MaterialIcons name="play-arrow" size={20} color="#fff" />
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: FontSize.body }}>Commencer</Text>
+          <MaterialIcons name={mode === 'full' ? 'play-arrow' : 'check'} size={20} color="#fff" />
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: FontSize.body }}>
+            {mode === 'full' ? 'Commencer' : 'Enregistrer'}
+          </Text>
         </Pressable>
       </View>
     </View>
