@@ -1,5 +1,5 @@
 /**
- * Page Mémoire Simulation — Personnages (catégories) / Liens (sous-sections) / Lieux.
+ * Page Mémoire Simulation — fiches Personnages / Liens (Objets, Rapports, Évènements) / Lieux.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -11,13 +11,12 @@ import { Spacing, Radius, FontSize } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import {
   MEMORY_SECTION_META,
-  MEMORY_CHARACTER_CATEGORIES,
-  MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_LINK_SUBSECTIONS,
   MEMORY_LINK_SUBSECTION_META,
+  MEMORY_CHARACTER_FICHE_FIELDS,
+  MEMORY_EVENT_FICHE_FIELDS,
   MEMORY_AUTO_UPDATE_EVERY_N,
   type MemorySectionId,
-  type MemoryCharacterCategory,
   type MemoryLinkSubsection,
   type SimulationMemory,
   type SimulationMemoryItem,
@@ -30,8 +29,14 @@ type EditPatch = {
   summary?: string;
   from?: string;
   to?: string;
-  characterCategory?: MemoryCharacterCategory;
   linkSubsection?: MemoryLinkSubsection;
+  age?: string;
+  physique?: string;
+  personality?: string;
+  extraInfo?: string;
+  location?: string;
+  participants?: string;
+  time?: string;
 };
 
 type Props = {
@@ -43,46 +48,47 @@ type Props = {
   onAdd: (
     section: MemorySectionId,
     name: string,
-    opts?: { characterCategory?: MemoryCharacterCategory; linkSubsection?: MemoryLinkSubsection },
+    opts?: { linkSubsection?: MemoryLinkSubsection },
   ) => void;
   onRemove: (section: MemorySectionId, id: string) => void;
   onEditItem: (section: MemorySectionId, id: string, patch: EditPatch) => void;
 };
 
-function CategoryChips({
+function Field({
+  label,
   value,
   onChange,
-  disabledPrincipal,
+  multiline,
+  placeholder,
   C,
 }: {
-  value: MemoryCharacterCategory;
-  onChange: (c: MemoryCharacterCategory) => void;
-  disabledPrincipal?: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  multiline?: boolean;
+  placeholder?: string;
   C: ReturnType<typeof useThemeColors>;
 }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-      {MEMORY_CHARACTER_CATEGORIES.map((cat) => {
-        const on = value === cat;
-        const blocked = cat === 'principal' && disabledPrincipal;
-        return (
-          <Pressable
-            key={cat}
-            disabled={blocked}
-            onPress={() => onChange(cat)}
-            style={{
-              paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
-              backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
-              borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
-              opacity: blocked ? 0.4 : 1,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
-              {MEMORY_CHARACTER_CATEGORY_META[cat].label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View>
+      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>
+        {label.toUpperCase()}
+      </Text>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        multiline={!!multiline}
+        placeholder={placeholder ?? '…'}
+        placeholderTextColor={C.textMuted}
+        style={{
+          borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
+          paddingHorizontal: Spacing.sm, paddingVertical: 8,
+          color: C.textPrimary, backgroundColor: C.bgCardAlt,
+          fontSize: multiline ? FontSize.sm : FontSize.body,
+          minHeight: multiline ? 64 : undefined,
+          textAlignVertical: multiline ? 'top' : 'center',
+        }}
+      />
     </View>
   );
 }
@@ -120,6 +126,18 @@ function LinkKindChips({
   );
 }
 
+function previewLine(section: MemorySectionId, it: SimulationMemoryItem): string {
+  if (section === 'characters') {
+    const bits = [it.age ? `${it.age} ans` : '', it.location, it.personality || it.summary]
+      .filter(Boolean);
+    return bits.join(' · ');
+  }
+  if (section === 'links' && it.linkSubsection === 'evenements') {
+    return [it.time, it.participants, it.summary].filter(Boolean).join(' · ');
+  }
+  return it.summary || '';
+}
+
 function ItemCard({
   section,
   it,
@@ -137,12 +155,12 @@ function ItemCard({
   onRemove: Props['onRemove'];
   C: ReturnType<typeof useThemeColors>;
 }) {
-  const catLabel =
-    section === 'characters' && it.characterCategory
-      ? MEMORY_CHARACTER_CATEGORY_META[it.characterCategory].label
-      : section === 'links' && it.linkSubsection
-        ? MEMORY_LINK_SUBSECTION_META[it.linkSubsection].label
-        : null;
+  const kindLabel =
+    section === 'links' && it.linkSubsection
+      ? MEMORY_LINK_SUBSECTION_META[it.linkSubsection].label
+      : null;
+  const isEvent = section === 'links' && (it.linkSubsection ?? 'rapports') === 'evenements';
+  const preview = previewLine(section, it);
 
   return (
     <View
@@ -161,12 +179,12 @@ function ItemCard({
             <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
               {it.name}
             </Text>
-            {catLabel ? (
+            {kindLabel ? (
               <View style={{
                 paddingHorizontal: 6, paddingVertical: 1, borderRadius: Radius.pill,
                 backgroundColor: ACCENT + '18', borderWidth: 1, borderColor: ACCENT + '44',
               }}>
-                <Text style={{ fontSize: 9, color: ACCENT, fontWeight: '800' }}>{catLabel}</Text>
+                <Text style={{ fontSize: 9, color: ACCENT, fontWeight: '800' }}>{kindLabel}</Text>
               </View>
             ) : null}
             {it.isPlayerPersona ? (
@@ -186,9 +204,9 @@ function ItemCard({
               </View>
             ) : null}
           </View>
-          {!open && it.summary ? (
+          {!open && preview ? (
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }} numberOfLines={2}>
-              {it.summary}
+              {preview}
             </Text>
           ) : null}
         </View>
@@ -197,96 +215,102 @@ function ItemCard({
 
       {open ? (
         <View style={{ marginTop: Spacing.sm, gap: Spacing.sm }}>
-          <View>
-            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>NOM</Text>
-            <TextInput
-              value={it.name}
-              onChangeText={(v) => onEditItem(section, it.id, { name: v })}
-              style={{
-                borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.body,
-              }}
-              placeholderTextColor={C.textMuted}
-            />
-          </View>
+          <Field
+            label="Nom"
+            value={it.name}
+            onChange={(v) => onEditItem(section, it.id, { name: v })}
+            C={C}
+          />
 
           {section === 'characters' ? (
-            <View>
-              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>CATÉGORIE</Text>
-              <CategoryChips
-                value={it.characterCategory ?? 'secondaires'}
-                disabledPrincipal={!!it.isPlayerPersona}
-                onChange={(c) => onEditItem(section, it.id, { characterCategory: c })}
+            MEMORY_CHARACTER_FICHE_FIELDS.map((f) => (
+              <Field
+                key={f.key}
+                label={f.label}
+                value={String(it[f.key] ?? '')}
+                multiline={f.multiline}
+                onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
                 C={C}
               />
-              {it.isPlayerPersona ? (
-                <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
-                  Le persona joueur ne peut pas être Principal.
-                </Text>
-              ) : null}
-            </View>
+            ))
           ) : null}
 
           {section === 'links' ? (
             <>
               <View>
-                <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>SOUS-SECTION</Text>
+                <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>TYPE</Text>
                 <LinkKindChips
                   value={it.linkSubsection ?? 'rapports'}
                   onChange={(k) => onEditItem(section, it.id, { linkSubsection: k })}
                   C={C}
                 />
               </View>
-              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>DE</Text>
-                  <TextInput
-                    value={it.from ?? ''}
-                    onChangeText={(v) => onEditItem(section, it.id, { from: v })}
-                    style={{
-                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                    }}
-                    placeholderTextColor={C.textMuted}
-                    placeholder="…"
+              {isEvent ? (
+                MEMORY_EVENT_FICHE_FIELDS.map((f) => (
+                  <Field
+                    key={f.key}
+                    label={f.label}
+                    value={String(it[f.key] ?? '')}
+                    multiline={f.multiline}
+                    onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
+                    C={C}
                   />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>VERS</Text>
-                  <TextInput
-                    value={it.to ?? ''}
-                    onChangeText={(v) => onEditItem(section, it.id, { to: v })}
-                    style={{
-                      borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                      paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                      color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                    }}
-                    placeholderTextColor={C.textMuted}
-                    placeholder="…"
+                ))
+              ) : (
+                <>
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Field
+                        label="De"
+                        value={it.from ?? ''}
+                        onChange={(v) => onEditItem(section, it.id, { from: v })}
+                        C={C}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Field
+                        label="Vers"
+                        value={it.to ?? ''}
+                        onChange={(v) => onEditItem(section, it.id, { to: v })}
+                        C={C}
+                      />
+                    </View>
+                  </View>
+                  <Field
+                    label="Résumé"
+                    value={it.summary}
+                    multiline
+                    onChange={(v) => onEditItem(section, it.id, { summary: v })}
+                    placeholder="Faits à retenir…"
+                    C={C}
                   />
-                </View>
-              </View>
+                </>
+              )}
             </>
           ) : null}
 
-          <View>
-            <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>RÉSUMÉ</Text>
-            <TextInput
+          {section === 'places' ? (
+            <Field
+              label="Résumé"
               value={it.summary}
-              onChangeText={(v) => onEditItem(section, it.id, { summary: v })}
               multiline
-              style={{
-                borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
-                paddingHorizontal: Spacing.sm, paddingVertical: 8,
-                color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.sm,
-                minHeight: 72, textAlignVertical: 'top',
-              }}
-              placeholderTextColor={C.textMuted}
+              onChange={(v) => onEditItem(section, it.id, { summary: v })}
               placeholder="Faits à retenir…"
+              C={C}
             />
-          </View>
+          ) : null}
+
+          {section === 'characters' ? (
+            <Field
+              label="Notes"
+              value={it.summary}
+              multiline
+              onChange={(v) => onEditItem(section, it.id, { summary: v })}
+              placeholder="Notes libres…"
+              C={C}
+            />
+          ) : null}
+
           <Pressable
             onPress={() => onRemove(section, it.id)}
             style={({ pressed }) => [{
@@ -312,8 +336,6 @@ function SectionBlock({
   onEditItem,
   onRemove,
   onAdd,
-  charFilter,
-  setCharFilter,
   linkFilter,
   setLinkFilter,
 }: {
@@ -325,8 +347,6 @@ function SectionBlock({
   onEditItem: Props['onEditItem'];
   onRemove: Props['onRemove'];
   onAdd: Props['onAdd'];
-  charFilter: MemoryCharacterCategory | 'all';
-  setCharFilter: (v: MemoryCharacterCategory | 'all') => void;
   linkFilter: MemoryLinkSubsection | 'all';
   setLinkFilter: (v: MemoryLinkSubsection | 'all') => void;
 }) {
@@ -335,24 +355,13 @@ function SectionBlock({
   const [draftName, setDraftName] = useState('');
 
   const filtered = useMemo(() => {
-    if (section === 'characters' && charFilter !== 'all') {
-      return items.filter((it) => (it.characterCategory ?? 'secondaires') === charFilter);
-    }
     if (section === 'links' && linkFilter !== 'all') {
       return items.filter((it) => (it.linkSubsection ?? 'rapports') === linkFilter);
     }
     return items;
-  }, [items, section, charFilter, linkFilter]);
+  }, [items, section, linkFilter]);
 
-  // Grouped view for "all" on characters/links
   const groups: { key: string; label: string; list: SimulationMemoryItem[] }[] = useMemo(() => {
-    if (section === 'characters' && charFilter === 'all') {
-      return MEMORY_CHARACTER_CATEGORIES.map((cat) => ({
-        key: cat,
-        label: MEMORY_CHARACTER_CATEGORY_META[cat].label,
-        list: items.filter((it) => (it.characterCategory ?? 'secondaires') === cat),
-      })).filter((g) => g.list.length > 0);
-    }
     if (section === 'links' && linkFilter === 'all') {
       return MEMORY_LINK_SUBSECTIONS.map((k) => ({
         key: k,
@@ -361,7 +370,21 @@ function SectionBlock({
       })).filter((g) => g.list.length > 0);
     }
     return [{ key: 'flat', label: '', list: filtered }];
-  }, [section, charFilter, linkFilter, items, filtered]);
+  }, [section, linkFilter, items, filtered]);
+
+  const commitAdd = () => {
+    if (draftName.trim()) {
+      onAdd(
+        section,
+        draftName.trim(),
+        section === 'links'
+          ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
+          : undefined,
+      );
+    }
+    setDraftName('');
+    setAdding(false);
+  };
 
   return (
     <View style={{ marginBottom: Spacing.lg }}>
@@ -377,42 +400,6 @@ function SectionBlock({
         </Text>
         <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>{items.length}</Text>
       </View>
-
-      {section === 'characters' ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.sm }}>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            <Pressable
-              onPress={() => setCharFilter('all')}
-              style={{
-                paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
-                backgroundColor: charFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
-                borderWidth: 1, borderColor: charFilter === 'all' ? ACCENT + '77' : C.border,
-              }}
-            >
-              <Text style={{ fontSize: 11, fontWeight: '700', color: charFilter === 'all' ? ACCENT : C.textSecondary }}>Tout</Text>
-            </Pressable>
-            {MEMORY_CHARACTER_CATEGORIES.map((cat) => {
-              const on = charFilter === cat;
-              const n = items.filter((it) => (it.characterCategory ?? 'secondaires') === cat).length;
-              return (
-                <Pressable
-                  key={cat}
-                  onPress={() => setCharFilter(cat)}
-                  style={{
-                    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
-                    backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
-                    borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
-                  }}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
-                    {MEMORY_CHARACTER_CATEGORY_META[cat].label}{n ? ` · ${n}` : ''}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </ScrollView>
-      ) : null}
 
       {section === 'links' ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.sm }}>
@@ -492,45 +479,14 @@ function SectionBlock({
             placeholder="Nom…"
             placeholderTextColor={C.textMuted}
             autoFocus
+            onSubmitEditing={commitAdd}
             style={{
               flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm,
               paddingHorizontal: Spacing.sm, paddingVertical: 8,
               color: C.textPrimary, backgroundColor: C.bgCardAlt, fontSize: FontSize.body,
             }}
-            onSubmitEditing={() => {
-              if (draftName.trim()) {
-                onAdd(
-                  section,
-                  draftName.trim(),
-                  section === 'characters'
-                    ? { characterCategory: charFilter === 'all' ? 'anecdotiques' : charFilter }
-                    : section === 'links'
-                      ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
-                      : undefined,
-                );
-              }
-              setDraftName('');
-              setAdding(false);
-            }}
           />
-          <Pressable
-            onPress={() => {
-              if (draftName.trim()) {
-                onAdd(
-                  section,
-                  draftName.trim(),
-                  section === 'characters'
-                    ? { characterCategory: charFilter === 'all' ? 'anecdotiques' : charFilter }
-                    : section === 'links'
-                      ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
-                      : undefined,
-                );
-              }
-              setDraftName('');
-              setAdding(false);
-            }}
-            style={{ padding: 8 }}
-          >
+          <Pressable onPress={commitAdd} style={{ padding: 8 }}>
             <MaterialIcons name="check" size={22} color={ACCENT} />
           </Pressable>
           <Pressable onPress={() => { setAdding(false); setDraftName(''); }} style={{ padding: 8 }}>
@@ -559,7 +515,6 @@ export function SimulationMemoryScreen({
   const C = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId ?? null);
   const [tab, setTab] = useState<MemorySectionId | 'all'>('all');
-  const [charFilter, setCharFilter] = useState<MemoryCharacterCategory | 'all'>('all');
   const [linkFilter, setLinkFilter] = useState<MemoryLinkSubsection | 'all'>('all');
 
   useEffect(() => {
@@ -671,8 +626,6 @@ export function SimulationMemoryScreen({
             onEditItem={onEditItem}
             onRemove={onRemove}
             onAdd={onAdd}
-            charFilter={charFilter}
-            setCharFilter={setCharFilter}
             linkFilter={linkFilter}
             setLinkFilter={setLinkFilter}
           />
