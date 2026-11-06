@@ -24,6 +24,7 @@ export type {
   SimulationInventoryItem,
   SimulationAlbumItem,
   SimulationSkillItem,
+  SimulationLifeStage,
   SimulationFeatureMessageItem,
   SimulationContactItem,
   SimulationKnownNumber,
@@ -36,6 +37,8 @@ export {
   countUnreadMessages,
   mergeInventoryItems,
   removeInventoryItems,
+  applySkillGains,
+  mergeLifeStages,
   mergeKnownNumbers,
   addContactByNumber,
   extractPhones,
@@ -178,8 +181,8 @@ export const SIMULATION_FEATURE_META: Record<
   },
   skills: {
     label: 'Carnet d’acquisitions',
-    description: 'Progression des compétences au fil du roleplay',
-    emptyHint: 'Aucune compétence suivie pour l’instant. Les acquisitions s’ajouteront ici.',
+    description: 'Compétences (niveaux 0–10) et étapes de vie du persona',
+    emptyHint: 'Rien pour l’instant. Compétences et étapes de vie s’ajouteront au fil de la partie.',
     icon: 'menu-book',
   },
   messages: {

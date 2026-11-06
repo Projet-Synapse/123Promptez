@@ -18,12 +18,16 @@ import type {
   SimulationInventoryItem,
   SimulationAlbumItem,
   SimulationSkillItem,
+  SimulationLifeStage,
   SimulationFeatureMessageItem,
 } from '@/types/simulationFeatureContent';
 import {
   emptyInventoryItem,
   emptyAlbumItem,
   emptySkillItem,
+  emptyLifeStage,
+  SKILL_MAX_LEVEL,
+  SKILL_XP_PER_LEVEL,
   emptyFeatureMessageItem,
   addContactByNumber,
 } from '@/types/simulationFeatureContent';
@@ -74,8 +78,9 @@ function Field({
 }
 
 function CardShell({
-  title, subtitle, open, onToggle, onRemove, children, C,
+  title, subtitle, open, onToggle, onRemove, children, C, header,
 }: {
+  header?: React.ReactNode;
   title: string;
   subtitle?: string;
   open: boolean;
@@ -95,6 +100,7 @@ function CardShell({
           <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }} numberOfLines={1}>
             {title}
           </Text>
+          {header}
           {!open && subtitle ? (
             <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }} numberOfLines={2}>
               {subtitle}
@@ -126,6 +132,7 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
   const C = useThemeColors();
   const meta = SIMULATION_FEATURE_META[featureId];
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [skillsTab, setSkillsTab] = useState<'skills' | 'life'>('skills');
   const [dialValue, setDialValue] = useState('');
   const [dialError, setDialError] = useState<string | null>(null);
   const tryDial = () => {
@@ -139,9 +146,9 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
   const items = useMemo(() => {
     if (featureId === 'inventory') return content.inventory;
     if (featureId === 'album') return content.album;
-    if (featureId === 'skills') return content.skills;
+    if (featureId === 'skills') return skillsTab === 'skills' ? content.skills : (content.lifeStages ?? []);
     return content.messages;
-  }, [featureId, content]);
+  }, [featureId, content, skillsTab]);
 
   const addItem = () => {
     const now = new Date().toISOString();
@@ -152,6 +159,10 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
     } else if (featureId === 'album') {
       const it = emptyAlbumItem({ title: 'Nouvelle entrée', updatedAt: now });
       onChange({ ...content, album: [it, ...content.album] });
+      setExpandedId(it.id);
+    } else if (featureId === 'skills' && skillsTab === 'life') {
+      const it = emptyLifeStage({ title: 'Nouvelle étape de vie', updatedAt: now });
+      onChange({ ...content, lifeStages: [it, ...(content.lifeStages ?? [])] });
       setExpandedId(it.id);
     } else if (featureId === 'skills') {
       const it = emptySkillItem({ name: 'Nouvelle compétence', updatedAt: now });
@@ -170,7 +181,11 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
     } else if (featureId === 'album') {
       onChange({ ...content, album: content.album.filter((x) => x.id !== id) });
     } else if (featureId === 'skills') {
-      onChange({ ...content, skills: content.skills.filter((x) => x.id !== id) });
+      onChange({
+        ...content,
+        skills: content.skills.filter((x) => x.id !== id),
+        lifeStages: (content.lifeStages ?? []).filter((x) => x.id !== id),
+      });
     } else {
       onChange({ ...content, messages: content.messages.filter((x) => x.id !== id) });
     }
@@ -204,6 +219,14 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
         it.id === id
           ? emptySkillItem({ ...it, ...patch, id, updatedAt: new Date().toISOString() })
           : it,
+      ),
+    });
+  };
+  const patchLife = (id: string, patch: Partial<SimulationLifeStage>) => {
+    onChange({
+      ...content,
+      lifeStages: (content.lifeStages ?? []).map((it) =>
+        it.id === id ? emptyLifeStage({ ...it, ...patch, id, updatedAt: new Date().toISOString() }) : it,
       ),
     });
   };
@@ -269,6 +292,28 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
         contentContainerStyle={{ padding: Spacing.md, paddingBottom: Spacing.xl * 2 }}
         keyboardShouldPersistTaps="handled"
       >
+        {featureId === 'skills' ? (
+          <View style={{ flexDirection: 'row', gap: Spacing.xs, marginBottom: Spacing.md }}>
+            {([['skills', 'Compétences', 'trending-up'], ['life', 'Étapes de vie', 'flag']] as const).map(([id, label, icon]) => {
+              const on = skillsTab === id;
+              return (
+                <Pressable
+                  key={id}
+                  onPress={() => { setSkillsTab(id); setExpandedId(null); }}
+                  style={{
+                    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    paddingVertical: 10, minHeight: 40, borderRadius: Radius.pill,
+                    backgroundColor: on ? ACCENT + '22' : C.bgCardAlt,
+                    borderWidth: 1, borderColor: on ? ACCENT + '66' : C.border,
+                  }}
+                >
+                  <MaterialIcons name={icon} size={16} color={on ? ACCENT : C.textSecondary} />
+                  <Text style={{ fontSize: FontSize.sm, lineHeight: 18, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         {items.length === 0 ? (
           <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md }}>
             <View style={{
@@ -337,20 +382,91 @@ export function SimulationFeatureScreen({ featureId, content, onChange, onClose 
           ))
           : null}
 
-        {featureId === 'skills'
-          ? content.skills.map((it) => (
+        {featureId === 'skills' && skillsTab === 'skills'
+          ? content.skills.map((it) => {
+            const pct = it.level >= SKILL_MAX_LEVEL ? 100 : Math.round((it.xp / SKILL_XP_PER_LEVEL) * 100);
+            return (
+              <CardShell
+                key={it.id}
+                title={`${it.name} · niv. ${it.level}/10`}
+                subtitle={it.description}
+                open={expandedId === it.id}
+                onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
+                onRemove={() => removeById(it.id)}
+                C={C}
+                header={
+                  <View style={{ marginTop: 6 }}>
+                    <View style={{ flexDirection: 'row', gap: 2 }}>
+                      {Array.from({ length: SKILL_MAX_LEVEL }).map((_, i) => (
+                        <View
+                          key={i}
+                          style={{
+                            flex: 1, height: 8, borderRadius: 2,
+                            backgroundColor: i < it.level ? ACCENT : C.bgCardAlt,
+                            borderWidth: 1, borderColor: i < it.level ? ACCENT : C.border,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {i === it.level && it.level < SKILL_MAX_LEVEL ? (
+                            <View style={{ width: `${pct}%`, height: '100%', backgroundColor: ACCENT + '88' }} />
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                    <Text style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
+                      {it.level >= SKILL_MAX_LEVEL ? 'Niveau maximum' : `${it.xp}/${SKILL_XP_PER_LEVEL} XP vers le niveau ${it.level + 1}`}
+                    </Text>
+                  </View>
+                }
+              >
+                <Field label="Nom" value={it.name} onChange={(v) => patchSkill(it.id, { name: v })} C={C} />
+                <Field
+                  label="Niveau (0–10)"
+                  value={String(it.level)}
+                  keyboardType="numeric"
+                  onChange={(v) => patchSkill(it.id, { level: parseInt(v.replace(/[^0-9]/g, ''), 10) || 0 })}
+                  C={C}
+                />
+                <Field
+                  label="XP (0–99)"
+                  value={String(it.xp)}
+                  keyboardType="numeric"
+                  onChange={(v) => patchSkill(it.id, { xp: parseInt(v.replace(/[^0-9]/g, ''), 10) || 0 })}
+                  C={C}
+                />
+                <Field label="Description" value={it.description} multiline onChange={(v) => patchSkill(it.id, { description: v })} C={C} />
+                <Field
+                  label="Notions acquises (une par ligne, « N: texte »)"
+                  value={it.notions.map((n) => `${n.level}: ${n.text}`).join('\n')}
+                  multiline
+                  onChange={(v) => patchSkill(it.id, {
+                    notions: v.split('\n').map((line) => {
+                      const m = line.match(/^\s*(\d{1,2})\s*[:\-]\s*(.*)$/);
+                      return m ? { level: parseInt(m[1], 10), text: m[2] } : { level: it.level, text: line };
+                    }).filter((n) => n.text.trim()),
+                  })}
+                  C={C}
+                />
+              </CardShell>
+            );
+          })
+          : null}
+
+        {featureId === 'skills' && skillsTab === 'life'
+          ? (content.lifeStages ?? []).map((it) => (
             <CardShell
               key={it.id}
-              title={`${it.name} · ${it.level}`}
-              subtitle={it.description}
+              title={it.title}
+              subtitle={[it.when, it.impact].filter(Boolean).join(' · ')}
               open={expandedId === it.id}
               onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
               onRemove={() => removeById(it.id)}
               C={C}
             >
-              <Field label="Nom" value={it.name} onChange={(v) => patchSkill(it.id, { name: v })} C={C} />
-              <Field label="Niveau" value={it.level} onChange={(v) => patchSkill(it.id, { level: v })} placeholder="ex. Novice, 3/10" C={C} />
-              <Field label="Description" value={it.description} multiline onChange={(v) => patchSkill(it.id, { description: v })} C={C} />
+              <Field label="Titre" value={it.title} onChange={(v) => patchLife(it.id, { title: v })} C={C} />
+              <Field label="Description" value={it.description} multiline onChange={(v) => patchLife(it.id, { description: v })} C={C} />
+              <Field label="Moment / date RP" value={it.when} onChange={(v) => patchLife(it.id, { when: v })} C={C} />
+              <Field label="Impact sur l’avenir" value={it.impact} multiline onChange={(v) => patchLife(it.id, { impact: v })} C={C} />
             </CardShell>
           ))
           : null}
