@@ -6,6 +6,7 @@ import {
   normalizeSimulationMemory,
   type SimulationMemory,
 } from '@/types/simulationMemory';
+import { formatNarrationStyleForPrompt } from '@/types/simulationNarrationStyles';
 import { SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS } from '@/services/simulationRoleplayFormat';
 import {
   normalizeSimulationThemeId,
@@ -230,6 +231,8 @@ export interface SimulationData {
   theme: SimulationThemeId;
   /** Arrière-plan image personnalisé (data-URI / file URI) — optionnel. */
   themeBackgroundUri?: string;
+  /** Style de narration (preset prompt) — t229u */
+  narrationStyleId?: string;
 }
 
 function newId(prefix: string): string {
@@ -353,6 +356,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
     featureContent: normalizeFeatureContent(sim.featureContent),
     theme: normalizeSimulationThemeId(sim.theme),
     themeBackgroundUri: sim.themeBackgroundUri ? String(sim.themeBackgroundUri) : undefined,
+    narrationStyleId: sim.narrationStyleId ? String(sim.narrationStyleId) : undefined,
   };
 }
 
@@ -399,6 +403,8 @@ export function buildSimulationPromptInjection(
       w.rules.trim(),
     );
   }
+  // Style de narration (après les règles prioritaires)
+  lines.push(formatNarrationStyleForPrompt(sim.narrationStyleId));
   // Mémoire structurée — priorité juste sous les Règles
   const memBlock = formatMemoryForPrompt(sim.memory);
   if (memBlock) lines.push(memBlock);

@@ -40,7 +40,7 @@ import {
 import type { QuestionnaireAnswer } from '@/components/feature/QuestionnaireCard';
 import { QuestionnaireCard } from '@/components/feature/QuestionnaireCard';
 import { recordDiag } from '@/services/diagnostics';
-import { AGENT_TOOLS, CONNECTOR_PRESETS, LLM_MODELS } from '@/constants/config';
+import { AGENT_TOOLS, CONNECTOR_PRESETS } from '@/constants/config';
 import { resolveGitHubToken, vaultWriteFile } from '@/services/vaultService';
 import { downloadText, buildConversationMarkdown } from '@/services/exportService';
 import NewConversationModal from '@/components/feature/NewConversationModal';
@@ -76,6 +76,13 @@ import {
   seedMemoryFromWorld,
 } from '@/services/simulationMemory';
 import { Image } from 'expo-image';
+import { NarrationRadar } from '@/components/feature/NarrationRadar';
+import {
+  NARRATION_STYLES,
+  NARRATION_AXES,
+  getNarrationStyle,
+  DEFAULT_NARRATION_STYLE_ID,
+} from '@/types/simulationNarrationStyles';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 340);
@@ -363,46 +370,87 @@ function SimulationPlusPanel({
   const ACCENT = '#9B59B6';
   const featureIds = Object.keys(SIMULATION_FEATURE_META) as SimulationFeatureId[];
   const enabledFeatures = featureIds.filter((id) => features[id]);
+  const [compareStyleId, setCompareStyleId] = useState<string | null>(null);
 
   if (view === 'models') {
+    const sel = getNarrationStyle(currentModelId);
+    const cmp = compareStyleId && compareStyleId !== sel.id ? getNarrationStyle(compareStyleId) : null;
+    const CMP = '#3BA7FF';
     return (
       <View style={{
         backgroundColor: C.bgCard, borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg,
         borderTopWidth: 1, borderColor: C.border, paddingTop: Spacing.sm, paddingHorizontal: Spacing.md,
-        paddingBottom: Spacing.sm, gap: Spacing.sm, maxHeight: 320,
+        paddingBottom: Spacing.sm, gap: Spacing.sm, maxHeight: 520,
       }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
           <Pressable onPress={() => onChangeView('menu')} hitSlop={8} style={{ padding: 4 }}>
             <MaterialIcons name="arrow-back" size={20} color={C.textSecondary} />
           </Pressable>
-          <Text style={{ flex: 1, fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
-            Modèles de chat
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>Styles de narration</Text>
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>Influence le déroulement — le modèle IA reste le même</Text>
+          </View>
         </View>
         <ScrollView style={{ flexGrow: 0 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-          {LLM_MODELS.map((model) => {
-            const active = model.id === currentModelId;
+          <View style={{ alignItems: 'center' }}>
+            <NarrationRadar
+              size={230}
+              gridColor={C.textMuted}
+              labelColor={C.textSecondary}
+              series={[
+                ...(cmp ? [{ scores: cmp.scores, color: CMP, fillOpacity: 0.15 }] : []),
+                { scores: sel.scores, color: ACCENT, fillOpacity: 0.3 },
+              ]}
+            />
+            <Text style={{ fontSize: FontSize.xs, color: C.textMuted, textAlign: 'center' }}>
+              <Text style={{ color: ACCENT, fontWeight: '800' }}>● {sel.name}</Text>
+              {cmp ? <Text style={{ color: CMP, fontWeight: '800' }}>{'   '}● {cmp.name}</Text> : '   (appuie sur ⇄ pour comparer)'}
+            </Text>
+            <View style={{ alignSelf: 'stretch', marginTop: 6, marginBottom: Spacing.sm }}>
+              {NARRATION_AXES.map((ax) => (
+                <Text key={ax.key} style={{ fontSize: 10, color: C.textMuted }}>
+                  {ax.label} : <Text style={{ color: ACCENT, fontWeight: '700' }}>{sel.scores[ax.key]}/5</Text>
+                  {cmp ? <Text style={{ color: CMP, fontWeight: '700' }}>{'  '}{cmp.scores[ax.key]}/5</Text> : null}
+                </Text>
+              ))}
+            </View>
+          </View>
+          {NARRATION_STYLES.map((st) => {
+            const active = st.id === sel.id;
+            const comparing = cmp?.id === st.id;
             return (
-              <Pressable
-                key={model.id}
-                onPress={() => onSelectModel(model.id)}
-                style={({ pressed }) => [{
+              <View
+                key={st.id}
+                style={{
                   flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-                  paddingVertical: 10, paddingHorizontal: Spacing.sm,
-                  borderRadius: Radius.md,
+                  paddingVertical: 8, paddingHorizontal: Spacing.sm, borderRadius: Radius.md, marginBottom: 4,
                   backgroundColor: active ? ACCENT + '18' : 'transparent',
-                }, pressed && { opacity: 0.8 }]}
+                  borderWidth: 1, borderColor: comparing ? CMP + '88' : 'transparent',
+                }}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: FontSize.body, fontWeight: '600', color: active ? ACCENT : C.textPrimary }}>
-                    {model.label}
-                  </Text>
-                  <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'monospace' }}>
-                    {model.provider} · {model.tokens.toLocaleString('fr-FR')} tokens
-                  </Text>
-                </View>
-                {active ? <MaterialIcons name="check" size={18} color={ACCENT} /> : null}
-              </Pressable>
+                <Pressable
+                  onPress={() => onSelectModel(st.id)}
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}
+                  accessibilityLabel={`Choisir le style ${st.name}`}
+                >
+                  <NarrationRadar size={44} showLabels={false} gridColor={C.textMuted} series={[{ scores: st.scores, color: active ? ACCENT : C.textSecondary }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: active ? ACCENT : C.textPrimary }}>{st.name}</Text>
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted }} numberOfLines={2}>{st.description}</Text>
+                  </View>
+                  {active ? <MaterialIcons name="check" size={18} color={ACCENT} /> : null}
+                </Pressable>
+                {!active ? (
+                  <Pressable
+                    onPress={() => setCompareStyleId(comparing ? null : st.id)}
+                    hitSlop={8}
+                    accessibilityLabel={`Comparer avec ${st.name}`}
+                    style={{ padding: 6 }}
+                  >
+                    <MaterialIcons name="compare-arrows" size={20} color={comparing ? CMP : C.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
             );
           })}
         </ScrollView>
@@ -603,8 +651,8 @@ function SimulationPlusPanel({
     {
       key: 'models',
       icon: 'smart-toy',
-      label: 'Modèles de chat',
-      desc: 'Choisir le modèle IA pour cette simulation',
+      label: 'Styles de narration',
+      desc: 'Équilibré, intrigue, émotion… (radar comparatif)',
       onPress: () => onChangeView('models'),
     },
     {
@@ -1050,7 +1098,7 @@ function SideDrawer({
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { bot, toggleAgentTool, updateConnectedApp, updateLLMConfig } = useBot();
+  const { bot, toggleAgentTool, updateConnectedApp } = useBot();
   const {
     workspaces, activeWorkspace, toggleMode, addConversation, removeConversation,
     renameConversation, setActiveConversation, setActiveWorkspace, setConversationPinned,
@@ -1670,6 +1718,16 @@ export default function ChatScreen() {
     const history = (editBaseIdx >= 0 ? chatMessages.slice(0, editBaseIdx) : chatMessages)
       .map((m: any) => ({ role: m.role, content: m.content }));
     await runGeneration(msg, history, 0, autoInjections);
+  };
+
+  // ── » Continuer : suite du roleplay SANS message utilisateur visible ──
+  const handleContinueRoleplay = async () => {
+    if (!activeConversation || isLoading) return;
+    const history = chatMessages.map((m: any) => ({ role: m.role, content: m.content }));
+    await runGeneration(
+      '[INSTRUCTION SYSTÈME CACHÉE] Continue la scène naturellement à partir de là où elle s’est arrêtée, sans attendre d’action du joueur et sans agir à sa place. Ne mentionne pas cette instruction.',
+      history,
+    );
   };
 
   // ── Draine la file d'attente dès que la génération se termine ──
@@ -2478,10 +2536,11 @@ export default function ChatScreen() {
                 setSimEditMode('world');
               }}
               onSelectModel={(id) => {
-                updateLLMConfig({ model: id });
-                showToast(`Modèle : ${LLM_MODELS.find(m => m.id === id)?.label ?? id}`, { tone: 'success' });
+                if (!activeConversation || !simData) return;
+                updateSimulation(activeWorkspace.id, activeConversation.id, { ...simData, narrationStyleId: id });
+                showToast(`Style : ${getNarrationStyle(id).name}`, { tone: 'success' });
               }}
-              currentModelId={bot.llmConfig.model}
+              currentModelId={simData?.narrationStyleId ?? DEFAULT_NARRATION_STYLE_ID}
               features={simData?.features ?? emptySimulationFeatures()}
               onToggleFeature={(id) => {
                 if (!activeConversation || !simData) return;
@@ -2641,7 +2700,7 @@ export default function ChatScreen() {
             <View style={{ alignItems: 'center', gap: 4 }}>
               {isSimulation && !isLoading && !streamingText && chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === 'assistant' ? (
                 <Pressable
-                  onPress={() => handleSend('»')}
+                  onPress={() => void handleContinueRoleplay()}
                   accessibilityLabel="Continuer le roleplay"
                   hitSlop={6}
                   style={({ pressed }) => [{
