@@ -15,14 +15,9 @@ jobs:
             echo "Secret SUPABBASE_ACCESS_TOKEN missing" >&2
             exit 1
           fi
-          CFG=$(curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth")
-          python3 <<'PY'
-          import json, os, urllib.request
-          cfg = json.loads('''$CFG'''.replace("'''$CFG'''", open('/dev/stdin').read()) if False else '')
-          PY
-          # safer: write cfg to file
-          echo "$CFG" > /tmp/auth.json
+          curl -sS -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth" \
+            > /tmp/auth.json
           python3 <<'PY'
           import json, os, urllib.request
           project = os.environ['PROJECT_REF']
@@ -34,6 +29,9 @@ jobs:
               urls = [str(u).strip() for u in existing if str(u).strip()]
           else:
               urls = [u.strip() for u in str(existing).split(',') if u.strip()]
+          print('BEFORE:')
+          for u in urls:
+              print(' ', u)
           add = [
             'onspaceapp://auth',
             'onspaceapp://**',
@@ -45,7 +43,6 @@ jobs:
             add.append(f'http://localhost:{p}/**')
             add.append(f'http://127.0.0.1:{p}/login')
             add.append(f'http://localhost:{p}/login')
-          # keep existing web URLs
           merged = []
           seen = set()
           for u in urls + add:
@@ -65,7 +62,8 @@ jobs:
           with urllib.request.urlopen(req) as resp:
               out = json.load(resp)
           allow = out.get('uri_allow_list') or ''
-          print('UPDATED uri_allow_list:')
-          for u in (allow.split(',') if isinstance(allow, str) else allow):
-              print(' ', u.strip())
+          print('AFTER:')
+          items = allow.split(',') if isinstance(allow, str) else list(allow)
+          for u in items:
+              print(' ', str(u).strip())
           PY
