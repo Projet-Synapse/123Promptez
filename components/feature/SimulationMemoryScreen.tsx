@@ -2,6 +2,7 @@
  * Page Mémoire Simulation — Persona / Personnages / Liens (Objets, Relationnels, Évènements, Accords) / Lieux.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { parseAttachmentLevel, attachmentLabel } from '@/types/simulationMemory';
 import {
   View, Text, Pressable, ScrollView, TextInput, ActivityIndicator, Modal, Image,
 } from 'react-native';
@@ -116,6 +117,59 @@ function Field({
           textAlignVertical: multiline ? 'top' : 'center',
         }}
       />
+    </View>
+  );
+}
+
+function attachmentColor(n: number): string {
+  if (n < 0) return n <= -6 ? '#C62828' : '#E57373';
+  if (n > 0) return n >= 6 ? '#2E7D32' : '#81C784';
+  return '#9E9E9E';
+}
+
+/** Curseur −10…+10 (rouge / neutre / vert), cases cliquables + boutons −/+. */
+function AttachmentSlider({
+  label, value, onChange, C,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  C: ReturnType<typeof useThemeColors>;
+}) {
+  const set = (n: number) => onChange(Math.max(-10, Math.min(10, n)));
+  const cells = Array.from({ length: 21 }, (_, i) => i - 10);
+  return (
+    <View>
+      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>
+        {label.toUpperCase()}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Pressable onPress={() => set(value - 1)} hitSlop={8} accessibilityLabel="Diminuer">
+          <MaterialIcons name="remove-circle-outline" size={22} color="#E57373" />
+        </Pressable>
+        <View style={{ flex: 1, flexDirection: 'row', height: 18, gap: 2 }}>
+          {cells.map((n) => {
+            const filled = value === 0 ? n === 0 : value > 0 ? n > 0 && n <= value : n < 0 && n >= value;
+            return (
+              <Pressable
+                key={n}
+                onPress={() => set(n)}
+                style={{
+                  flex: 1, borderRadius: 3,
+                  backgroundColor: filled ? attachmentColor(n) : C.bgCardAlt,
+                  borderWidth: n === 0 ? 1.5 : 0, borderColor: C.border,
+                }}
+              />
+            );
+          })}
+        </View>
+        <Pressable onPress={() => set(value + 1)} hitSlop={8} accessibilityLabel="Augmenter">
+          <MaterialIcons name="add-circle-outline" size={22} color="#81C784" />
+        </Pressable>
+      </View>
+      <Text style={{ fontSize: FontSize.sm, color: attachmentColor(value), fontWeight: '700', marginTop: 4, textAlign: 'center' }}>
+        {value > 0 ? '+' : ''}{value} · {attachmentLabel(value)}
+      </Text>
     </View>
   );
 }
@@ -455,7 +509,15 @@ function ItemCard({
                 ))
               ) : null}
               {sub === 'rapports' ? (
-                MEMORY_RELATION_FICHE_FIELDS.map((f) => (
+                MEMORY_RELATION_FICHE_FIELDS.map((f) => f.key === 'attachmentLevel' ? (
+                  <AttachmentSlider
+                    key={f.key}
+                    label={f.label}
+                    value={parseAttachmentLevel(it.attachmentLevel) ?? 0}
+                    onChange={(n) => onEditItem(section, it.id, { attachmentLevel: String(n) })}
+                    C={C}
+                  />
+                ) : (
                   <Field
                     key={f.key}
                     label={f.label}

@@ -82,6 +82,8 @@ export {
   toggleMemoryPin,
   MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_LINK_SUBSECTION_META,
+  parseAttachmentLevel,
+  attachmentLabel,
 } from '@/types/simulationMemory';
 
 export type ConversationKind = 'classique' | 'simulation';

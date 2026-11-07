@@ -58,6 +58,7 @@ import {
   countUnreadMessages,
   resolveMemoryWikilink,
   normalizeMemoryKey,
+  parseAttachmentLevel,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
   markMemoryItemSeen,
@@ -1873,6 +1874,21 @@ export default function ChatScreen() {
         }
       } else if (opts?.fromWikilink) {
         showToast('Mémoire mise à jour', { tone: 'success' });
+      }
+      {
+        const prevRel = new Map(
+          (simData.memory?.links ?? [])
+            .filter((l: any) => l.linkSubsection === 'rapports')
+            .map((l: any) => [l.key, parseAttachmentLevel(l.attachmentLevel)]),
+        );
+        for (const l of (result.memory?.links ?? []) as any[]) {
+          if (l.linkSubsection !== 'rapports' || !prevRel.has(l.key)) continue;
+          const a = prevRel.get(l.key);
+          const b = parseAttachmentLevel(l.attachmentLevel);
+          if (a === null || a === undefined || b === null || a === b) continue;
+          const d = b - a;
+          showToast(`Relation avec ${l.interlocutors || l.name} : ${d > 0 ? '+' : ''}${d}`, { tone: d > 0 ? 'success' : 'info' });
+        }
       }
       if (result.inventoryAdded.length > 0) {
         showToast('Nouvel objet dans l\'inventaire', { tone: 'success' });
