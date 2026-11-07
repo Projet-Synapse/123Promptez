@@ -7,6 +7,14 @@ export interface LocalAIConfig {
   memoryModel: string;
   /** Explicit opt-in: history may leave the PC and go to Google. */
   fallbackGemini: boolean;
+  /** Bearer key for hosted OpenAI-compatible APIs (xAI). Kept in the device vault, never synced. */
+  apiKey?: string;
+}
+export const XAI_URL = 'https://api.x.ai';
+function headers(c: LocalAIConfig): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (c.protocol === 'openai' && c.apiKey?.trim()) h.Authorization = `Bearer ${c.apiKey.trim()}`;
+  return h;
 }
 export const DEFAULT_LOCAL_AI: LocalAIConfig = {
   enabled: false, url: 'http://localhost:11434', protocol: 'ollama',
@@ -31,7 +39,7 @@ export async function listLocalModels(config: LocalAIConfig): Promise<string[]> 
   const timer = setTimeout(() => ctl.abort(), 15000);
   try {
     const base = localBaseUrl(config);
-    const res = await checked(await fetch(`${base}${config.protocol === 'openai' ? '/v1/models' : '/api/tags'}`, { signal: ctl.signal }));
+    const res = await checked(await fetch(`${base}${config.protocol === 'openai' ? '/v1/models' : '/api/tags'}`, { headers: headers(config), signal: ctl.signal }));
     const data = await res.json();
     const items = config.protocol === 'openai' ? data.data : data.models;
     if (!Array.isArray(items)) throw new Error('Liste de modèles non reconnue.');
@@ -75,7 +83,7 @@ export async function localCompletion(opts: {
       ...(opts.json ? { format: 'json' } : {}),
     };
     const res = await checked(await fetch(`${base}${openai ? '/v1/chat/completions' : '/api/chat'}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: headers(c),
       body: JSON.stringify(body), signal: ctl.signal,
     }));
     let full = '';

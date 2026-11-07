@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Switch, Pressable, TextInput, ActivityIndicator } from 'react-native';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { DEFAULT_LOCAL_AI, listLocalModels, type LocalAIConfig } from '@/services/localAI';
+import { DEFAULT_LOCAL_AI, XAI_URL, listLocalModels, type LocalAIConfig } from '@/services/localAI';
 import { Radius, Spacing } from '@/constants/theme';
 
 export function LocalAISettings({ value, onChange }: {
@@ -12,6 +12,8 @@ export function LocalAISettings({ value, onChange }: {
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [keyVisible, setKeyVisible] = useState(false);
+  const isXai = config.protocol === 'openai' && /api\.x\.ai/i.test(config.url);
   const patch = (p: Partial<LocalAIConfig>) => onChange({ ...config, ...p });
   const text = { color: C.textPrimary, fontSize: 14 };
   const input = { ...text, padding: 10, borderWidth: 1, borderColor: C.border, borderRadius: Radius.sm, backgroundColor: C.bgCardAlt };
@@ -30,7 +32,7 @@ export function LocalAISettings({ value, onChange }: {
   return (
     <View style={{ padding: Spacing.md, gap: 12, backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{ ...text, fontWeight: '800' }}>Fournisseur : IA locale</Text>
+        <Text style={{ ...text, fontWeight: '800' }}>Fournisseur : IA locale / xAI</Text>
         <Switch accessibilityLabel="Activer IA locale" value={config.enabled} onValueChange={enabled => patch({ enabled })} />
       </View>
       <Text style={{ color: C.textMuted, fontSize: 12 }}>Activé : récit et mémoire vont directement au serveur choisi, sans proxy Supabase. Désactivé : le modèle cloud ci-dessous est utilisé.</Text>
@@ -40,9 +42,24 @@ export function LocalAISettings({ value, onChange }: {
             <Text style={{ ...text, color: config.protocol === protocol ? C.accent : C.textMuted }}>{protocol === 'ollama' ? '● Ollama' : '● OpenAI / LM Studio'}</Text>
           </Pressable>
         ))}
+        <Pressable onPress={() => { patch({ protocol: 'openai', url: XAI_URL }); setModels([]); setStatus(''); }} accessibilityRole="radio" accessibilityState={{ selected: isXai }}>
+          <Text style={{ ...text, color: isXai ? C.accent : C.textMuted }}>● xAI (Grok)</Text>
+        </Pressable>
       </View>
       <Text style={text}>URL du serveur</Text>
       <TextInput value={config.url} onChangeText={url => { patch({ url }); setModels([]); setStatus(''); }} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={input} placeholder="http://localhost:11434" placeholderTextColor={C.textMuted} />
+      {config.protocol === 'openai' ? (
+        <View style={{ gap: 6 }}>
+          <Text style={text}>{isXai ? 'Clé API xAI' : 'Clé API (optionnelle)'}</Text>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <TextInput value={config.apiKey ?? ''} onChangeText={apiKey => patch({ apiKey })} secureTextEntry={!keyVisible} autoCapitalize="none" autoCorrect={false} style={{ ...input, flex: 1 }} placeholder={isXai ? 'xai-…' : 'Laisser vide pour LM Studio'} placeholderTextColor={C.textMuted} />
+            <Pressable onPress={() => setKeyVisible(v => !v)} accessibilityLabel={keyVisible ? 'Masquer la clé' : 'Afficher la clé'}>
+              <Text style={{ ...text, color: C.accent }}>{keyVisible ? 'Masquer' : 'Afficher'}</Text>
+            </Pressable>
+          </View>
+          <Text style={{ color: C.textMuted, fontSize: 12 }}>Gardée dans le coffre sécurisé de l’appareil, jamais synchronisée. Avec xAI, tes messages partent chez xAI (payant à l’usage).</Text>
+        </View>
+      ) : null}
       <Pressable disabled={busy} onPress={() => void test()} style={{ backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: 10, flexDirection: 'row', gap: 8 }}>
         {busy ? <ActivityIndicator size="small" color={C.accent} /> : null}
         <Text style={{ ...text, color: C.accent }}>Tester la connexion / charger les modèles</Text>

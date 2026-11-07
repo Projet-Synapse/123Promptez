@@ -7,7 +7,7 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
-export type SecretName = 'apiKey' | 'githubToken';
+export type SecretName = 'apiKey' | 'githubToken' | 'xaiKey';
 const PREFIX = 'promptez_secret_';
 
 type DesktopSecrets = {
@@ -68,6 +68,8 @@ export function extractSecrets(cfg: any): Partial<Record<SecretName, string>> {
   const out: Partial<Record<SecretName, string>> = {};
   if (!cfg || typeof cfg !== 'object') return out;
   if (typeof cfg.apiKey === 'string' && cfg.apiKey.trim()) out.apiKey = cfg.apiKey.trim();
+  const xai = cfg.llmConfig?.localAI?.apiKey;
+  if (typeof xai === 'string' && xai.trim()) out.xaiKey = xai.trim();
   const apps = cfg.connectedApps ?? cfg.connectors;
   if (Array.isArray(apps)) {
     const gh = apps.find(isGithub);
@@ -85,6 +87,10 @@ export function stripSecrets<T>(cfg: T): T {
     : apps;
   if ('connectedApps' in rest) rest.connectedApps = strip(rest.connectedApps);
   if ('connectors' in rest) rest.connectors = strip(rest.connectors);
+  if (rest.llmConfig?.localAI && 'apiKey' in rest.llmConfig.localAI) {
+    const { apiKey: _k, ...localAI } = rest.llmConfig.localAI;
+    rest.llmConfig = { ...rest.llmConfig, localAI };
+  }
   return rest as T;
 }
 
@@ -93,6 +99,9 @@ export function applySecrets<T extends { apiKey?: string; connectedApps?: any[] 
   cfg: T, secrets: Partial<Record<SecretName, string>>,
 ): T {
   const next: any = { ...cfg, apiKey: secrets.apiKey ?? '' };
+  if (next.llmConfig?.localAI) {
+    next.llmConfig = { ...next.llmConfig, localAI: { ...next.llmConfig.localAI, apiKey: secrets.xaiKey ?? next.llmConfig.localAI.apiKey ?? '' } };
+  }
   if (Array.isArray(next.connectedApps)) {
     next.connectedApps = next.connectedApps.map((a: any) =>
       isGithub(a) ? { ...a, webhookUrl: secrets.githubToken ?? a.webhookUrl ?? '' } : a);
