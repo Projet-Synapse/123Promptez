@@ -93,7 +93,8 @@
     },
     "portable": {
       "artifactName": "123Promptez-win-portable.${ext}"
-    }
+    },
+    "copyright": "Copyright © 2026 Catelyn2332"
   },
   "dependencies": {
     "@apollo/client": "^3.4.10",
