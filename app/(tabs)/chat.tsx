@@ -46,6 +46,8 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
+import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
+import { NEED_META, emptyNeeds, decayNeeds, newlyCriticalNeeds } from '@/types/simulationNeeds';
 import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScreen';
 import { Toggle } from '@/components/ui/Toggle';
 import type { ConversationKind, SimulationFeatureId, SimulationFeatures, SimulationThemeId } from '@/types/simulation';
@@ -79,7 +81,7 @@ import {
 } from '@/services/simulationMemory';
 import { Image } from 'expo-image';
 import {
-  TIME_MARKER_PREFIX, parseTimeMarker, advanceClock, clockDayChanged, formatClockFr, defaultClock, stripTimeMarker,
+  parseClock, TIME_MARKER_PREFIX, parseTimeMarker, advanceClock, clockDayChanged, formatClockFr, defaultClock, stripTimeMarker,
 } from '@/types/simulationClock';
 import { NarrationRadar } from '@/components/feature/NarrationRadar';
 import {
@@ -1557,9 +1559,25 @@ export default function ChatScreen() {
           const after = tm.absolute ?? (tm.minutes ? advanceClock(before, tm.minutes) : before);
           if (after !== before) {
             clockOverrideRef.current = after;
+            let nextFcClock = simData.featureContent;
+            if (simData.features?.needs) {
+              const b = parseClock(before);
+              const a = parseClock(after);
+              const mins = b && a ? (a.getTime() - b.getTime()) / 60000 : (tm.minutes ?? 0);
+              if (mins > 0) {
+                const fcc = emptyFeatureContent(simData.featureContent);
+                const prevNeeds = emptyNeeds(fcc.needs);
+                const decayed = decayNeeds(prevNeeds, mins);
+                nextFcClock = { ...fcc, needs: decayed };
+                for (const k of newlyCriticalNeeds(prevNeeds, decayed)) {
+                  showToast(`Besoin critique : ${NEED_META[k].label} (${decayed[k]}/100)`, { tone: 'warning' });
+                }
+              }
+            }
             updateSimulation(activeWorkspace.id, activeConversation.id, {
               ...simData,
               world: { ...simData.world, clock: after },
+              featureContent: nextFcClock,
             });
             if (clockDayChanged(before, after)) {
               addMessageToConversation(activeWorkspace.id, activeConversation.id, {
@@ -1849,7 +1867,7 @@ export default function ChatScreen() {
         messages: history,
         bot,
         mode,
-        features: { inventory: !!feats.inventory, messages: !!feats.messages, skills: !!feats.skills },
+        features: { inventory: !!feats.inventory, messages: !!feats.messages, skills: !!feats.skills, needs: !!feats.needs },
         featureContent: simData.featureContent ?? emptyFeatureContent(),
       });
       const fc = emptyFeatureContent(simData.featureContent);
@@ -1861,6 +1879,7 @@ export default function ChatScreen() {
         skills: result.skillsNext ?? fc.skills,
         lifeStages: result.lifeStagesNext ?? fc.lifeStages,
         pendingNumberGivenTo: result.pendingNext ?? fc.pendingNumberGivenTo,
+        needs: result.needsNext ?? fc.needs,
       });
       updateSimulation(activeWorkspace.id, activeConversation.id, {
         ...simData,
@@ -1888,6 +1907,11 @@ export default function ChatScreen() {
           if (a === null || a === undefined || b === null || a === b) continue;
           const d = b - a;
           showToast(`Relation avec ${l.interlocutors || l.name} : ${d > 0 ? '+' : ''}${d}`, { tone: d > 0 ? 'success' : 'info' });
+        }
+      }
+      if (result.needsNext) {
+        for (const k of newlyCriticalNeeds(emptyNeeds(fc.needs), result.needsNext)) {
+          showToast(`Besoin critique : ${NEED_META[k].label} (${result.needsNext[k]}/100)`, { tone: 'warning' });
         }
       }
       if (result.inventoryAdded.length > 0) {
@@ -2088,6 +2112,23 @@ export default function ChatScreen() {
           onComplete={handleSimSetupComplete}
         />
       </SafeAreaView>
+    );
+  }
+
+  if (simFeatureScreen === 'needs' && isSimulation && simData) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SimulationNeedsScreen
+          needs={emptyNeeds(simData.featureContent?.needs)}
+          onChange={(needs) => {
+            updateSimulation(activeWorkspace.id, activeConversation!.id, {
+              ...simData,
+              featureContent: { ...emptyFeatureContent(simData.featureContent), needs },
+            });
+          }}
+          onClose={() => setSimFeatureScreen(null)}
+        />
+      </View>
     );
   }
 

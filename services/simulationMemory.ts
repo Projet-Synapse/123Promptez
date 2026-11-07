@@ -1,3 +1,4 @@
+import { NeedKey, NEED_KEYS, applyNeedDeltas, emptyNeeds, SimulationNeeds } from '@/types/simulationNeeds';
 /**
  * Génération / MAJ de la mémoire Simulation.
  * - Seed local depuis worldbuilding (sans LLM)
@@ -304,6 +305,7 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
   "discoveredNumbers": [{"name":"string","number":"xxx-xxx","source":"chat|paper"}],
   "personaNumberGivenTo": ["string"],
   "skillXp": [{"name":"string","xp":10,"description":"string?","notion":"string?"}],
+  "needDeltas": {"hunger":0,"energy":0,"hygiene":0,"social":0,"fun":0,"mood":0},
   "lifeStages": [{"title":"string","description":"string","when":"string?","impact":"string"}],
   "unknownMessages": [{"senderName":"string?","number":"xxx-xxx?","content":"string","suspicious":false}]
 }
@@ -330,6 +332,7 @@ Règles STRICTES:
 - "unknownMessages" : messages SMS reçus d'un numéro non enregistré. Cas 1 : un personnage de la liste "ONT LE NUMÉRO DU PERSONA" écrit enfin (pas forcément tout de suite — seulement quand c'est naturel ; senderName = son nom). Cas 2 (TRÈS RARE, seulement si l'histoire s'y prête : mystère, danger) : un numéro étrange/suspect écrit (suspicious=true, senderName vide ou identité cachée). Vide la plupart du temps.
 - "skillXp" : compétences que le PERSONA JOUEUR vient d'exercer par ses choix/actions dans l'historique RÉCENT (pas les PNJ). xp = 5 à 40 selon l'intensité/réussite (progression douce, jamais de saut). Réutilise le nom EXACT d'une compétence existante si c'est la même. "notion" = notion apprise concrète (courte), utile si l'action marque un vrai apprentissage. Vide si aucune.
 - "lifeStages" : étapes MAJEURES de la vie du persona qui viennent d'arriver et auront un impact durable (ex. "A appris à faire du vélo", "A trouvé un travail", "A déménagé"). Rare. N'en répète pas une existante. Vide sinon.
+- "needDeltas" : SEULEMENT si le module Besoins est actif. Objet {"hunger","energy","hygiene","social","fun","mood"} : variation (entier −60…+60) due aux ACTIONS RÉCENTES du persona (manger → hunger +, dormir → energy +, se laver → hygiene +, discuter → social +, se divertir → fun +, évènement heureux/triste → mood ±). Omets les besoins inchangés. {} sinon. (La baisse liée au temps qui passe est calculée à part : ne la compte pas.)
 - Priorise les cibles [[wikilink]] mentionnées dans l'historique récent.
 - Réponds en français.`;
 
@@ -342,6 +345,7 @@ export type MemoryPassResult = {
   levelUps: { name: string; level: number }[];
   lifeStagesNext?: SimulationLifeStage[];
   lifeStagesAdded: SimulationLifeStage[];
+  needsNext?: SimulationNeeds;
   knownNumbersNext?: SimulationKnownNumber[];
   pendingNext?: string[];
   messagesAdded: SimulationFeatureMessageItem[];
@@ -366,7 +370,7 @@ export async function generateOrRefreshMemory(opts: {
   mode: 'initial' | 'refresh';
   signal?: AbortSignal;
   /** Modules actifs — extrait inventaire / messages contacts si true */
-  features?: { inventory?: boolean; messages?: boolean; skills?: boolean };
+  features?: { inventory?: boolean; messages?: boolean; skills?: boolean; needs?: boolean };
   featureContent?: SimulationFeatureContent | null;
 }): Promise<MemoryPassResult> {
   const { sim, messages, bot, mode, signal } = opts;
@@ -387,6 +391,7 @@ export async function generateOrRefreshMemory(opts: {
   let llmContactMsgs: { from: string; content: string; influence?: string }[] = [];
   let llmRemoved: string[] = [];
   const llmSkills: SkillGain[] = [];
+  const llmNeedDeltas: Partial<Record<NeedKey, number>> = {};
   const llmLife: Partial<SimulationLifeStage>[] = [];
   let llmNumbers: { number: string; name?: string; source?: SimulationKnownNumber['source'] }[] = [];
   let llmGivenTo: string[] = [];
@@ -478,6 +483,10 @@ export async function generateOrRefreshMemory(opts: {
         ? `## COMPÉTENCES ACTUELLES\n${JSON.stringify((fc?.skills ?? []).map((s) => ({ name: s.name, level: s.level, xp: s.xp })))}\n## ÉTAPES DE VIE EXISTANTES\n${(fc?.lifeStages ?? []).map((s) => `- ${s.title}`).join('\n') || '(aucune)'}`
         : '## COMPÉTENCES / ÉTAPES\nModule inactif — renvoie "skillXp": [] et "lifeStages": [].',
       '',
+      features.needs
+        ? `## BESOINS ACTUELS (0–100)\n${JSON.stringify(emptyNeeds(fc?.needs))}`
+        : '## BESOINS\nModule inactif — renvoie "needDeltas": {}.',
+      '',
       '## HISTORIQUE',
       buildHistorySnippet(messages),
     ].filter((s) => s !== undefined).join('\n');
@@ -527,6 +536,12 @@ export async function generateOrRefreshMemory(opts: {
           content,
           influence: String(r.influence ?? '').trim() || undefined,
         });
+      }
+    }
+    if (features.needs && json.needDeltas && typeof json.needDeltas === 'object') {
+      for (const k of NEED_KEYS) {
+        const v = Number((json.needDeltas as any)[k]);
+        if (Number.isFinite(v) && v !== 0) llmNeedDeltas[k] = v;
       }
     }
     if (features.skills) {
@@ -624,6 +639,7 @@ export async function generateOrRefreshMemory(opts: {
     inventoryNext = rem.next;
   }
 
+  const needsNext = features.needs ? applyNeedDeltas(emptyNeeds(fc?.needs), llmNeedDeltas) : undefined;
   let skillsNext: SimulationSkillItem[] | undefined;
   let skillsCreated: SimulationSkillItem[] = [];
   let levelUps: { name: string; level: number }[] = [];
@@ -710,6 +726,7 @@ export async function generateOrRefreshMemory(opts: {
     levelUps,
     lifeStagesNext,
     lifeStagesAdded,
+    needsNext,
     knownNumbersNext,
     pendingNext,
     messagesAdded,
