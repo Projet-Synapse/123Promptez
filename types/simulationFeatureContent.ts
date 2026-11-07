@@ -1,3 +1,4 @@
+import { SimulationNeeds, emptyNeeds, formatNeedsForPrompt } from '@/types/simulationNeeds';
 /**
  * Contenu des modules gameplay Simulation (CRUD) — par conversation.
  * Les toggles `features` activent l’UI + l’injection prompt.
@@ -116,6 +117,8 @@ export interface SimulationFeatureContent {
   personaNumber?: string;
   /** Personnages à qui le persona a donné son numéro (message à venir) */
   pendingNumberGivenTo: string[];
+  /** Besoins (module needs) */
+  needs?: SimulationNeeds;
 }
 
 export function emptyFeatureContent(
@@ -131,6 +134,7 @@ export function emptyFeatureContent(
     knownNumbers: Array.isArray(partial?.knownNumbers) ? partial!.knownNumbers! : [],
     personaNumber: partial?.personaNumber ? String(partial.personaNumber) : undefined,
     pendingNumberGivenTo: Array.isArray(partial?.pendingNumberGivenTo) ? partial!.pendingNumberGivenTo! : [],
+    needs: partial?.needs ? emptyNeeds(partial.needs) : undefined,
   };
 }
 
@@ -430,6 +434,7 @@ export function normalizeFeatureContent(raw: any): SimulationFeatureContent {
     })).filter((k) => k.number),
     personaNumber: normalizePhone(src.personaNumber) ?? undefined,
     pendingNumberGivenTo: Array.isArray(src.pendingNumberGivenTo) ? src.pendingNumberGivenTo.map(String) : [],
+    needs: src.needs && typeof src.needs === 'object' ? emptyNeeds(src.needs) : undefined,
     contacts: normalizeList(src.contacts, (r) =>
       emptyContactItem({
         id: r.id ? String(r.id) : undefined,
@@ -497,12 +502,13 @@ export function countUnreadMessages(content: SimulationFeatureContent | undefine
 
 /** Injection prompt — uniquement les modules activés. */
 export function formatFeaturesForPrompt(
-  features: { inventory: boolean; album: boolean; skills: boolean; messages: boolean },
+  features: { inventory: boolean; album: boolean; skills: boolean; messages: boolean; needs?: boolean },
   content: SimulationFeatureContent | undefined | null,
   maxPer = 20,
 ): string {
   if (!content) return '';
   const blocks: string[] = [];
+  if (features.needs) blocks.push(formatNeedsForPrompt(emptyNeeds(content.needs)));
 
   if (features.inventory && content.inventory.length) {
     const lines = content.inventory.slice(0, maxPer).map((it) => {

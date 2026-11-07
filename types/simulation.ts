@@ -144,7 +144,7 @@ export interface SimulationWorld {
 }
 
 /** Identifiants des modules gameplay optionnels (Simulation). */
-export type SimulationFeatureId = 'inventory' | 'album' | 'skills' | 'messages';
+export type SimulationFeatureId = 'inventory' | 'album' | 'skills' | 'messages' | 'needs';
 
 /**
  * Interrupteurs des fonctionnalités complémentaires — par conversation.
@@ -159,6 +159,8 @@ export interface SimulationFeatures {
   skills: boolean;
   /** Messages — petits messages d'interaction à influence ultérieure */
   messages: boolean;
+  /** Besoins façon Sims (faim, énergie…) */
+  needs: boolean;
 }
 
 export const DEFAULT_SIMULATION_FEATURES: SimulationFeatures = {
@@ -166,6 +168,7 @@ export const DEFAULT_SIMULATION_FEATURES: SimulationFeatures = {
   album: false,
   skills: false,
   messages: false,
+  needs: false,
 };
 
 export const SIMULATION_FEATURE_META: Record<
@@ -196,6 +199,12 @@ export const SIMULATION_FEATURE_META: Record<
     emptyHint: 'Aucun message pour l’instant. Les interactions notables s’afficheront ici.',
     icon: 'mark-unread-chat-alt',
   },
+  needs: {
+    label: 'Besoins',
+    description: 'Faim, énergie, hygiène, social, loisirs, humeur (0–100) — façon Sims',
+    emptyHint: '',
+    icon: 'favorite',
+  },
 };
 
 export function emptySimulationFeatures(partial?: Partial<SimulationFeatures>): SimulationFeatures {
@@ -204,6 +213,7 @@ export function emptySimulationFeatures(partial?: Partial<SimulationFeatures>): 
     album: partial?.album ?? false,
     skills: partial?.skills ?? false,
     messages: partial?.messages ?? false,
+    needs: partial?.needs ?? false,
   };
 }
 
@@ -361,6 +371,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       album: !!(sim.features && sim.features.album),
       skills: !!(sim.features && sim.features.skills),
       messages: !!(sim.features && sim.features.messages),
+      needs: !!(sim.features && sim.features.needs),
     }),
     featureContent: normalizeFeatureContent(sim.featureContent),
     theme: normalizeSimulationThemeId(sim.theme),
@@ -421,7 +432,7 @@ export function buildSimulationPromptInjection(
   if (memBlock) lines.push(memBlock);
   // Modules gameplay actifs (contenu joueur)
   const featBlock = formatFeaturesForPrompt(
-    sim.features ?? { inventory: false, album: false, skills: false, messages: false },
+    sim.features ?? { inventory: false, album: false, skills: false, messages: false, needs: false },
     sim.featureContent,
   );
   if (featBlock) lines.push(featBlock);
