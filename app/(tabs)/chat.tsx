@@ -753,6 +753,7 @@ function SideDrawer({
   workspaces,
   setActiveWorkspace,
   setActiveConversation,
+  onRequestUnassignedConversation,
   onRequestNewConversation,
   removeConversation,
   renameConversation,
@@ -765,6 +766,7 @@ function SideDrawer({
   workspaces: any[];
   setActiveWorkspace: (id: string) => void;
   setActiveConversation: (wsId: string, convId: string) => void;
+  onRequestUnassignedConversation: () => void;
   onRequestNewConversation: (wsId: string) => void;
   removeConversation: (wsId: string, convId: string) => void;
   renameConversation: (wsId: string, convId: string, name: string) => void;
@@ -906,7 +908,10 @@ function SideDrawer({
         <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
           {/* Drawer header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingTop: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: C.border }}>
-            <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Conversations</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: FontSize.md, color: C.textPrimary, fontWeight: '700' }}>Conversations</Text>
+              <IconButton icon="add" label="Nouvelle conversation sans workspace" onPress={onRequestUnassignedConversation} bare size={22} color={C.accent} />
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <IconButton
                 icon={selectMode ? 'close' : 'checklist'}
@@ -1127,6 +1132,7 @@ export default function ChatScreen() {
     forkSimulationConversation, replaceConversationMessages,
     getDueTasks, completeTask, getActiveAutomations, recordAutomationRun,
     updateFile, addFile, addSubFolder,
+    addUnassignedConversation,
   } = useWorkspace();
   const { profile } = useProfile();
   const { showAlert } = useAlert();
@@ -3107,6 +3113,14 @@ export default function ChatScreen() {
         workspaces={workspaces}
         setActiveWorkspace={setActiveWorkspace}
         setActiveConversation={setActiveConversation}
+        onRequestUnassignedConversation={() => {
+          addUnassignedConversation();
+          setDrawerOpen(false);
+          setSimEditMode(null);
+          setShowSimSaves(false);
+          setSimFeatureScreen(null);
+          setInput('');
+        }}
         onRequestNewConversation={(wsId) => {
           setDrawerOpen(false);
           setNewConvModalWsId(wsId);

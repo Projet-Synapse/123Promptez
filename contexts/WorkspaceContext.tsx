@@ -68,9 +68,16 @@ export interface WorkspaceDatabase {
   folders: DBFolder[];
 }
 
+/** Internal persistence/routing bucket, not a user workspace. Cloud stores a JSON blob,
+ * so keeping this namespace preserves compatibility without SQL migrations. */
+export const UNASSIGNED_WORKSPACE_ID = '__unassigned_conversations__';
+export const isUnassignedWorkspace = (w: { id: string }) => w.id === UNASSIGNED_WORKSPACE_ID;
+
 export interface Conversation {
   id: string;
   title: string;
+  /** null = explicitly outside every user workspace; absent = legacy nested ownership. */
+  workspaceId?: string | null;
   messages: ChatMessage[];
   /**
    * Type de chat. Absent ou omis sur les anciennes données cloud → traité
@@ -186,6 +193,7 @@ interface WorkspaceContextType {
   recordAutomationRun: (workspaceId: string, autoId: string) => void;
   getActiveAutomations: (workspaceId: string) => WorkspaceAutomation[];
   // Conversations
+  addUnassignedConversation: () => string;
   addConversation: (workspaceId: string, opts?: string | { title?: string; kind?: ConversationKind }) => string;
   removeConversation: (workspaceId: string, conversationId: string) => void;
   /** Crée une conversation Simulation à partir de messages + état (branche / suite). Renvoie son id. */
@@ -295,6 +303,7 @@ function normalizeConversation(raw: any): Conversation {
     title: String(raw?.title ?? defaultTitleForKind(kind)),
     messages: Array.isArray(raw?.messages) ? raw.messages : [],
     kind,
+    workspaceId: raw?.workspaceId == null ? raw?.workspaceId : String(raw.workspaceId),
     pinned: raw?.pinned ? true : undefined,
     createdAt: raw?.createdAt instanceof Date ? raw.createdAt : new Date(raw?.createdAt ?? Date.now()),
     updatedAt: raw?.updatedAt instanceof Date ? raw.updatedAt : new Date(raw?.updatedAt ?? Date.now()),
@@ -339,13 +348,31 @@ function normalizeFolders(folders: DBFolder[]): DBFolder[] {
   return folders.map(f => ({ ...f, subFolders: normalizeSubs(f.subFolders ?? []) }));
 }
 
+/** Neutral runtime facade for screens whose APIs require a Workspace. No inherited
+ * prompt, modes, tasks, database or automation from the previously selected workspace. */
+function unassignedBucket(conversations: Conversation[] = [], activeConversationId = ''): Workspace {
+  return {
+    id: UNASSIGNED_WORKSPACE_ID, name: 'Sans workspace', icon: 'chat-bubble-outline',
+    color: '#718096', description: '', systemPrompt: '', modes: [], tasks: [], automations: [],
+    database: { rootFiles: [], folders: [] },
+    conversations: conversations.map(c => ({ ...c, workspaceId: null })),
+    activeConversationId, createdAt: new Date(0),
+  };
+}
+
 function normalizeWorkspace(ws: any): Workspace {
+  if (isUnassignedWorkspace(ws)) {
+    return unassignedBucket((ws.conversations ?? []).map(normalizeConversation), ws.activeConversationId ?? '');
+  }
   return {
     ...ws,
     automations: ws.automations ?? [],
     conversations: Array.isArray(ws.conversations)
       ? ws.conversations.map(normalizeConversation)
       : [],
+    modes: ws.modes ?? [],
+    tasks: ws.tasks ?? [],
+    systemPrompt: ws.systemPrompt ?? '',
     database: {
       ...ws.database,
       folders: normalizeFolders(ws.database?.folders ?? []),
@@ -423,7 +450,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     if (typeof localStorage !== 'undefined') {
       try {
         const saved = localStorage.getItem('promptez.lastWorkspace');
-        if (saved && DEFAULT_WORKSPACES.some(w => w.id === saved)) return saved;
+        if (saved && (saved === UNASSIGNED_WORKSPACE_ID || DEFAULT_WORKSPACES.some(w => w.id === saved))) return saved;
       } catch {}
     }
     return 'ws-default';
@@ -485,10 +512,11 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   };
 
   const updateWorkspace = (id: string, updates: Partial<Workspace>) =>
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
+    id !== UNASSIGNED_WORKSPACE_ID && setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
 
   const removeWorkspace = (id: string) => {
-    if (workspaces.length <= 1) return;
+    if (workspaces.filter(w => !isUnassignedWorkspace(w)).length <= 1) return;
+    if (id === UNASSIGNED_WORKSPACE_ID) return;
     setWorkspaces(prev => prev.filter(w => w.id !== id));
     if (activeWorkspaceId === id) {
       const nextId = workspaces.find(w => w.id !== id)?.id || 'ws-default';
@@ -548,11 +576,22 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
   };
 
   // ─── Conversations ───────────────────────────────────────────────
+  const addUnassignedConversation = (): string => {
+    const conv = { ...makeConversation(), workspaceId: null };
+    setWorkspaces(prev => {
+      const bucket = prev.find(isUnassignedWorkspace);
+      return bucket
+        ? prev.map(w => isUnassignedWorkspace(w) ? unassignedBucket([...w.conversations, conv], conv.id) : w)
+        : [...prev, unassignedBucket([conv], conv.id)];
+    });
+    setActiveWorkspace(UNASSIGNED_WORKSPACE_ID);
+    return conv.id;
+  };
   const addConversation = (wid: string, opts?: string | { title?: string; kind?: ConversationKind }): string => {
     const parsed = typeof opts === 'string'
       ? { title: opts, kind: 'classique' as ConversationKind }
       : { title: opts?.title, kind: (opts?.kind ?? 'classique') as ConversationKind };
-    const conv = makeConversation(parsed.title, parsed.kind);
+    const conv = { ...makeConversation(parsed.title, parsed.kind), workspaceId: wid === UNASSIGNED_WORKSPACE_ID ? null : wid };
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id } : w));
     return conv.id;
   };
@@ -573,7 +612,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     setWorkspaces(prev => prev.map(w => {
       if (w.id !== wid) return w;
       const remaining = w.conversations.filter(c => c.id !== cid);
-      if (remaining.length === 0) { const fb = makeConversation(); return { ...w, conversations: [fb], activeConversationId: fb.id }; }
+      if (remaining.length === 0) { const fb = { ...makeConversation(), ...(isUnassignedWorkspace(w) ? { workspaceId: null } : {}) }; return { ...w, conversations: [fb], activeConversationId: fb.id }; }
       const newActive = w.activeConversationId === cid ? remaining[remaining.length - 1].id : w.activeConversationId;
       return { ...w, conversations: remaining, activeConversationId: newActive };
     }));
@@ -964,7 +1003,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addMode, updateMode, removeMode, toggleMode, getActiveModes,
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
-      addConversation, forkSimulationConversation, replaceConversationMessages, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
+      addUnassignedConversation, addConversation, forkSimulationConversation, replaceConversationMessages, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
       addMessageToConversation, clearConversation, truncateMessagesAfter, keepMessagesThrough, updateMessageContent, deleteMessage, updateSimulation, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,

@@ -1,3 +1,4 @@
+import { UNASSIGNED_WORKSPACE_ID } from '@/contexts/WorkspaceContext';
 // Powered by OnSpace.AI
 // Workspaces screen — adds workspace rename functionality + conversation rename
 import React, { useState, useRef, useEffect } from 'react';
@@ -61,10 +62,11 @@ export default function WorkspacesScreen() {
   const { t } = useLanguage();
   const { openPalette } = useCommandPalette();
   const {
-    workspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace,
+    workspaces: allWorkspaces, activeWorkspaceId, setActiveWorkspace, addWorkspace,
     updateWorkspace, removeWorkspace, addConversation, removeConversation,
     renameConversation, setActiveConversation,
   } = useWorkspace();
+  const workspaces = allWorkspaces.filter(w => w.id !== UNASSIGNED_WORKSPACE_ID);
   const { showAlert } = useAlert();
   const router = useRouter();
 
