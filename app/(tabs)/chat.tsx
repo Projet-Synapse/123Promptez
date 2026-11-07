@@ -57,6 +57,7 @@ import {
   emptyFeatureContent,
   countUnreadMessages,
   resolveMemoryWikilink,
+  normalizeMemoryKey,
   shouldAutoUpdateMemory,
   emptySimulationMemory,
   markMemoryItemSeen,
@@ -1919,8 +1920,31 @@ export default function ChatScreen() {
       openSimMemory(hit.item.id);
       showToast(`${hit.item.name}`, { tone: 'info' });
     } else {
-      openSimMemory(null);
-      showToast(`Mémoire : « ${target} » — entrée à créer`, { tone: 'info' });
+      const name = target.trim();
+      const create = (
+        section: 'characters' | 'places' | 'links',
+        opts?: { linkSubsection?: 'objets' },
+      ) => {
+        if (!activeConversation) return;
+        const base = simData.memory ?? emptySimulationMemory();
+        const next = addManualMemoryItem(base, section, name, opts);
+        persistSimMemory(next);
+        const key = normalizeMemoryKey(name);
+        const created = next[section].find((it) => it.key === key);
+        openSimMemory(created?.id ?? null);
+        showToast(`Fiche « ${name} » créée`, { tone: 'success' });
+      };
+      showAlert(
+        `« ${name} » n’est pas encore en mémoire`,
+        'Créer une fiche pour cet élément ?',
+        [
+          // Android : 3 boutons max (retour = annuler)
+          ...(Platform.OS === 'android' ? [] : [{ text: 'Annuler', style: 'cancel' as const }]),
+          { text: 'Personnage', onPress: () => create('characters') },
+          { text: 'Lieu', onPress: () => create('places') },
+          { text: 'Objet', onPress: () => create('links', { linkSubsection: 'objets' }) },
+        ],
+      );
     }
   };
 
