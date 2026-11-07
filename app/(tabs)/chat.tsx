@@ -2007,7 +2007,7 @@ export default function ChatScreen() {
     const pendingChance = !!feats.messages && (fc?.pendingNumberGivenTo?.length ?? 0) > 0 && Math.random() < 0.25;
     const wiki = shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant]);
     // Carnet d’acquisitions : passe régulière (≈ tous les 2 échanges) pour l’XP
-    const skillsTick = !!feats.skills && count % 4 === 0;
+    const skillsTick = (!!feats.skills || !!feats.needs) && count % 4 === 0;
     if (!mem.initialized || (!wiki && !hasPhone && !pendingChance && !skillsTick)) return;
     void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone });
   };
