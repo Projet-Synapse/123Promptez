@@ -1,3 +1,4 @@
+import { type SimulationEnding, normalizeEnding, objectivesPromptBlock } from '@/types/simulationEnding';
 import { DILEMMA_PROMPT_RULE } from '@/types/simulationDilemma';
 import { type SimulationSave, normalizeSaves } from '@/types/simulationSaves';
 /** Types pour l'espace Simulation (roleplay) — worldbuilding, personas, chat. */
@@ -131,6 +132,8 @@ export interface SimulationWorld {
    * Absent des apps chatbot classiques ; migration douce → chaîne vide.
    */
   rules: string;
+  /** Objectifs / conditions de victoire et de défaite (optionnel) */
+  objectives?: string;
   /**
    * Ancien champ étape 1 — conservé pour migration douce.
    * Si `backgroundContext` est vide, on lit `synopsis`.
@@ -255,6 +258,8 @@ export interface SimulationData {
   narrationStyleId?: string;
   /** Points de sauvegarde (instantanés) */
   saves?: SimulationSave[];
+  /** Partie terminée (gagnée / perdue) : saisie bloquée */
+  ending?: SimulationEnding;
 }
 
 function newId(prefix: string): string {
@@ -349,6 +354,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
       welcomeMessage: String(worldIn.welcomeMessage ?? ''),
       backgroundContext,
       rules: String(worldIn.rules ?? ''),
+      objectives: worldIn.objectives ? String(worldIn.objectives) : undefined,
       synopsis: synopsis || undefined,
       clock: normalizeClock(worldIn.clock),
       knowledgeFolderIds: Array.isArray(worldIn.knowledgeFolderIds)
@@ -382,6 +388,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
     themeBackgroundUri: sim.themeBackgroundUri ? String(sim.themeBackgroundUri) : undefined,
     narrationStyleId: sim.narrationStyleId ? String(sim.narrationStyleId) : undefined,
     saves: normalizeSaves(sim.saves),
+    ending: normalizeEnding(sim.ending),
   };
 }
 
@@ -432,6 +439,7 @@ export function buildSimulationPromptInjection(
   lines.push(clockPromptBlock(w.clock));
   // Style de narration (après les règles prioritaires)
   lines.push(DILEMMA_PROMPT_RULE);
+  { const ob = objectivesPromptBlock(sim.world?.objectives); if (ob) lines.push(ob); }
   lines.push(formatNarrationStyleForPrompt(sim.narrationStyleId));
   // Mémoire structurée — priorité juste sous les Règles
   const memBlock = formatMemoryForPrompt(sim.memory);
