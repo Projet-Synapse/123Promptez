@@ -47,6 +47,8 @@ import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
+import { SimulationSavesScreen } from '@/components/feature/SimulationSavesScreen';
+import { makeSave, nearestSaveAtOrBefore, snapshotSimulation, SIMULATION_SAVES_MAX, type SimulationSave } from '@/types/simulationSaves';
 import { NEED_META, emptyNeeds, decayNeeds, newlyCriticalNeeds } from '@/types/simulationNeeds';
 import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScreen';
 import { Toggle } from '@/components/ui/Toggle';
@@ -354,8 +356,9 @@ function PlusPopover({
 function SimulationPlusPanel({
   view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
   features, onToggleFeature, onOpenFeature, unreadMessagesCount = 0,
-  themeId, onSelectTheme, themeBackgroundUri, onPickThemeBackground, onClearThemeBackground, C,
+  themeId, onSelectTheme, themeBackgroundUri, onPickThemeBackground, onClearThemeBackground, onOpenSaves, C,
 }: {
+  onOpenSaves: () => void;
   view: 'menu' | 'models' | 'features' | 'theme';
   onChangeView: (v: 'menu' | 'models' | 'features' | 'theme') => void;
   onReset: () => void;
@@ -668,6 +671,13 @@ function SimulationPlusPanel({
       label: 'Thème',
       desc: simulationThemeLabel(themeId),
       onPress: () => onChangeView('theme'),
+    },
+    {
+      key: 'saves',
+      icon: 'bookmarks',
+      label: 'Sauvegardes & branches',
+      desc: 'Point de sauvegarde, restaurer, brancher l’histoire',
+      onPress: onOpenSaves,
     },
     {
       key: 'features',
@@ -1111,6 +1121,7 @@ export default function ChatScreen() {
     renameConversation, setActiveConversation, setActiveWorkspace, setConversationPinned,
     addMessageToConversation, clearConversation, truncateMessagesAfter, keepMessagesThrough,
     updateMessageContent, deleteMessage, updateSimulation, getActiveConversation,
+    forkSimulationConversation, replaceConversationMessages,
     getDueTasks, completeTask, getActiveAutomations, recordAutomationRun,
     updateFile, addFile, addSubFolder,
   } = useWorkspace();
@@ -1138,6 +1149,7 @@ export default function ChatScreen() {
 
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   /** Sous-vue du panneau + Simulation : menu principal ou modèles. */
+  const [showSimSaves, setShowSimSaves] = useState(false);
   const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features' | 'theme'>('menu');
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
   const [showSimMemory, setShowSimMemory] = useState(false);
@@ -2115,6 +2127,54 @@ export default function ChatScreen() {
     );
   }
 
+  if (showSimSaves && isSimulation && simData && activeConversation) {
+    const conv = activeConversation;
+    const saves = simData.saves ?? [];
+    const msgsUpTo = (s: SimulationSave) => {
+      const all = conv.messages ?? [];
+      if (!s.messageId) return [];
+      const i = all.findIndex((m: any) => m.id === s.messageId);
+      return i >= 0 ? all.slice(0, i + 1) : all.slice(0, s.messageCount);
+    };
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SimulationSavesScreen
+          saves={saves}
+          onCreate={(label) => {
+            const s = makeSave(simData, conv.messages ?? [], label);
+            updateSimulation(activeWorkspace.id, conv.id, { ...simData, saves: [s, ...saves].slice(0, SIMULATION_SAVES_MAX) });
+            showToast('Point de sauvegarde créé', { tone: 'success' });
+          }}
+          onRestore={(s) => {
+            showAlert('Restaurer cette sauvegarde ?', 'Les messages postérieurs et l’état actuel (mémoire, inventaire, horloge…) seront remplacés. Astuce : « Brancher » garde l’original.', [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'Restaurer', style: 'destructive', onPress: () => {
+                  replaceConversationMessages(activeWorkspace.id, conv.id, msgsUpTo(s) as any);
+                  clockOverrideRef.current = s.snapshot?.world?.clock ?? null;
+                  updateSimulation(activeWorkspace.id, conv.id, { ...s.snapshot, saves });
+                  setShowSimSaves(false);
+                  showToast(`Sauvegarde « ${s.label} » restaurée`, { tone: 'success' });
+                },
+              },
+            ]);
+          }}
+          onBranch={(s) => {
+            forkSimulationConversation(activeWorkspace.id, {
+              title: `${conv.title} — branche`,
+              messages: msgsUpTo(s) as any,
+              simulation: { ...s.snapshot, saves: [] },
+            });
+            setShowSimSaves(false);
+            showToast('Branche créée', { tone: 'success' });
+          }}
+          onDelete={(s) => updateSimulation(activeWorkspace.id, conv.id, { ...simData, saves: saves.filter((x) => x.id !== s.id) })}
+          onClose={() => setShowSimSaves(false)}
+        />
+      </View>
+    );
+  }
+
   if (simFeatureScreen === 'needs' && isSimulation && simData) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -2469,6 +2529,21 @@ export default function ChatScreen() {
                 onRestartFromHere={
                   !isLoading ? () => handleRestartFromHere(msg.id) : undefined
                 }
+                onBranchFromHere={
+                  isSimulation && simData && !isLoading ? () => {
+                    const all = activeConversation?.messages ?? [];
+                    const idx = all.findIndex((m: any) => m.id === msg.id);
+                    if (idx < 0 || !activeConversation) return;
+                    const save = nearestSaveAtOrBefore(simData.saves ?? [], all, idx);
+                    const base = save && save.messageId === msg.id ? save.snapshot : snapshotSimulation(simData);
+                    forkSimulationConversation(activeWorkspace.id, {
+                      title: `${activeConversation.title} — branche`,
+                      messages: all.slice(0, idx + 1) as any,
+                      simulation: { ...base, saves: [] },
+                    });
+                    showToast('Branche créée à partir de ce message', { tone: 'success' });
+                  } : undefined
+                }
                 onDelete={
                   !isLoading ? () => handleDeleteMessage(msg.id) : undefined
                 }
@@ -2624,6 +2699,7 @@ export default function ChatScreen() {
           {/* Panneau + Simulation : soulève le bas (au-dessus du champ) */}
           {isSimulation && showPlusPopover ? (
             <SimulationPlusPanel
+              onOpenSaves={() => { setShowPlusPopover(false); setSimPlusView('menu'); setShowSimSaves(true); }}
               view={simPlusView}
               onChangeView={setSimPlusView}
               onReset={() => {

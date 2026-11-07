@@ -1,3 +1,4 @@
+import { type SimulationSave, normalizeSaves } from '@/types/simulationSaves';
 /** Types pour l'espace Simulation (roleplay) — worldbuilding, personas, chat. */
 
 import {
@@ -251,6 +252,8 @@ export interface SimulationData {
   themeBackgroundUri?: string;
   /** Style de narration (preset prompt) — t229u */
   narrationStyleId?: string;
+  /** Points de sauvegarde (instantanés) */
+  saves?: SimulationSave[];
 }
 
 function newId(prefix: string): string {
@@ -377,6 +380,7 @@ export function normalizeSimulationData(raw: any, opts?: { hadMessages?: boolean
     theme: normalizeSimulationThemeId(sim.theme),
     themeBackgroundUri: sim.themeBackgroundUri ? String(sim.themeBackgroundUri) : undefined,
     narrationStyleId: sim.narrationStyleId ? String(sim.narrationStyleId) : undefined,
+    saves: normalizeSaves(sim.saves),
   };
 }
 

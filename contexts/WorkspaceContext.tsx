@@ -188,6 +188,10 @@ interface WorkspaceContextType {
   // Conversations
   addConversation: (workspaceId: string, opts?: string | { title?: string; kind?: ConversationKind }) => string;
   removeConversation: (workspaceId: string, conversationId: string) => void;
+  /** Crée une conversation Simulation à partir de messages + état (branche / suite). Renvoie son id. */
+  forkSimulationConversation: (workspaceId: string, opts: { title: string; messages: ChatMessage[]; simulation: SimulationData }) => string;
+  /** Remplace les messages d’une conversation (restauration de sauvegarde). */
+  replaceConversationMessages: (workspaceId: string, conversationId: string, messages: ChatMessage[]) => void;
   renameConversation: (workspaceId: string, conversationId: string, title: string) => void;
   setActiveConversation: (workspaceId: string, conversationId: string) => void;
   /** Épingle (ou désépingle) une conversation — persistant et synchronisé */
@@ -552,6 +556,19 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
     setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id } : w));
     return conv.id;
   };
+  const forkSimulationConversation = (wid: string, opts: { title: string; messages: ChatMessage[]; simulation: SimulationData }): string => {
+    const conv: Conversation = {
+      ...makeConversation(opts.title, 'simulation'),
+      messages: opts.messages.map((m) => ({ ...m })),
+      simulation: normalizeSimulationData(opts.simulation),
+    } as Conversation;
+    setWorkspaces(prev => prev.map(w => w.id === wid ? { ...w, conversations: [...w.conversations, conv], activeConversationId: conv.id } : w));
+    return conv.id;
+  };
+  const replaceConversationMessages = (wid: string, cid: string, messages: ChatMessage[]) =>
+    setWorkspaces(prev => prev.map(w => w.id !== wid ? w : {
+      ...w, conversations: w.conversations.map(c => c.id === cid ? { ...c, messages: messages.map((m) => ({ ...m })), updatedAt: new Date() } : c),
+    }));
   const removeConversation = (wid: string, cid: string) =>
     setWorkspaces(prev => prev.map(w => {
       if (w.id !== wid) return w;
@@ -947,7 +964,7 @@ export function WorkspaceProvider({ children, onDataChange }: Props) {
       addMode, updateMode, removeMode, toggleMode, getActiveModes,
       addTask, updateTask, removeTask, toggleTask, completeTask, getDueTasks,
       addAutomation, updateAutomation, removeAutomation, toggleAutomation, recordAutomationRun, getActiveAutomations,
-      addConversation, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
+      addConversation, forkSimulationConversation, replaceConversationMessages, removeConversation, renameConversation, setActiveConversation, setConversationPinned,
       addMessageToConversation, clearConversation, truncateMessagesAfter, keepMessagesThrough, updateMessageContent, deleteMessage, updateSimulation, getActiveConversation,
       addFolder, addVaultFolder, updateFolder, removeFolder,
       syncFolderFromDisk, moveFolderIntoFolder, promoteSubFolder,
