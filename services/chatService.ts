@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import { localCompletion, LOCAL_FALLBACK_MODEL } from '@/services/localAI';
 // chatService — routes to Anthropic Claude via a Supabase Edge Function, with streaming support
 import { BotConfig, KBSource, FAQItem } from '@/contexts/BotContext';
 import { Workspace } from '@/contexts/WorkspaceContext';
@@ -190,6 +192,22 @@ export async function sendChatMessage(
     const prev = messages[messages.length - 1];
     if (prev && prev.role === m.role) prev.content += `\n\n${m.content}`;
     else messages.push({ ...m });
+  }
+
+  const local = bot.llmConfig.localAI;
+  if (local?.enabled) {
+    try {
+      return await localCompletion({ config: local, purpose: 'narrative', messages,
+        temperature: bot.llmConfig.temperature, maxTokens: bot.llmConfig.maxTokens,
+        stream: bot.llmConfig.streaming, android: Platform.OS === 'android', signal, onToken });
+    } catch (e) {
+      if (signal?.aborted || !local.fallbackGemini || !bot.apiKey?.trim()) throw e;
+      onToken?.('');
+      return sendChatMessage(userMessage, history, {
+        ...bot, llmConfig: { ...bot.llmConfig, model: LOCAL_FALLBACK_MODEL,
+          localAI: { ...local, enabled: false } },
+      }, workspace, onToken, profile, dueTasks, langInjection, signal, extra);
+    }
   }
 
   // bot.llmConfig.model is already a real Claude model ID (see constants/config.ts

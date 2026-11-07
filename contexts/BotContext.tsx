@@ -1,3 +1,4 @@
+import type { LocalAIConfig } from '@/services/localAI';
 import React, { createContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
 import { getSecret, setSecret, extractSecrets, stripSecrets, applySecrets } from '@/services/secretStore';
 
@@ -50,6 +51,7 @@ export interface CustomAgent {
 }
 
 export interface LLMConfig {
+  localAI?: LocalAIConfig;
   model: string;
   temperature: number;
   maxTokens: number;

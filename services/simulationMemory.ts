@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import { localCompletion, LOCAL_FALLBACK_MODEL, type LocalAIConfig } from '@/services/localAI';
 import { parseLlmJson, textFromSse } from '@/services/llmJson';
 import { NeedKey, NEED_KEYS, applyNeedDeltas, emptyNeeds, SimulationNeeds } from '@/types/simulationNeeds';
 /**
@@ -188,7 +190,19 @@ export async function completeOnce(opts: {
   maxTokens?: number;
   /** Demande une sortie JSON stricte (Gemini : responseMimeType) */
   jsonMode?: boolean;
+  localAI?: LocalAIConfig;
 }): Promise<string> {
+  if (opts.localAI?.enabled) {
+    try {
+      return await localCompletion({ config: opts.localAI, purpose: opts.jsonMode ? 'memory' : 'narrative',
+        messages: [{ role: 'system', content: opts.system }, { role: 'user', content: opts.user }],
+        maxTokens: opts.maxTokens, json: opts.jsonMode, temperature: 0.2,
+        stream: false, android: Platform.OS === 'android', signal: opts.signal });
+    } catch (e) {
+      if (opts.signal?.aborted || !opts.localAI.fallbackGemini || !opts.apiKey?.trim()) throw e;
+      return completeOnce({ ...opts, localAI: undefined, model: LOCAL_FALLBACK_MODEL });
+    }
+  }
   const supabase = getSupabaseClient();
   const { data: { session } } = await supabase.auth.getSession();
   const authHeader = session?.access_token ? `Bearer ${session.access_token}` : '';
@@ -488,6 +502,7 @@ export async function generateOrRefreshMemory(opts: {
     ].filter((s) => s !== undefined).join('\n');
 
     const call = (system: string) => completeOnce({
+      localAI: bot.llmConfig?.localAI,
       model: bot.llmConfig?.model || 'claude-sonnet-5',
       apiKey: (bot as any).apiKey ?? null,
       system,
@@ -885,6 +900,7 @@ export async function generateContinuationSummary(opts: {
   result: 'won' | 'lost';
 }): Promise<string> {
   const raw = await completeOnce({
+    localAI: opts.bot.llmConfig?.localAI,
     model: opts.bot.llmConfig?.model || 'claude-sonnet-5',
     apiKey: (opts.bot as any).apiKey ?? null,
     system: 'Tu résumes une partie de roleplay terminée pour en préparer la suite. Réponds en français, en prose, 150 à 250 mots, sans titre ni liste.',
