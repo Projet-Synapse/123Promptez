@@ -1,3 +1,4 @@
+import { LocalAISettings } from '@/components/feature/LocalAISettings';
 // Theme fix: createStyles(C) pattern — styles are generated inside the component
 // using the reactive color object from useThemeColors(), NOT static StyleSheet.create() at module level.
 //
@@ -508,6 +509,8 @@ export default function SettingsScreen() {
                 </View>
               )}
             </View>
+
+            <LocalAISettings value={bot.llmConfig.localAI} onChange={localAI => updateLLMConfig({ localAI })} />
 
             {/* ── Model Selector ─────────────────────────────────────── */}
             <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
