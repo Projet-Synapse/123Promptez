@@ -47,6 +47,7 @@ import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
+import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
 import { SimulationSavesScreen } from '@/components/feature/SimulationSavesScreen';
 import { makeSave, nearestSaveAtOrBefore, snapshotSimulation, SIMULATION_SAVES_MAX, type SimulationSave } from '@/types/simulationSaves';
 import { NEED_META, emptyNeeds, decayNeeds, newlyCriticalNeeds } from '@/types/simulationNeeds';
@@ -1419,7 +1420,13 @@ export default function ChatScreen() {
           + (activeConversation?.kind === 'simulation' && activeConversation.simulation
             ? buildSimulationPromptInjection(activeConversation.simulation, {
                 maxBotChars: getRoleplaySettings(profile).maxBotChars,
-              })
+              }) + (() => {
+                const kb = buildKnowledgePromptBlock(
+                  (activeWorkspace.database?.folders ?? []) as any,
+                  activeConversation.simulation?.world?.knowledgeFolderIds ?? [],
+                );
+                return kb ? `\n\n${kb}` : '';
+              })()
             : ''),
         controller.signal,
         {
@@ -2104,6 +2111,7 @@ export default function ChatScreen() {
         <SimulationSetupScreen
           initial={simData}
           workspaceName={activeWorkspace.name}
+          knowledgeOptions={listKnowledgeFolderOptions((activeWorkspace.database?.folders ?? []) as any)}
           mode={simEditMode ?? 'full'}
           onCancel={
             simData?.setupComplete

@@ -36,6 +36,8 @@ interface Props {
   mode?: SimulationSetupMode;
   onCancel?: () => void;
   onComplete: (data: SimulationData) => void;
+  /** Dossiers du vault 123Écriture disponibles (lecture seule) */
+  knowledgeOptions?: { id: string; label: string; depth: number; mdCount: number }[];
 }
 
 function Field({
@@ -107,7 +109,7 @@ function AvatarBubble({
   );
 }
 
-export default function SimulationSetupScreen({ initial, workspaceName, mode = 'full', onCancel, onComplete }: Props) {
+export default function SimulationSetupScreen({ initial, workspaceName, mode = 'full', onCancel, onComplete, knowledgeOptions }: Props) {
   const C = useThemeColors();
   const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
@@ -119,6 +121,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
   const [backgroundContext, setBackgroundContext] = useState(seed.world.backgroundContext);
   const [rules, setRules] = useState(seed.world.rules ?? '');
   const [clock, setClock] = useState(seed.world.clock ?? defaultClock());
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>(seed.world.knowledgeFolderIds ?? []);
   const [title, setTitle] = useState(seed.world.title);
 
   const [personas, setPersonas] = useState<SimulationPersona[]>(seed.personas);
@@ -195,6 +198,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
         backgroundContext,
         rules,
         clock: normalizeClock(clock) ?? seed.world.clock ?? defaultClock(),
+        knowledgeFolderIds: knowledgeIds,
       },
       personas: personas.map((p) => ({
         ...p,
@@ -288,6 +292,38 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
               onChange={setClock}
               placeholder="2026-03-12 07:30"
             />
+            <View style={{ gap: 6, marginTop: Spacing.sm }}>
+              <Text style={{ fontSize: FontSize.sm, fontWeight: '700', color: C.textPrimary }}>
+                Connaissances du monde (123Écriture)
+              </Text>
+              <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>
+                Choisis des dossiers du vault : leurs notes .md sont lues (lecture seule, jamais modifiées) et servent de référence à l’IA.
+              </Text>
+              {(knowledgeOptions ?? []).length === 0 ? (
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }}>
+                  Aucun vault connecté. Connecte ton vault 123Écriture dans Base de données.
+                </Text>
+              ) : (
+                (knowledgeOptions ?? []).map((o) => {
+                  const on = knowledgeIds.includes(o.id);
+                  return (
+                    <Pressable
+                      key={o.id}
+                      onPress={() => setKnowledgeIds((ids) => (on ? ids.filter((x) => x !== o.id) : [...ids, o.id]))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, paddingLeft: o.depth * 14 }}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                    >
+                      <MaterialIcons name={on ? 'check-box' : 'check-box-outline-blank'} size={18} color={on ? '#9B59B6' : C.textMuted} />
+                      <Text style={{ flex: 1, fontSize: FontSize.sm, color: C.textPrimary }} numberOfLines={1}>
+                        {o.label.split(' / ').pop()}
+                      </Text>
+                      <Text style={{ fontSize: FontSize.xs, color: C.textMuted }}>{o.mdCount} .md</Text>
+                    </Pressable>
+                  );
+                })
+              )}
+            </View>
           </>
         ) : null}
 

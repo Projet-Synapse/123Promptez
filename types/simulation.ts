@@ -137,7 +137,7 @@ export interface SimulationWorld {
   synopsis?: string;
   /**
    * Ids de dossiers du vault 123Écriture choisis pour le worldbuilding.
-   * Remplis à l'étape d'import (pas encore branché).
+   * Sélectionnés dans les infos du roleplay ; .md lus en lecture seule (simulationKnowledge).
    */
   knowledgeFolderIds: string[];
   /** Horloge in-game « YYYY-MM-DD HH:MM » (t232u) */
