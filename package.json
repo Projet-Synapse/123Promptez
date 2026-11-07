@@ -71,21 +71,21 @@
         "dmg",
         "zip"
       ],
-      "icon": "assets/images/logo.png"
+      "icon": "electron/icons/icon.png"
     },
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "icon": "assets/images/logo.png"
+      "icon": "electron/icons/icon.ico"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "icon": "assets/images/logo.png",
+      "icon": "electron/icons/icon.png",
       "category": "Utility"
     },
     "nsis": {
