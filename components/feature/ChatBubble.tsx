@@ -109,8 +109,8 @@ export function ChatBubble({
 
   const rpSegments = useMemo(() => {
     if (!roleplayMode || isUser) return null;
-    return parseSimulationRoleplayContent(message.content);
-  }, [roleplayMode, isUser, message.content]);
+    return parseSimulationRoleplayContent(message.content, (simCharacters ?? []).map((c) => c.name).filter(Boolean));
+  }, [roleplayMode, isUser, message.content, simCharacters]);
 
   if (message.content.startsWith(TIME_MARKER_PREFIX)) {
     const label = message.content.slice(TIME_MARKER_PREFIX.length).trim();
