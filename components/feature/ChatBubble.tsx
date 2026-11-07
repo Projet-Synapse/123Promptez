@@ -30,6 +30,8 @@ interface ChatBubbleProps {
   onRestartFromHere?: () => void;
   /** Simulation : créer une branche jusqu’à ce message */
   onBranchFromHere?: () => void;
+  dilemmaAnswered?: boolean;
+  onDilemmaChoice?: (option: string) => void;
   onDelete?: () => void;
   showActions?: boolean;
   emphasizeRegenerate?: boolean;
@@ -90,7 +92,7 @@ function CharAvatar({ look, size = 28 }: { look: SimCharacterLook; size?: number
 
 export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
-  onRestartFromHere, onBranchFromHere, onDelete, showActions, emphasizeRegenerate: _emphasizeRegenerate,
+  onRestartFromHere, onBranchFromHere, dilemmaAnswered, onDilemmaChoice, onDelete, showActions, emphasizeRegenerate: _emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
   roleplayMode, simCharacters, simThemeColors, personaLook,
 }: ChatBubbleProps) {
@@ -317,6 +319,35 @@ export function ChatBubble({
                 </View>
               );
             })}
+            {message.dilemma ? (
+              <View style={{
+                borderWidth: 1, borderColor: themeAccent + '88', borderRadius: Radius.lg,
+                backgroundColor: themeAccent + '14', padding: Spacing.md, gap: Spacing.sm,
+                opacity: dilemmaAnswered ? 0.6 : 1,
+              }}>
+                <Text style={{ fontSize: FontSize.xs, fontWeight: '800', color: themeAccent, letterSpacing: 0.6 }}>
+                  ⚖ DILEMME
+                </Text>
+                <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: C.textPrimary }}>{message.dilemma.question}</Text>
+                {message.dilemma.options.map((opt, i) => (
+                  <Pressable
+                    key={`${i}-${opt}`}
+                    disabled={!!dilemmaAnswered || !onDilemmaChoice}
+                    onPress={() => onDilemmaChoice?.(opt)}
+                    style={({ pressed }) => [{
+                      borderRadius: Radius.md, borderWidth: 1, borderColor: themeAccent + '66',
+                      paddingVertical: 10, paddingHorizontal: Spacing.md, backgroundColor: C.bgCard,
+                    }, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, fontWeight: '600' }}>{opt}</Text>
+                  </Pressable>
+                ))}
+                <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontStyle: 'italic' }}>
+                  {dilemmaAnswered ? 'Choix fait.' : 'Ou réponds librement dans le champ de saisie.'}
+                </Text>
+              </View>
+            ) : null}
             {message.questionnaire ? (
               <QuestionnaireCard
                 data={message.questionnaire}

@@ -1,3 +1,4 @@
+import { DILEMMA_PROMPT_RULE } from '@/types/simulationDilemma';
 import { type SimulationSave, normalizeSaves } from '@/types/simulationSaves';
 /** Types pour l'espace Simulation (roleplay) — worldbuilding, personas, chat. */
 
@@ -430,6 +431,7 @@ export function buildSimulationPromptInjection(
   // Temps in-game
   lines.push(clockPromptBlock(w.clock));
   // Style de narration (après les règles prioritaires)
+  lines.push(DILEMMA_PROMPT_RULE);
   lines.push(formatNarrationStyleForPrompt(sim.narrationStyleId));
   // Mémoire structurée — priorité juste sous les Règles
   const memBlock = formatMemoryForPrompt(sim.memory);
