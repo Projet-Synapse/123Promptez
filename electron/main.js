@@ -136,7 +136,7 @@ function createWindow(startUrl) {
     minWidth: 720,
     minHeight: 480,
     backgroundColor: '#ffffff',
-    icon: path.join(__dirname, '..', 'assets', 'images', 'logo.png'),
+    icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     // Titre stable : le document web (Expo) l'écraserait sinon.
     title: '123Promptez',
     // Barre de menus masquée (Fichier/Édition/Affichage…) — Alt l'affiche ;
