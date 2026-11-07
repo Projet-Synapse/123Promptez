@@ -120,6 +120,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
   const [welcomeMessage, setWelcomeMessage] = useState(seed.world.welcomeMessage);
   const [backgroundContext, setBackgroundContext] = useState(seed.world.backgroundContext);
   const [rules, setRules] = useState(seed.world.rules ?? '');
+  const [objectives, setObjectives] = useState(seed.world.objectives ?? '');
   const [clock, setClock] = useState(seed.world.clock ?? defaultClock());
   const [knowledgeIds, setKnowledgeIds] = useState<string[]>(seed.world.knowledgeFolderIds ?? []);
   const [title, setTitle] = useState(seed.world.title);
@@ -197,6 +198,7 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
         welcomeMessage,
         backgroundContext,
         rules,
+        objectives: objectives.trim() || undefined,
         clock: normalizeClock(clock) ?? seed.world.clock ?? defaultClock(),
         knowledgeFolderIds: knowledgeIds,
       },
@@ -285,6 +287,14 @@ export default function SimulationSetupScreen({ initial, workspaceName, mode = '
               placeholder="Ce que l’IA doit respecter absolument (ton, limites, style, interdits…) — priorité maximale."
               multiline
               minHeight={140}
+            />
+            <Field
+              label="Objectifs / conditions de victoire et de défaite (optionnel)"
+              value={objectives}
+              onChange={setObjectives}
+              placeholder="Ex. : retrouver l’amulette avant l’hiver. Défaite : le persona meurt (mort interdite) ou l’amulette est détruite."
+              multiline
+              minHeight={90}
             />
             <Field
               label="Date et heure in-game (AAAA-MM-JJ HH:MM)"

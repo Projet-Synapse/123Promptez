@@ -190,7 +190,7 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
   });
 }
 
-async function completeOnce(opts: {
+export async function completeOnce(opts: {
   model: string;
   apiKey?: string | null;
   system: string;
@@ -860,4 +860,27 @@ export function removeMemoryItem(
     ...memory,
     [section]: memory[section].filter((it) => it.id !== itemId),
   });
+}
+
+/** Résumé d’une partie terminée, pour lancer « la suite » dans une nouvelle conversation. */
+export async function generateContinuationSummary(opts: {
+  sim: SimulationData;
+  messages: ChatMsg[];
+  bot: BotConfig;
+  result: 'won' | 'lost';
+}): Promise<string> {
+  const raw = await completeOnce({
+    model: opts.bot.llmConfig?.model || 'claude-sonnet-5',
+    apiKey: (opts.bot as any).apiKey ?? null,
+    system: 'Tu résumes une partie de roleplay terminée pour en préparer la suite. Réponds en français, en prose, 150 à 250 mots, sans titre ni liste.',
+    user: [
+      `Issue de la partie : ${opts.result === 'won' ? 'objectif atteint (victoire)' : 'défaite'}.`,
+      opts.sim.world?.objectives ? `Objectifs : ${opts.sim.world.objectives}` : '',
+      '## HISTORIQUE',
+      buildHistorySnippet(opts.messages, 9000),
+      '',
+      'Écris : ce qui s’est passé (faits clés, relations, lieux), l’état du persona à la fin, et les fils ouverts qui peuvent nourrir la suite.',
+    ].filter(Boolean).join('\n'),
+  });
+  return String(raw ?? '').trim();
 }

@@ -49,6 +49,14 @@ import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureS
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
 import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
 import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
+import { parseEnding } from '@/types/simulationEnding';
+import { generateContinuationSummary ,
+  generateOrRefreshMemory,
+  applyManualMemoryEdit,
+  addManualMemoryItem,
+  removeMemoryItem,
+  seedMemoryFromWorld,
+} from '@/services/simulationMemory';
 import { SimulationSavesScreen } from '@/components/feature/SimulationSavesScreen';
 import { makeSave, nearestSaveAtOrBefore, snapshotSimulation, SIMULATION_SAVES_MAX, type SimulationSave } from '@/types/simulationSaves';
 import { NEED_META, emptyNeeds, decayNeeds, newlyCriticalNeeds } from '@/types/simulationNeeds';
@@ -76,13 +84,6 @@ import {
   resolveSimulationThemeColors,
   simulationThemeLabel,
 } from '@/types/simulation';
-import {
-  generateOrRefreshMemory,
-  applyManualMemoryEdit,
-  addManualMemoryItem,
-  removeMemoryItem,
-  seedMemoryFromWorld,
-} from '@/services/simulationMemory';
 import { Image } from 'expo-image';
 import {
   parseClock, TIME_MARKER_PREFIX, parseTimeMarker, advanceClock, clockDayChanged, formatClockFr, defaultClock, stripTimeMarker,
@@ -1576,6 +1577,13 @@ export default function ChatScreen() {
         finalContent = pd.rest;
         dilemmaData = pd.dilemma;
       }
+      let endingData: 'won' | 'lost' | null = null;
+      if (activeConversation?.kind === 'simulation') {
+        const pe = parseEnding(finalContent);
+        finalContent = pe.rest;
+        endingData = pe.ending;
+      }
+      let simClockUpdated = false;
       // ── Temps in-game : [TEMPS:…] en tête → avance l’horloge ; marqueur seulement si le jour change ──
       if (activeConversation?.kind === 'simulation' && simData) {
         const tm = parseTimeMarker(finalContent);
@@ -1600,10 +1608,12 @@ export default function ChatScreen() {
                 }
               }
             }
+            simClockUpdated = true;
             updateSimulation(activeWorkspace.id, activeConversation.id, {
               ...simData,
               world: { ...simData.world, clock: after },
               featureContent: nextFcClock,
+              ending: endingData ? { result: endingData, at: new Date().toISOString() } : simData.ending,
             });
             if (clockDayChanged(before, after)) {
               addMessageToConversation(activeWorkspace.id, activeConversation.id, {
@@ -1613,6 +1623,16 @@ export default function ChatScreen() {
             }
           }
         }
+      }
+      if (endingData && simData && !simClockUpdated) {
+        updateSimulation(activeWorkspace.id, activeConversation.id, {
+          ...simData,
+          world: { ...simData.world, clock: clockOverrideRef.current ?? simData.world.clock },
+          ending: { result: endingData, at: new Date().toISOString() },
+        });
+      }
+      if (endingData) {
+        showToast(endingData === 'won' ? 'Partie gagnée !' : 'Partie perdue…', { tone: endingData === 'won' ? 'success' : 'error' });
       }
       addMessageToConversation(activeWorkspace.id, activeConversation.id, {
         role: 'assistant',
@@ -1696,6 +1716,7 @@ export default function ChatScreen() {
     const fromInput = typeof override !== 'string';
     let msg = (fromInput ? input : override).trim();
     if (!activeConversation) return;
+    if (activeConversation.kind === 'simulation' && activeConversation.simulation?.ending) return;
 
     // ── Génération en cours : mise en file d'attente (au lieu d'ignorer
     // silencieusement la frappe sur Entrée). ──
@@ -1855,6 +1876,9 @@ export default function ChatScreen() {
 
   const isSimulation = activeConversation?.kind === 'simulation';
   const simData = activeConversation?.simulation;
+  const simDataRef = useRef(simData);
+  simDataRef.current = simData;
+  const [exploringNext, setExploringNext] = useState(false);
   // Horloge in-game : la ref suit toujours la dernière valeur persistée
   useEffect(() => {
     clockOverrideRef.current = simData?.world?.clock ?? null;
@@ -1873,6 +1897,44 @@ export default function ChatScreen() {
       ...simData,
       memory: nextMemory,
     });
+  };
+
+  const handleExploreNext = async () => {
+    if (!activeConversation || !simData?.ending || exploringNext) return;
+    setExploringNext(true);
+    try {
+      const history = (activeConversation.messages ?? [])
+        .filter((m: any) => !String(m.content ?? '').startsWith(TIME_MARKER_PREFIX))
+        .map((m: any) => ({ role: m.role as 'user' | 'assistant' | 'system', content: String(m.content ?? '') }));
+      const summary = await generateContinuationSummary({ sim: simData, messages: history, bot, result: simData.ending.result });
+      if (!summary) throw new Error('Résumé vide');
+      const prevCtx = simData.world.backgroundContext?.trim() ?? '';
+      const label = simData.ending.result === 'won' ? 'victoire' : 'défaite';
+      forkSimulationConversation(activeWorkspace.id, {
+        title: `${simData.world.title || activeConversation.title} — la suite`,
+        messages: [{
+          id: `msg-${Date.now()}-suite`,
+          role: 'assistant',
+          content: `<<<narr>>>\n**La suite…** (partie précédente : ${label})\n\n${summary}`,
+          timestamp: new Date(),
+        } as any],
+        simulation: {
+          ...snapshotSimulation(simData),
+          ending: undefined,
+          saves: [],
+          world: {
+            ...simData.world,
+            clock: clockOverrideRef.current ?? simData.world.clock,
+            backgroundContext: `${prevCtx ? `${prevCtx}\n\n` : ''}### Partie précédente (${label})\n${summary}`,
+          },
+        },
+      });
+      showToast('Nouvelle partie créée : la suite', { tone: 'success' });
+    } catch (e: any) {
+      showToast(`Impossible de préparer la suite : ${e?.message ?? e}`, { tone: 'error' });
+    } finally {
+      setExploringNext(false);
+    }
   };
 
   const runMemoryGeneration = async (
@@ -1908,11 +1970,12 @@ export default function ChatScreen() {
         pendingNumberGivenTo: result.pendingNext ?? fc.pendingNumberGivenTo,
         needs: result.needsNext ?? fc.needs,
       });
+      const latestSim = simDataRef.current ?? simData;
       updateSimulation(activeWorkspace.id, activeConversation.id, {
-        ...simData,
-        world: { ...simData.world, clock: clockOverrideRef.current ?? simData.world.clock },
+        ...latestSim,
+        world: { ...latestSim.world, clock: clockOverrideRef.current ?? latestSim.world.clock },
         memory: result.memory,
-        featureContent: nextFc,
+        featureContent: { ...nextFc, needs: result.needsNext ?? latestSim.featureContent?.needs ?? nextFc.needs },
       });
       if (!opts?.silentToast) {
         if (mode === 'refresh') {
@@ -2833,8 +2896,48 @@ export default function ChatScreen() {
             />
           ) : null}
 
+          {isSimulation && simData?.ending ? (
+            <View style={{
+              margin: Spacing.md, marginBottom: Math.max(insets.bottom, Spacing.md), padding: Spacing.lg,
+              borderRadius: Radius.lg, alignItems: 'center', gap: Spacing.sm, borderWidth: 2,
+              borderColor: simData.ending.result === 'won' ? '#43A047' : '#E53935',
+              backgroundColor: (simData.ending.result === 'won' ? '#43A047' : '#E53935') + '1F',
+            }}>
+              <MaterialIcons
+                name={simData.ending.result === 'won' ? 'emoji-events' : 'sentiment-very-dissatisfied'}
+                size={40}
+                color={simData.ending.result === 'won' ? '#43A047' : '#E53935'}
+              />
+              <Text style={{
+                fontSize: 32, fontWeight: '900', letterSpacing: 4,
+                color: simData.ending.result === 'won' ? '#43A047' : '#E53935',
+              }}>
+                {simData.ending.result === 'won' ? 'GAGNÉ' : 'PERDU'}
+              </Text>
+              <Text style={{ fontSize: FontSize.sm, color: C.textSecondary, textAlign: 'center' }}>
+                Cette partie est terminée : la saisie est bloquée dans cette conversation.
+              </Text>
+              <Pressable
+                disabled={exploringNext}
+                onPress={() => { void handleExploreNext(); }}
+                style={({ pressed }) => [{
+                  flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
+                  paddingHorizontal: Spacing.lg, paddingVertical: 10, borderRadius: Radius.pill,
+                  backgroundColor: '#9B59B6',
+                }, (pressed || exploringNext) && { opacity: 0.7 }]}
+                accessibilityRole="button"
+              >
+                {exploringNext ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="explore" size={18} color="#fff" />}
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: FontSize.body }}>
+                  {exploringNext ? 'Préparation de la suite…' : 'Explorer la suite'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {/* Input bar — fond transparent (laisse voir l’arrière-plan), collée au bas */}
           <View style={{
+            ...(isSimulation && simData?.ending ? { display: 'none' as const } : null),
             flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs,
             paddingHorizontal: Spacing.sm,
             paddingTop: 4,
