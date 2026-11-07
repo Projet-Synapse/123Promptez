@@ -12,7 +12,7 @@ const CORS = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   try {
-    const { messages, model, maxTokens, apiKey, temperature, thinking } = await req.json();
+    const { messages, model, maxTokens, apiKey, temperature, thinking, jsonMode } = await req.json();
     const personal = typeof apiKey === 'string' && apiKey.trim().length >= 10 ? apiKey.trim() : null;
     const systemMessage = (messages ?? []).find((m: any) => m.role === 'system')?.content ?? '';
     const convo = (messages ?? []).filter((m: any) => m.role !== 'system');
@@ -105,6 +105,7 @@ Deno.serve(async (req: Request) => {
             },
             generationConfig: {
               maxOutputTokens: maxTokensFinal,
+              ...(jsonMode === true ? { responseMimeType: 'application/json' } : {}),
               ...(typeof temperature === 'number' ? { temperature } : {}),
               ...(thinking === true && supportsThinking ? { thinkingConfig: { includeThoughts: true, thinkingBudget: gThinkingBudget } } : {}),
             },

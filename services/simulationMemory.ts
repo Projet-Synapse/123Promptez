@@ -1,3 +1,4 @@
+import { parseLlmJson, textFromSse } from '@/services/llmJson';
 import { NeedKey, NEED_KEYS, applyNeedDeltas, emptyNeeds, SimulationNeeds } from '@/types/simulationNeeds';
 /**
  * Génération / MAJ de la mémoire Simulation.
@@ -46,27 +47,6 @@ import {
 type ChatMsg = { role: 'user' | 'assistant' | 'system'; content: string };
 
 /** Extrait un objet JSON d'une réponse modèle (tolère ```json). */
-function extractJsonObject(text: string): any | null {
-  const raw = String(text ?? '').trim();
-  if (!raw) return null;
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = (fence ? fence[1] : raw).trim();
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(candidate.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
 function itemsFromLlmArray(
   arr: any,
   section: 'persona' | 'characters' | 'links' | 'places',
@@ -190,12 +170,24 @@ export function seedMemoryFromWorld(sim: SimulationData): SimulationMemory {
   });
 }
 
+/** Plafond de sortie de la passe mémoire selon le modèle (limites fournisseurs). */
+function memoryMaxTokens(model: string): number {
+  const m = model.toLowerCase();
+  if (m.startsWith('gemini')) return /gemini-(1\.|2\.0)/.test(m) ? 8192 : 16000;
+  if (/claude-3-(haiku|opus|sonnet)(?!-5|-7)/.test(m)) return 4096;
+  return 16000;
+}
+
 export async function completeOnce(opts: {
   model: string;
   apiKey?: string | null;
   system: string;
   user: string;
   signal?: AbortSignal;
+  /** Plafond de sortie (défaut 4096) */
+  maxTokens?: number;
+  /** Demande une sortie JSON stricte (Gemini : responseMimeType) */
+  jsonMode?: boolean;
 }): Promise<string> {
   const supabase = getSupabaseClient();
   const { data: { session } } = await supabase.auth.getSession();
@@ -217,11 +209,12 @@ export async function completeOnce(opts: {
       messages,
       model: opts.model || 'claude-sonnet-5',
       temperature: 0.2,
-      maxTokens: 4096,
+      maxTokens: opts.maxTokens ?? 4096,
       topP: 0.9,
       apiKey: opts.apiKey ?? null,
       enabledTools: [],
       thinking: false,
+      jsonMode: opts.jsonMode === true,
     }),
     signal: opts.signal,
   });
@@ -254,7 +247,10 @@ export async function completeOnce(opts: {
       }
     }
   } else {
-    fullText = await response.text();
+    // Android / React Native : pas de ReadableStream → le corps arrive en SSE brut
+    // (« data: {"delta":…} »). Il FAUT le décoder, sinon le JSON est illisible.
+    const text = await response.text();
+    fullText = textFromSse(text) ?? text;
   }
   return fullText;
 }
@@ -491,20 +487,39 @@ export async function generateOrRefreshMemory(opts: {
       buildHistorySnippet(messages),
     ].filter((s) => s !== undefined).join('\n');
 
-    const raw = await completeOnce({
+    const call = (system: string) => completeOnce({
       model: bot.llmConfig?.model || 'claude-sonnet-5',
       apiKey: (bot as any).apiKey ?? null,
-      system: EXTRACT_SYSTEM,
+      system,
       user: userPrompt,
       signal,
+      // Extraction complète (Rafraîchir) = sortie longue : 4096 tronquait le JSON
+      maxTokens: memoryMaxTokens(bot.llmConfig?.model || 'claude-sonnet-5'),
+      jsonMode: true,
     });
+    let raw = await call(EXTRACT_SYSTEM);
+    let res = parseLlmJson(raw);
+    if (!res || typeof res.value !== 'object') {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn('[Mémoire IA] JSON illisible — extrait brut :', String(raw ?? '').slice(0, 600), '…', String(raw ?? '').slice(-300));
+      }
+      // Dernier recours : une relance stricte
+      raw = await call(`${EXTRACT_SYSTEM}\n\nIMPORTANT : renvoie UNIQUEMENT un objet JSON valide et complet (pas de \`\`\`, pas de texte avant/après, pas de commentaires). Sois concis : résumés courts, omets les champs vides.`);
+      res = parseLlmJson(raw);
+    }
     if (!String(raw ?? '').trim()) {
       throw new Error('Mémoire IA : réponse vide');
     }
-    const json = extractJsonObject(raw);
-    if (!json || typeof json !== 'object') {
-      throw new Error('Mémoire IA : JSON illisible');
+    if (!res || !res.value || typeof res.value !== 'object' || Array.isArray(res.value)) {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn('[Mémoire IA] échec après relance — extrait brut :', String(raw ?? '').slice(0, 600));
+      }
+      throw new Error('Mémoire IA : JSON illisible (mémoire existante conservée)');
     }
+    if (res.truncated && typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('[Mémoire IA] réponse tronquée réparée (fin de JSON coupée)');
+    }
+    const json = res.value;
     parsed = true;
     llmPersona = itemsFromLlmArray(json.persona, 'persona');
     llmCharacters = itemsFromLlmArray(json.characters, 'characters');
