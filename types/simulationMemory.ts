@@ -99,6 +99,36 @@ export const MEMORY_OBJECT_FICHE_FIELDS: {
   { key: 'origin', label: 'Origine' },
 ];
 
+/** Niveau d’attachement −10…+10 (stocké en texte pour compat). null si non numérique. */
+export function parseAttachmentLevel(s?: string | number | null): number | null {
+  if (s === undefined || s === null) return null;
+  const m = String(s).replace('−', '-').match(/[-+]?\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(-10, Math.min(10, n));
+}
+
+export function attachmentLabel(n: number): string {
+  if (n <= -7) return 'hostile';
+  if (n <= -3) return 'méfiant';
+  if (n < 0) return 'froid';
+  if (n === 0) return 'neutre';
+  if (n < 3) return 'cordial';
+  if (n < 7) return 'proche';
+  return 'très attaché';
+}
+
+/** Évolution progressive : au plus ±3 par passe d’extraction. */
+export function mergeAttachmentLevel(prev?: string, next?: string): string | undefined {
+  const a = parseAttachmentLevel(prev);
+  const b = parseAttachmentLevel(next);
+  if (b === null) return prev || next;
+  if (a === null) return String(b);
+  const d = Math.max(-3, Math.min(3, b - a));
+  return String(Math.max(-10, Math.min(10, a + d)));
+}
+
 /** Liens relationnels (ex-Rapports) */
 export const MEMORY_RELATION_FICHE_FIELDS: {
   key: 'interlocutors' | 'dynamics' | 'attitude' | 'attachmentLevel';
@@ -556,7 +586,7 @@ export function mergeMemoryItems(
       interlocutors: item.interlocutors || prev.interlocutors,
       dynamics: item.dynamics || prev.dynamics,
       attitude: item.attitude || prev.attitude,
-      attachmentLevel: item.attachmentLevel || prev.attachmentLevel,
+      attachmentLevel: mergeAttachmentLevel(prev.attachmentLevel, item.attachmentLevel),
       proposedBy: item.proposedBy || prev.proposedBy,
       task: item.task || prev.task,
       completed: item.completed === true || prev.completed === true,
@@ -772,7 +802,10 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
         else if (it.from || it.to) bits.push([it.from, it.to].filter(Boolean).join(' → '));
         if (it.dynamics) bits.push(`dynamique: ${it.dynamics}`);
         if (it.attitude) bits.push(`attitude: ${it.attitude}`);
-        if (it.attachmentLevel) bits.push(`attachement: ${it.attachmentLevel}`);
+        if (it.attachmentLevel) {
+          const n = parseAttachmentLevel(it.attachmentLevel);
+          bits.push(n === null ? `attachement: ${it.attachmentLevel}` : `attachement: ${n > 0 ? '+' : ''}${n}/10 (${attachmentLabel(n)})`);
+        }
         if (it.summary) bits.push(it.summary);
       } else if (title === 'Liens' && sub === 'accords') {
         bits.push(it.completed ? '✓ fait' : '○ en cours');

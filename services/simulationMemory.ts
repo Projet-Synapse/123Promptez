@@ -317,6 +317,7 @@ Règles STRICTES:
 - linkSubsection:
   - objets = objets clés (owner=propriétaire, name=nom article, summary=description, origin=origine)
   - rapports = liens relationnels (interlocutors, dynamics, attitude, attachmentLevel)
+    attachmentLevel = entier de -10 (hostile) à +10 (très attaché), 0 = neutre. Fais-le évoluer PROGRESSIVEMENT (±1 à ±3 max) selon les interactions récentes ; garde la valeur actuelle si rien ne change.
   - evenements = évènements marquants (participants, summary=description, time, location)
   - accords = accords et tâches (proposedBy, participants, summary=description, completed true/false)
 - Lieux clés seulement s'ils apparaissent vraiment.
