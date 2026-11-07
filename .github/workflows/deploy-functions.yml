@@ -43,4 +43,4 @@ jobs:
           version: latest
       - name: Déploie la fonction chat
         if: steps.guard.outputs.skip != 'true'
-        run: supabase functions deploy chat --project-ref "$SUPABASE_PROJECT_REF"
+        run: supabase functions deploy chat --project-ref "$SUPABASE_PROJECT_REF" --yes
