@@ -28,6 +28,8 @@ interface ChatBubbleProps {
   onRegenerate?: () => void;
   onEdit?: () => void;
   onRestartFromHere?: () => void;
+  /** Simulation : créer une branche jusqu’à ce message */
+  onBranchFromHere?: () => void;
   onDelete?: () => void;
   showActions?: boolean;
   emphasizeRegenerate?: boolean;
@@ -88,7 +90,7 @@ function CharAvatar({ look, size = 28 }: { look: SimCharacterLook; size?: number
 
 export function ChatBubble({
   message, botName, botColor, onCopy, onRegenerate, onEdit,
-  onRestartFromHere, onDelete, showActions, emphasizeRegenerate: _emphasizeRegenerate,
+  onRestartFromHere, onBranchFromHere, onDelete, showActions, emphasizeRegenerate: _emphasizeRegenerate,
   questionnaireAnswered, onAnswerQuestionnaire, onWikilinkPress,
   roleplayMode, simCharacters, simThemeColors, personaLook,
 }: ChatBubbleProps) {
@@ -150,6 +152,7 @@ export function ChatBubble({
     onCopy ? { key: 'copy', label: 'Copier', icon: 'content-copy', action: onCopy } : null,
     onEdit ? { key: 'edit', label: 'Modifier', icon: 'edit', action: onEdit } : null,
     onRestartFromHere ? { key: 'restart', label: 'Repartir d’ici', icon: 'subdirectory-arrow-left', action: onRestartFromHere } : null,
+    onBranchFromHere ? { key: 'branch', label: 'Créer une branche d’ici', icon: 'call-split', action: onBranchFromHere } : null,
     onDelete ? { key: 'delete', label: 'Supprimer', icon: 'delete-outline', color: C.error, action: onDelete } : null,
   ].filter(Boolean) as any[];
 
