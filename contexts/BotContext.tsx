@@ -159,16 +159,17 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Secrets connus (coffre local) — sert à détecter les changements à persister.
-  const secretsRef = useRef<{ apiKey?: string; githubToken?: string }>({});
+  const secretsRef = useRef<{ apiKey?: string; githubToken?: string; xaiKey?: string }>({});
 
   // Au démarrage : recharge les secrets depuis le coffre local.
   useEffect(() => {
     (async () => {
-      const [apiKey, githubToken] = await Promise.all([getSecret('apiKey'), getSecret('githubToken')]);
+      const [apiKey, githubToken, xaiKey] = await Promise.all([getSecret('apiKey'), getSecret('githubToken'), getSecret('xaiKey')]);
       // Ne pas écraser une clé migrée depuis le cloud entre-temps.
       if (apiKey) secretsRef.current.apiKey = apiKey;
       if (githubToken) secretsRef.current.githubToken = githubToken;
-      if (apiKey || githubToken) setBot(prev => applySecrets(prev, { ...secretsRef.current }));
+      if (xaiKey) secretsRef.current.xaiKey = xaiKey;
+      if (apiKey || githubToken || xaiKey) setBot(prev => applySecrets(prev, { ...secretsRef.current }));
     })();
   }, []);
 
@@ -181,6 +182,10 @@ export function BotProvider({ children, onDataChange }: { children: ReactNode; o
     if ((s.githubToken ?? '') !== (secretsRef.current.githubToken ?? '')) {
       secretsRef.current.githubToken = s.githubToken ?? '';
       void setSecret('githubToken', s.githubToken ?? '');
+    }
+    if ((s.xaiKey ?? '') !== (secretsRef.current.xaiKey ?? '')) {
+      secretsRef.current.xaiKey = s.xaiKey ?? '';
+      void setSecret('xaiKey', s.xaiKey ?? '');
     }
   }, []);
 
