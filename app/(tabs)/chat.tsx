@@ -48,6 +48,7 @@ import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/fe
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
 import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
+import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
 import { SimulationSavesScreen } from '@/components/feature/SimulationSavesScreen';
 import { makeSave, nearestSaveAtOrBefore, snapshotSimulation, SIMULATION_SAVES_MAX, type SimulationSave } from '@/types/simulationSaves';
 import { NEED_META, emptyNeeds, decayNeeds, newlyCriticalNeeds } from '@/types/simulationNeeds';
@@ -1569,6 +1570,12 @@ export default function ChatScreen() {
         finalContent = stripQuestionnaire(finalContent);
       }
       setActivities([]);
+      let dilemmaData: { question: string; options: string[] } | null = null;
+      if (activeConversation?.kind === 'simulation') {
+        const pd = parseDilemma(finalContent);
+        finalContent = pd.rest;
+        dilemmaData = pd.dilemma;
+      }
       // ── Temps in-game : [TEMPS:…] en tête → avance l’horloge ; marqueur seulement si le jour change ──
       if (activeConversation?.kind === 'simulation' && simData) {
         const tm = parseTimeMarker(finalContent);
@@ -1612,6 +1619,7 @@ export default function ChatScreen() {
         content: finalContent,
         thinking: (activeConversation?.kind === 'simulation' ? undefined : (lastThinkingRef.current || undefined)),
         questionnaire: questionnaireData ?? undefined,
+        dilemma: dilemmaData ?? undefined,
       });
       // Mémoire Simulation : MAJ si [[wikilinks]] dans le tour (user + IA)
       maybeAutoUpdateMemoryRef.current({
@@ -2559,6 +2567,12 @@ export default function ChatScreen() {
                   msg.role === 'assistant' && !isLoading
                     ? () => handleRegenerate(msg.id)
                     : undefined
+                }
+                dilemmaAnswered={
+                  msg.dilemma ? chatMessages.slice(mi + 1).some((m: any) => m.role === 'user') : undefined
+                }
+                onDilemmaChoice={
+                  msg.dilemma && !isLoading ? (opt: string) => { void handleSend(`${DILEMMA_PREFIX}${opt}`); } : undefined
                 }
                 questionnaireAnswered={
                   msg.questionnaire

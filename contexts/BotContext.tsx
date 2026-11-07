@@ -67,6 +67,8 @@ export interface ChatMessage {
   /** Raisonnement étendu de l'IA (mode Réfléchie) — affiché repliable */
   thinking?: string;
   /** Questionnaire interactif attaché à cette réponse (marqueur [QUESTIONNAIRE:…]) */
+  /** Simulation : dilemme décisif ([CHOIX: …]) */
+  dilemma?: { question: string; options: string[] };
   questionnaire?: { titre?: string; questions: { question: string; options?: string[]; libre?: boolean }[] };
 }
 
