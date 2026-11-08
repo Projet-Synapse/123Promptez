@@ -18,6 +18,8 @@ import {
   normalizeMemoryKey,
   normalizeCharacterCategory,
   normalizeLinkSubsection,
+  normalizeKind,
+  MEMORY_PLACE_KINDS,
   pickPrincipalByMentions,
   ensureSinglePrincipal,
   extractWikilinkTargets,
@@ -88,6 +90,9 @@ function itemsFromLlmArray(
       base.characterCategory = normalizeCharacterCategory(
         r.characterCategory ?? r.category ?? r.role,
       );
+    }
+    if (section === 'places') {
+      base.kind = normalizeKind(r.kind ?? r.type ?? r.placeType, MEMORY_PLACE_KINDS, 'lieux');
     }
     if (section === 'links') {
       base.linkSubsection = normalizeLinkSubsection(
@@ -308,7 +313,7 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
   "persona": [{"name":"string","summary":"string"}],
   "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
   "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
-  "places": [{"name":"string","summary":"string"}],
+  "places": [{"name":"string","summary":"string","kind":"pays|villes|zones|lieux"}],
   "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],
   "contactMessages": [{"from":"string","content":"string","influence":"string?"}],
   "inventoryRemoved": [{"name":"string","reason":"perdu|donné|consommé|volé|autre"}],
@@ -333,7 +338,7 @@ Règles STRICTES:
     attachmentLevel = entier de -10 (hostile) à +10 (très attaché), 0 = neutre. Fais-le évoluer PROGRESSIVEMENT (±1 à ±3 max) selon les interactions récentes ; garde la valeur actuelle si rien ne change.
   - evenements = évènements marquants (participants, summary=description, time, location)
   - accords = accords et tâches (proposedBy, participants, summary=description, completed true/false)
-- Lieux clés seulement s'ils apparaissent vraiment.
+- places (Map) seulement s'ils apparaissent vraiment ; kind = pays, villes, zones (quartier, région, forêt…) ou lieux (bâtiment, pièce, endroit précis).
 - "inventory" : UNIQUEMENT les objets que le persona JOUEUR porte actuellement sur lui (équipés / dans les poches / en main). carriedByPersona doit être true. Sinon tableau vide.
 - "contactMessages" : messages envoyés AU persona par des contacts listés (seulement si narrativement pertinent maintenant). from = nom exact du contact. Tableau vide si aucun.
 - "inventoryRemoved" : objets de l'INVENTAIRE ACTUEL qui ont quitté le persona dans l'historique récent (perdu, donné, consommé, volé). Nom EXACT de l'inventaire. Vide sinon.
@@ -872,6 +877,7 @@ export function addManualMemoryItem(
     userEdited: true,
     characterCategory: section === 'characters' ? (opts?.characterCategory ?? 'anecdotiques') : undefined,
     linkSubsection: section === 'links' ? (opts?.linkSubsection ?? 'rapports') : undefined,
+    kind: section === 'places' ? (opts?.kind ?? 'lieux') : opts?.kind,
     isPlayerPersona: false,
   });
   let list = mergeMemoryItems(memory[section], [item]);

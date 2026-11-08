@@ -17,6 +17,8 @@ import {
   MEMORY_LINK_SUBSECTIONS,
   MEMORY_LINK_SUBSECTION_META,
   MEMORY_CHARACTER_CATEGORIES,
+  MEMORY_PLACE_KINDS,
+  MEMORY_PLACE_KIND_LABELS,
   MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_CHARACTER_FICHE_FIELDS,
   MEMORY_EVENT_FICHE_FIELDS,
@@ -223,6 +225,12 @@ const SECTION_KINDS: Partial<Record<MemorySectionId, SectionKind>> = {
     label: (k) => MEMORY_CHARACTER_CATEGORY_META[k as keyof typeof MEMORY_CHARACTER_CATEGORY_META].label,
     get: (it) => it.characterCategory ?? 'anecdotiques',
     patch: (k) => ({ characterCategory: k as any }),
+  },
+  places: {
+    keys: [...MEMORY_PLACE_KINDS],
+    label: (k) => MEMORY_PLACE_KIND_LABELS[k] ?? k,
+    get: (it) => it.kind ?? 'lieux',
+    patch: (k) => ({ kind: k }),
   },
 };
 
@@ -601,6 +609,12 @@ function ItemCard({
                 onChange={(v) => onEditItem(section, it.id, { name: v })}
                 C={C}
               />
+              {SECTION_KINDS[section] ? (
+                <View>
+                  <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>TYPE</Text>
+                  <KindChips kind={SECTION_KINDS[section]!} value={SECTION_KINDS[section]!.get(it)} onChange={(k) => onEditItem(section, it.id, SECTION_KINDS[section]!.patch(k))} C={C} />
+                </View>
+              ) : null}
               <Field
                 label="Résumé"
                 value={it.summary}
