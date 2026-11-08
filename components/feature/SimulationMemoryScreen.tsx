@@ -18,6 +18,8 @@ import {
   MEMORY_LINK_SUBSECTION_META,
   MEMORY_CHARACTER_CATEGORIES,
   MEMORY_PLACE_KINDS,
+  MEMORY_FACTION_KINDS,
+  MEMORY_FACTION_KIND_LABELS,
   MEMORY_PLACE_KIND_LABELS,
   MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_CHARACTER_FICHE_FIELDS,
@@ -233,6 +235,12 @@ const SECTION_KINDS: Partial<Record<MemorySectionId, SectionKind>> = {
     keys: [...MEMORY_PLACE_KINDS],
     label: (k) => MEMORY_PLACE_KIND_LABELS[k] ?? k,
     get: (it) => it.kind ?? 'lieux',
+    patch: (k) => ({ kind: k }),
+  },
+  factions: {
+    keys: [...MEMORY_FACTION_KINDS],
+    label: (k) => MEMORY_FACTION_KIND_LABELS[k] ?? k,
+    get: (it) => it.kind ?? 'populations',
     patch: (k) => ({ kind: k }),
   },
 };
@@ -606,7 +614,7 @@ function ItemCard({
             </>
           ) : null}
 
-          {section === 'places' ? (
+          {section === 'places' || section === 'factions' ? (
             <>
               <Field
                 label="Nom"
@@ -860,7 +868,7 @@ export function SimulationMemoryScreen({
   useEffect(() => {
     if (!focusItemId) return;
     setExpandedId(focusItemId);
-    for (const s of ['persona', 'characters', 'links', 'places'] as MemorySectionId[]) {
+    for (const s of ['persona', 'characters', 'links', 'places', 'factions'] as MemorySectionId[]) {
       const hit = memory[s].find((it) => it.id === focusItemId);
       if (hit?.isNew) {
         onMarkSeen(s, focusItemId);
@@ -870,7 +878,7 @@ export function SimulationMemoryScreen({
   }, [focusItemId]);
 
   const sections = useMemo(() => {
-    const all: MemorySectionId[] = ['persona', 'characters', 'links', 'places'];
+    const all: MemorySectionId[] = ['persona', 'characters', 'links', 'places', 'factions'];
     return tab === 'all' ? all : [tab];
   }, [tab]);
 
@@ -950,14 +958,16 @@ export function SimulationMemoryScreen({
             { id: 'persona' as const, label: 'Persona' },
             { id: 'characters' as const, label: 'Personnages' },
             { id: 'links' as const, label: 'Liens' },
-            { id: 'places' as const, label: 'Lieux' },
+            { id: 'places' as const, label: 'Map' },
+            { id: 'factions' as const, label: 'Factions' },
           ]).map((t) => {
             const on = tab === t.id;
             const hasNew = t.id === 'all'
               ? (memory.persona.some((it) => it.isNew)
                 || memory.characters.some((it) => it.isNew)
                 || memory.links.some((it) => it.isNew)
-                || memory.places.some((it) => it.isNew))
+                || memory.places.some((it) => it.isNew)
+                || memory.factions.some((it) => it.isNew))
               : memory[t.id].some((it) => it.isNew);
             return (
               <Pressable
