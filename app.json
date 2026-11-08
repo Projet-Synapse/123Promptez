@@ -2,7 +2,7 @@
   "expo": {
     "name": "123Promptez",
     "slug": "onspace-app",
-    "version": "1.7.13",
+    "version": "1.7.14",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "onspaceapp",
@@ -18,7 +18,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.promptez.app",
-      "versionCode": 183
+      "versionCode": 184
     },
     "web": {
       "bundler": "metro",
