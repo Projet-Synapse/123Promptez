@@ -17,6 +17,10 @@ import { ThemedInput, SliderRow, IconButton } from '@/components';
 import { Spacing, Radius, FontSize, FontWeight, normalizeHex } from '@/constants/theme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { LLM_MODELS, WEB_SEARCH_ENGINES, APP_LANGUAGES } from '@/constants/config';
+import {
+  listLocalModels, isOllamaModel, ollamaModelName, pingOllamaModel,
+  OLLAMA_PROVIDER, type LocalModel,
+} from '@/services/ollamaService';
 import { useAlert } from '@/template';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage, type LangCode } from '@/contexts/LanguageContext';
@@ -166,6 +170,13 @@ export default function SettingsScreen() {
   const testApiKey = async () => {
     const key = (bot.apiKey ?? '').trim();
     const model = bot.llmConfig.model || 'claude-sonnet-5';
+    // Modèle local : pas de clé — on vérifie qu'Ollama répond avec ce modèle.
+    if (isOllamaModel(model)) {
+      setKeyTest({ state: 'testing', message: 'Test du modèle local…' });
+      const r = await pingOllamaModel(ollamaModelName(model));
+      setKeyTest({ state: r.ok ? 'ok' : 'error', message: r.message });
+      return;
+    }
     if (key.length < 10) {
       showToast('Colle d’abord une clé API', { tone: 'error' });
       return;
@@ -235,7 +246,22 @@ export default function SettingsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedModel = LLM_MODELS.find(m => m.id === bot.llmConfig.model) || LLM_MODELS[0];
+  // Modèles locaux (Ollama sur ce PC) : découverts à l'ouverture des Paramètres.
+  // null = Ollama injoignable depuis cette page (site web, mobile, Ollama éteint).
+  const [localModels, setLocalModels] = useState<LocalModel[] | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void listLocalModels().then(list => { if (alive) setLocalModels(list); });
+    return () => { alive = false; };
+  }, []);
+
+  const currentModelId = bot.llmConfig.model;
+  const selectedModel = LLM_MODELS.find(m => m.id === currentModelId)
+    ?? localModels?.find(m => m.id === currentModelId)
+    ?? (isOllamaModel(currentModelId)
+      ? { id: currentModelId, label: ollamaModelName(currentModelId), provider: OLLAMA_PROVIDER, tokens: 16384 }
+      : LLM_MODELS[0]);
+  const usingLocalModel = isOllamaModel(currentModelId);
 
   const desktopStatusLabel = (): string => {
     switch (desktopUpdates.stage) {
@@ -255,6 +281,7 @@ export default function SettingsScreen() {
     Google: '#4285F4',
     'Meta / Local': '#3b5998',
     'Mistral AI': '#FF6B35',
+    [OLLAMA_PROVIDER]: '#00CC6A',
   };
 
   return (
@@ -489,7 +516,14 @@ export default function SettingsScreen() {
                   ? '🔒 Navigateur : la clé reste sur cet onglet seulement (effacée à la fermeture), jamais envoyée au cloud.'
                   : '🔒 La clé est gardée chiffrée sur cet appareil, jamais synchronisée dans le cloud.'}
               </Text>
-              {!bot.apiKey ? (
+              {usingLocalModel ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.accentGlow, borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.accent + '33' }}>
+                  <MaterialIcons name="computer" size={14} color={C.accent} />
+                  <Text style={{ fontSize: FontSize.xs, color: C.accent, flex: 1 }}>
+                    Modèle local : tout tourne sur ton PC via Ollama — aucune clé, aucun quota. Fonctionne dans l’appli desktop (le site web n’a pas accès à ton PC). Utilise « Tester » pour vérifier qu’il répond.
+                  </Text>
+                </View>
+              ) : !bot.apiKey ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: C.warning + '15', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: C.warning + '33' }}>
                   <MaterialIcons name="info-outline" size={14} color={C.warning} />
                   <Text style={{ fontSize: FontSize.xs, color: C.warning, flex: 1 }}>
@@ -558,6 +592,45 @@ export default function SettingsScreen() {
                       {model.id === bot.llmConfig.model ? <MaterialIcons name="check" size={18} color={C.accent} /> : null}
                     </Pressable>
                   ))}
+
+                  {/* Modèles locaux découverts via Ollama */}
+                  <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialIcons name="computer" size={13} color={providerColor[OLLAMA_PROVIDER]} />
+                    <Text style={{ fontSize: FontSize.xs, color: providerColor[OLLAMA_PROVIDER], fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                      Sur ce PC · sans quota
+                    </Text>
+                  </View>
+                  {localModels === undefined ? (
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }}>Recherche d’Ollama…</Text>
+                  ) : localModels === null ? (
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, lineHeight: 17 }}>
+                      Ollama n’est pas joignable d’ici. Les modèles locaux s’utilisent dans l’appli desktop, avec Ollama lancé sur le PC.
+                    </Text>
+                  ) : localModels.length === 0 ? (
+                    <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, lineHeight: 17 }}>
+                      Ollama est lancé mais aucun modèle local n’est installé (ex. : ollama pull qwen2.5:7b).
+                    </Text>
+                  ) : (
+                    localModels.map(model => (
+                      <Pressable
+                        key={model.id}
+                        onPress={() => { updateLLMConfig({ model: model.id }); setShowModels(false); }}
+                        style={({ pressed }) => [{
+                          flexDirection: 'row' as const, alignItems: 'center' as const, padding: Spacing.md,
+                          borderTopWidth: 1, borderTopColor: C.border,
+                          backgroundColor: model.id === bot.llmConfig.model ? C.accentGlow : 'transparent',
+                        }, pressed && { opacity: 0.75 }]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: FontSize.body, color: model.id === bot.llmConfig.model ? C.accent : C.textPrimary, fontWeight: '500' }}>
+                            {model.label}
+                          </Text>
+                          <Text style={{ fontSize: FontSize.xs, color: C.textMuted, marginTop: 2 }}>{OLLAMA_PROVIDER} · {model.sizeGb} Go</Text>
+                        </View>
+                        {model.id === bot.llmConfig.model ? <MaterialIcons name="check" size={18} color={C.accent} /> : null}
+                      </Pressable>
+                    ))
+                  )}
                 </View>
               ) : null}
             </View>

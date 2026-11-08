@@ -7,6 +7,7 @@ import type { UserProfile } from '@/contexts/ProfileContext';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { buildCapabilitiesPrompt, buildWorkspaceContextPrompt } from '@/services/agentCapabilities';
+import { isOllamaModel, ollamaModelName, streamOllamaChat } from '@/services/ollamaService';
 
 export function buildSystemPrompt(
   bot: BotConfig,
@@ -213,6 +214,30 @@ export async function sendChatMessage(
   // bot.llmConfig.model is already a real Claude model ID (see constants/config.ts
   // LLM_MODELS); fall back to Sonnet if it's ever unset or stale.
   const model = bot.llmConfig.model || 'claude-sonnet-5';
+
+  // ── MODÈLE LOCAL (Ollama sur ce PC) : appel direct, sans Edge, sans quota.
+  // Les outils serveur (GitHub, Supabase) n'existent pas sur ce chemin ; les
+  // outils client [OUTIL:…] décrits dans le prompt restent disponibles.
+  if (isOllamaModel(model)) {
+    try {
+      return await streamOllamaChat({
+        model: ollamaModelName(model),
+        messages,
+        temperature: bot.llmConfig.temperature,
+        thinking: extra?.thinking === true,
+        onToken,
+        onThinking: extra?.onThinking,
+        signal,
+      });
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || signal?.aborted) {
+        const err = new Error('Génération interrompue');
+        (err as any).name = 'AbortError';
+        throw err;
+      }
+      throw error;
+    }
+  }
 
   // ── GEMINI (gratuit) : passe par le proxy Supabase comme Claude. L'appel
   // direct depuis le navigateur est impossible : l'endpoint STREAMING de
