@@ -46,6 +46,7 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
+import { PhoneFrame, PhoneLockScreen } from '@/components/feature/SimulationPhone';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
 import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
 import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
@@ -1164,6 +1165,7 @@ export default function ChatScreen() {
   const [showSimSaves, setShowSimSaves] = useState(false);
   const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features' | 'theme'>('menu');
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
+  const [phoneScreen, setPhoneScreen] = useState<'lock' | 'apps'>('lock');
   const [showSimMemory, setShowSimMemory] = useState(false);
   const [memoryGenerating, setMemoryGenerating] = useState(false);
   const [memoryRefreshError, setMemoryRefreshError] = useState<string | null>(null);
@@ -2283,6 +2285,18 @@ export default function ChatScreen() {
     );
   }
 
+  if (simFeatureScreen === 'messages' && phoneScreen === 'lock' && isSimulation && simData) {
+    return (
+      <PhoneFrame clock={simData.world?.clock} onClose={() => setSimFeatureScreen(null)}>
+        <PhoneLockScreen
+          clock={simData.world?.clock}
+          content={emptyFeatureContent(simData.featureContent)}
+          onUnlock={() => setPhoneScreen('apps')}
+        />
+      </PhoneFrame>
+    );
+  }
+
   if (simFeatureScreen && isSimulation && simData) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -2388,9 +2402,9 @@ export default function ChatScreen() {
               .map((id) => (
                 <IconButton
                   key={id}
-                  icon={SIMULATION_FEATURE_META[id].icon as any}
-                  label={SIMULATION_FEATURE_META[id].label}
-                  onPress={() => setSimFeatureScreen(id)}
+                  icon={(id === 'messages' ? 'smartphone' : SIMULATION_FEATURE_META[id].icon) as any}
+                  label={id === 'messages' ? 'Téléphone' : SIMULATION_FEATURE_META[id].label}
+                  onPress={() => { setPhoneScreen('lock'); setSimFeatureScreen(id); }}
                   boxSize={32}
                   backgroundColor="rgba(0,0,0,0.25)"
                   borderColor={C.border}
