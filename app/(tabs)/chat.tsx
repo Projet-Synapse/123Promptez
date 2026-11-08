@@ -2383,6 +2383,21 @@ export default function ChatScreen() {
               </View>
             </View>
 
+            {isSimulation && simData ? (Object.keys(SIMULATION_FEATURE_META) as SimulationFeatureId[])
+              .filter((id) => !!(simData.features as any)?.[id])
+              .map((id) => (
+                <IconButton
+                  key={id}
+                  icon={SIMULATION_FEATURE_META[id].icon as any}
+                  label={SIMULATION_FEATURE_META[id].label}
+                  onPress={() => setSimFeatureScreen(id)}
+                  boxSize={32}
+                  backgroundColor="rgba(0,0,0,0.25)"
+                  borderColor={C.border}
+                  color="#9B59B6"
+                />
+              )) : null}
+
             {isSimulation ? (
               <View style={{ position: 'relative' }}>
                 <IconButton
