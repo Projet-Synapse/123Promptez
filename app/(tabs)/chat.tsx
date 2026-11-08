@@ -46,7 +46,7 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
-import { PhoneFrame, PhoneLockScreen } from '@/components/feature/SimulationPhone';
+import { PhoneFrame, PhoneLockScreen, PhoneHomeScreen, PhoneSimpleApp } from '@/components/feature/SimulationPhone';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
 import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
 import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
@@ -1165,7 +1165,7 @@ export default function ChatScreen() {
   const [showSimSaves, setShowSimSaves] = useState(false);
   const [simPlusView, setSimPlusView] = useState<'menu' | 'models' | 'features' | 'theme'>('menu');
   const [simFeatureScreen, setSimFeatureScreen] = useState<SimulationFeatureId | null>(null);
-  const [phoneScreen, setPhoneScreen] = useState<'lock' | 'apps'>('lock');
+  const [phoneScreen, setPhoneScreen] = useState<'lock' | 'home' | 'contacts' | 'clock' | 'apps'>('lock');
   const [showSimMemory, setShowSimMemory] = useState(false);
   const [memoryGenerating, setMemoryGenerating] = useState(false);
   const [memoryRefreshError, setMemoryRefreshError] = useState<string | null>(null);
@@ -2285,13 +2285,33 @@ export default function ChatScreen() {
     );
   }
 
+  if (simFeatureScreen === 'messages' && (phoneScreen === 'home' || phoneScreen === 'contacts' || phoneScreen === 'clock') && isSimulation && simData) {
+    const fcPhone = emptyFeatureContent(simData.featureContent);
+    return (
+      <PhoneFrame clock={simData.world?.clock} onClose={() => setSimFeatureScreen(null)}>
+        {phoneScreen === 'home' ? (
+          <PhoneHomeScreen
+            content={fcPhone}
+            albumEnabled={!!(simData.features as any)?.album}
+            onOpenApp={(app) => {
+              if (app === 'photos') { setSimFeatureScreen('album'); return; }
+              setPhoneScreen(app === 'messages' ? 'apps' : app);
+            }}
+          />
+        ) : (
+          <PhoneSimpleApp app={phoneScreen} clock={simData.world?.clock} content={fcPhone} onBack={() => setPhoneScreen('home')} />
+        )}
+      </PhoneFrame>
+    );
+  }
+
   if (simFeatureScreen === 'messages' && phoneScreen === 'lock' && isSimulation && simData) {
     return (
       <PhoneFrame clock={simData.world?.clock} onClose={() => setSimFeatureScreen(null)}>
         <PhoneLockScreen
           clock={simData.world?.clock}
           content={emptyFeatureContent(simData.featureContent)}
-          onUnlock={() => setPhoneScreen('apps')}
+          onUnlock={() => setPhoneScreen('home')}
         />
       </PhoneFrame>
     );
