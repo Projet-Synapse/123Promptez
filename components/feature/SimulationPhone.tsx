@@ -69,3 +69,69 @@ export function PhoneLockScreen({ clock, content, onUnlock }: { clock?: string; 
     </View>
   );
 }
+
+export type PhoneAppId = 'messages' | 'photos' | 'contacts' | 'clock';
+const APPS: { id: PhoneAppId; label: string; icon: string; color: string }[] = [
+  { id: 'messages', label: 'Messages', icon: 'sms', color: '#34C759' },
+  { id: 'contacts', label: 'Contacts', icon: 'contacts', color: '#8E8E93' },
+  { id: 'photos', label: 'Photos', icon: 'photo-library', color: '#FF9F0A' },
+  { id: 'clock', label: 'Horloge', icon: 'schedule', color: '#1C1C1E' },
+];
+
+/** Écran d’accueil : grille de mini-applis (Photos seulement si l’album est actif). */
+export function PhoneHomeScreen({ content, albumEnabled, onOpenApp }: {
+  content: SimulationFeatureContent; albumEnabled: boolean; onOpenApp: (id: PhoneAppId) => void;
+}) {
+  const unread = content.messages.filter((m) => !m.read).length;
+  const apps = APPS.filter((a) => a.id !== 'photos' || albumEnabled);
+  return (
+    <View style={{ flex: 1, backgroundColor: '#3a2357', paddingTop: 24, paddingHorizontal: 18 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 18 }}>
+        {apps.map((a) => (
+          <Pressable key={a.id} onPress={() => onOpenApp(a.id)} accessibilityLabel={a.label} style={{ width: 62, alignItems: 'center' }}>
+            <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: a.color, alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialIcons name={a.icon as any} size={30} color="#fff" />
+              {a.id === 'messages' && unread ? (
+                <View style={{ position: 'absolute', top: -5, right: -5, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: '#FF3B30', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{unread}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={{ color: '#fff', fontSize: 11, marginTop: 4 }} numberOfLines={1}>{a.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** Mini-applis simples : Contacts et Horloge. */
+export function PhoneSimpleApp({ app, clock, content, onBack }: { app: 'contacts' | 'clock'; clock?: string; content: SimulationFeatureContent; onBack: () => void }) {
+  const d = parseClock(clock);
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Pressable onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', padding: 10 }}>
+        <MaterialIcons name="chevron-left" size={22} color="#007AFF" />
+        <Text style={{ color: '#007AFF', fontSize: 15 }}>Accueil</Text>
+      </Pressable>
+      {app === 'clock' ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 56, fontWeight: '200', color: '#000' }}>{d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '--:--'}</Text>
+          <Text style={{ color: '#555' }}>{d ? `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : ''}</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 14 }}>
+          <Text style={{ fontSize: 26, fontWeight: '800', color: '#000', marginBottom: 8 }}>Contacts</Text>
+          {content.personaNumber ? <Text style={{ color: '#555', marginBottom: 8 }}>Mon numéro : {content.personaNumber}</Text> : null}
+          {content.contacts.map((c) => (
+            <View key={c.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+              <Text style={{ fontSize: 16, color: '#000' }}>{c.name}</Text>
+              {c.number ? <Text style={{ color: '#888', fontSize: 12 }}>{c.number}</Text> : null}
+            </View>
+          ))}
+          {!content.contacts.length ? <Text style={{ color: '#888' }}>Aucun contact pour l’instant.</Text> : null}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
