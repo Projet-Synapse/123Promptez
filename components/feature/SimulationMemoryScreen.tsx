@@ -16,6 +16,8 @@ import {
   MEMORY_SECTION_META,
   MEMORY_LINK_SUBSECTIONS,
   MEMORY_LINK_SUBSECTION_META,
+  MEMORY_CHARACTER_CATEGORIES,
+  MEMORY_CHARACTER_CATEGORY_META,
   MEMORY_CHARACTER_FICHE_FIELDS,
   MEMORY_EVENT_FICHE_FIELDS,
   MEMORY_OBJECT_FICHE_FIELDS,
@@ -70,7 +72,7 @@ type Props = {
   onAdd: (
     section: MemorySectionId,
     name: string,
-    opts?: { linkSubsection?: MemoryLinkSubsection },
+    opts?: Partial<SimulationMemoryItem>,
   ) => void;
   onRemove: (section: MemorySectionId, id: string) => void;
   onEditItem: (section: MemorySectionId, id: string, patch: EditPatch) => void;
@@ -200,6 +202,42 @@ function LinkKindChips({
             <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>
               {MEMORY_LINK_SUBSECTION_META[k].label}
             </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Types par section (filtres + choix du type dans la fiche). */
+type SectionKind = { keys: string[]; label: (k: string) => string; get: (it: SimulationMemoryItem) => string; patch: (k: string) => Partial<SimulationMemoryItem> };
+const SECTION_KINDS: Partial<Record<MemorySectionId, SectionKind>> = {
+  links: {
+    keys: MEMORY_LINK_SUBSECTIONS,
+    label: (k) => MEMORY_LINK_SUBSECTION_META[k as MemoryLinkSubsection].label,
+    get: (it) => it.linkSubsection ?? 'rapports',
+    patch: (k) => ({ linkSubsection: k as MemoryLinkSubsection }),
+  },
+  characters: {
+    keys: MEMORY_CHARACTER_CATEGORIES,
+    label: (k) => MEMORY_CHARACTER_CATEGORY_META[k as keyof typeof MEMORY_CHARACTER_CATEGORY_META].label,
+    get: (it) => it.characterCategory ?? 'anecdotiques',
+    patch: (k) => ({ characterCategory: k as any }),
+  },
+};
+
+function KindChips({ kind, value, onChange, C }: { kind: SectionKind; value: string; onChange: (k: string) => void; C: ReturnType<typeof useThemeColors> }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {kind.keys.map((k) => {
+        const on = value === k;
+        return (
+          <Pressable key={k} onPress={() => onChange(k)} style={{
+            paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill,
+            backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
+            borderWidth: 1, borderColor: on ? ACCENT + '77' : C.border,
+          }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: on ? ACCENT : C.textSecondary }}>{kind.label(k)}</Text>
           </Pressable>
         );
       })}
@@ -453,6 +491,10 @@ function ItemCard({
                 onChange={(v) => onEditItem(section, it.id, { name: v })}
                 C={C}
               />
+              <View>
+                <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 4 }}>TYPE</Text>
+                <KindChips kind={SECTION_KINDS.characters!} value={SECTION_KINDS.characters!.get(it)} onChange={(k) => onEditItem(section, it.id, SECTION_KINDS.characters!.patch(k))} C={C} />
+              </View>
               {MEMORY_CHARACTER_FICHE_FIELDS.map((f) => (
                 <Field
                   key={f.key}
@@ -614,35 +656,37 @@ function SectionBlock({
   setLinkFilter: (v: MemoryLinkSubsection | 'all') => void;
 }) {
   const meta = MEMORY_SECTION_META[section];
+  const kind = SECTION_KINDS[section];
+  const [localFilter, setLocalFilter] = useState<string>('all');
+  const kindFilter: string = section === 'links' ? linkFilter : localFilter;
+  const setKindFilter = (v: string) => (section === 'links' ? setLinkFilter(v as any) : setLocalFilter(v));
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
 
   const filtered = useMemo(() => {
-    if (section === 'links' && linkFilter !== 'all') {
-      return items.filter((it) => (it.linkSubsection ?? 'rapports') === linkFilter);
+    if (kind && kindFilter !== 'all') {
+      return items.filter((it) => kind.get(it) === kindFilter);
     }
     return items;
-  }, [items, section, linkFilter]);
+  }, [items, kind, kindFilter]);
 
   const groups: { key: string; label: string; list: SimulationMemoryItem[] }[] = useMemo(() => {
-    if (section === 'links' && linkFilter === 'all') {
-      return MEMORY_LINK_SUBSECTIONS.map((k) => ({
+    if (kind && kindFilter === 'all') {
+      return kind.keys.map((k) => ({
         key: k,
-        label: MEMORY_LINK_SUBSECTION_META[k].label,
-        list: items.filter((it) => (it.linkSubsection ?? 'rapports') === k),
+        label: kind.label(k),
+        list: items.filter((it) => kind.get(it) === k),
       })).filter((g) => g.list.length > 0);
     }
     return [{ key: 'flat', label: '', list: filtered }];
-  }, [section, linkFilter, items, filtered]);
+  }, [kind, kindFilter, items, filtered]);
 
   const commitAdd = () => {
     if (draftName.trim()) {
       onAdd(
         section,
         draftName.trim(),
-        section === 'links'
-          ? { linkSubsection: linkFilter === 'all' ? 'rapports' : linkFilter }
-          : undefined,
+        kind && kindFilter !== 'all' ? kind.patch(kindFilter) : (section === 'links' ? { linkSubsection: 'rapports' } : undefined),
       );
     }
     setDraftName('');
@@ -665,7 +709,7 @@ function SectionBlock({
         <Text style={{ fontSize: FontSize.xs, color: C.textMuted, fontWeight: '700' }}>{items.length}</Text>
       </View>
 
-      {section === 'links' ? (
+      {kind ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -673,23 +717,23 @@ function SectionBlock({
           contentContainerStyle={{ alignItems: 'center', gap: 6, paddingVertical: 4, minHeight: 40 }}
         >
             <Pressable
-              onPress={() => setLinkFilter('all')}
+              onPress={() => setKindFilter('all')}
               style={{
                 paddingHorizontal: 12, paddingVertical: 8, minHeight: 32, borderRadius: Radius.pill,
-                backgroundColor: linkFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
-                borderWidth: 1, borderColor: linkFilter === 'all' ? ACCENT + '77' : C.border,
+                backgroundColor: kindFilter === 'all' ? ACCENT + '28' : C.bgCardAlt,
+                borderWidth: 1, borderColor: kindFilter === 'all' ? ACCENT + '77' : C.border,
                 alignItems: 'center', justifyContent: 'center',
               }}
             >
-              <Text style={{ fontSize: 11, lineHeight: 16, fontWeight: '700', color: linkFilter === 'all' ? ACCENT : C.textSecondary, includeFontPadding: false }}>Tout</Text>
+              <Text style={{ fontSize: 11, lineHeight: 16, fontWeight: '700', color: kindFilter === 'all' ? ACCENT : C.textSecondary, includeFontPadding: false }}>Tout</Text>
             </Pressable>
-            {MEMORY_LINK_SUBSECTIONS.map((k) => {
-              const on = linkFilter === k;
-              const n = items.filter((it) => (it.linkSubsection ?? 'rapports') === k).length;
+            {kind.keys.map((k) => {
+              const on = kindFilter === k;
+              const n = items.filter((it) => kind.get(it) === k).length;
               return (
                 <Pressable
                   key={k}
-                  onPress={() => setLinkFilter(k)}
+                  onPress={() => setKindFilter(k)}
                   style={{
                     paddingHorizontal: 12, paddingVertical: 8, minHeight: 32, borderRadius: Radius.pill,
                     backgroundColor: on ? ACCENT + '28' : C.bgCardAlt,
@@ -698,7 +742,7 @@ function SectionBlock({
                   }}
                 >
                   <Text style={{ fontSize: 11, lineHeight: 16, fontWeight: '700', color: on ? ACCENT : C.textSecondary, includeFontPadding: false }}>
-                    {MEMORY_LINK_SUBSECTION_META[k].label}{n ? ` · ${n}` : ''}
+                    {kind.label(k)}{n ? ` · ${n}` : ''}
                   </Text>
                 </Pressable>
               );

@@ -306,7 +306,7 @@ const EXTRACT_SYSTEM = `Tu es un extracteur de mémoire pour un roleplay.
 Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), schéma:
 {
   "persona": [{"name":"string","summary":"string"}],
-  "characters": [{"name":"string","summary":"string","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
+  "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
   "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
   "places": [{"name":"string","summary":"string"}],
   "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],
@@ -325,6 +325,7 @@ Règles STRICTES:
 - Summaries courtes (1–3 phrases).
 - "persona" = faits APPRIS en RP sur le persona joueur, STRICTEMENT différents de ce qui est déjà dans le persona de base. N'y mets PAS de simple reformulation du persona de base.
 - "characters" = PNJ seulement (jamais le persona joueur).
+- characterCategory : principal = PNJ central (un seul), secondaires = récurrents, enjeux = liés aux enjeux de l'intrigue, anecdotiques = de passage. Garde la catégorie actuelle si rien ne change.
 - Pour chaque personnage, renseigne si possible : age, physique, personality, extraInfo, location.
 - linkSubsection:
   - objets = objets clés (owner=propriétaire, name=nom article, summary=description, origin=origine)
@@ -863,7 +864,7 @@ export function addManualMemoryItem(
   memory: SimulationMemory,
   section: MemorySectionId,
   name: string,
-  opts?: { characterCategory?: MemoryCharacterCategory; linkSubsection?: MemoryLinkSubsection },
+  opts?: Partial<SimulationMemoryItem>,
 ): SimulationMemory {
   const item = emptyMemoryItem({
     name: name.trim() || 'Nouvelle entrée',
