@@ -19,6 +19,7 @@ import {
   normalizeCharacterCategory,
   normalizeLinkSubsection,
   normalizeKind,
+  MEMORY_FACTION_KINDS,
   MEMORY_PLACE_KINDS,
   pickPrincipalByMentions,
   ensureSinglePrincipal,
@@ -53,7 +54,7 @@ type ChatMsg = { role: 'user' | 'assistant' | 'system'; content: string };
 /** Extrait un objet JSON d'une réponse modèle (tolère ```json). */
 function itemsFromLlmArray(
   arr: any,
-  section: 'persona' | 'characters' | 'links' | 'places',
+  section: 'persona' | 'characters' | 'links' | 'places' | 'factions',
 ): SimulationMemoryItem[] {
   if (!Array.isArray(arr)) return [];
   const out: SimulationMemoryItem[] = [];
@@ -93,6 +94,9 @@ function itemsFromLlmArray(
     }
     if (section === 'places') {
       base.kind = normalizeKind(r.kind ?? r.type ?? r.placeType, MEMORY_PLACE_KINDS, 'lieux');
+    }
+    if (section === 'factions') {
+      base.kind = normalizeKind(r.kind ?? r.type, MEMORY_FACTION_KINDS, 'populations');
     }
     if (section === 'links') {
       base.linkSubsection = normalizeLinkSubsection(
@@ -314,6 +318,7 @@ Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), sc
   "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","age":"nombre en chiffres seulement, ex. 24?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
   "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
   "places": [{"name":"string","summary":"string","kind":"pays|villes|zones|lieux"}],
+  "factions": [{"name":"string","summary":"string","kind":"populations|institutions|teams|lignees"}],
   "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],
   "contactMessages": [{"from":"string","content":"string","influence":"string?"}],
   "inventoryRemoved": [{"name":"string","reason":"perdu|donné|consommé|volé|autre"}],
@@ -338,6 +343,7 @@ Règles STRICTES:
     attachmentLevel = entier de -10 (hostile) à +10 (très attaché), 0 = neutre. Fais-le évoluer PROGRESSIVEMENT (±1 à ±3 max) selon les interactions récentes ; garde la valeur actuelle si rien ne change.
   - evenements = évènements marquants (participants, summary=description, time, location)
   - accords = accords et tâches (proposedBy, participants, summary=description, completed true/false)
+- factions seulement si elles existent vraiment ; kind = populations (peuples, espèces, groupes sociaux), institutions (État, école, église, entreprise…), teams (bandes, équipes, guildes), lignees (familles, dynasties, clans).
 - places (Map) seulement s'ils apparaissent vraiment ; kind = pays, villes, zones (quartier, région, forêt…) ou lieux (bâtiment, pièce, endroit précis).
 - "inventory" : UNIQUEMENT les objets que le persona JOUEUR porte actuellement sur lui (équipés / dans les poches / en main). carriedByPersona doit être true. Sinon tableau vide.
 - "contactMessages" : messages envoyés AU persona par des contacts listés (seulement si narrativement pertinent maintenant). from = nom exact du contact. Tableau vide si aucun.
@@ -403,6 +409,7 @@ export async function generateOrRefreshMemory(opts: {
   let llmCharacters: SimulationMemoryItem[] = [];
   let llmLinks: SimulationMemoryItem[] = [];
   let llmPlaces: SimulationMemoryItem[] = [];
+  let llmFactions: SimulationMemoryItem[] = [];
   let llmInventory: { name: string; quantity?: number; description?: string }[] = [];
   let llmContactMsgs: { from: string; content: string; influence?: string }[] = [];
   let llmRemoved: string[] = [];
@@ -480,6 +487,13 @@ export async function generateOrRefreshMemory(opts: {
           places: current.places.map((c) => ({
             name: c.name,
             summary: c.summary,
+            kind: c.kind,
+            userEdited: c.userEdited,
+          })),
+          factions: (current.factions ?? []).map((c) => ({
+            name: c.name,
+            summary: c.summary,
+            kind: c.kind,
             userEdited: c.userEdited,
           })),
         },
@@ -546,6 +560,7 @@ export async function generateOrRefreshMemory(opts: {
     llmCharacters = itemsFromLlmArray(json.characters, 'characters');
     llmLinks = itemsFromLlmArray(json.links, 'links');
     llmPlaces = itemsFromLlmArray(json.places, 'places');
+    llmFactions = itemsFromLlmArray(json.factions, 'factions');
     if (features.inventory && Array.isArray(json.inventory)) {
       for (const r of json.inventory) {
         if (!r || typeof r !== 'object') continue;
@@ -646,6 +661,7 @@ export async function generateOrRefreshMemory(opts: {
   const baseChars = mode === 'initial' ? seed.characters : current.characters;
   const baseLinks = mode === 'initial' ? seed.links : current.links;
   const basePlaces = mode === 'initial' ? seed.places : current.places;
+  const baseFactions = mode === 'initial' ? (seed.factions ?? []) : (current.factions ?? []);
 
   const mergedCharacters = pickPrincipalByMentions(
     mergeMemoryItems(baseChars, llmCharacters),
@@ -661,6 +677,7 @@ export async function generateOrRefreshMemory(opts: {
     characters: mergedCharacters,
     links: mergeMemoryItems(baseLinks, llmLinks),
     places: mergeMemoryItems(basePlaces, llmPlaces),
+    factions: mergeMemoryItems(baseFactions, llmFactions),
   });
 
   let inventoryAdded: SimulationInventoryItem[] = [];
@@ -877,7 +894,7 @@ export function addManualMemoryItem(
     userEdited: true,
     characterCategory: section === 'characters' ? (opts?.characterCategory ?? 'anecdotiques') : undefined,
     linkSubsection: section === 'links' ? (opts?.linkSubsection ?? 'rapports') : undefined,
-    kind: section === 'places' ? (opts?.kind ?? 'lieux') : opts?.kind,
+    kind: section === 'places' ? (opts?.kind ?? 'lieux') : section === 'factions' ? (opts?.kind ?? 'populations') : opts?.kind,
     isPlayerPersona: false,
   });
   let list = mergeMemoryItems(memory[section], [item]);

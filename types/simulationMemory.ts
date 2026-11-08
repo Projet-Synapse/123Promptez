@@ -1,5 +1,5 @@
 /**
- * Mémoire de roleplay (Simulation) — Personnages / Liens / Lieux clés.
+ * Mémoire de roleplay (Simulation) — Personnages / Liens / Map / Factions.
  * Inspirée PolyBuzz, sans doublons (fusion par nom normalisé) ni écrasement
  * des edits manuels (`userEdited`).
  */
@@ -10,7 +10,7 @@ export const MEMORY_AUTO_UPDATE_EVERY_N = 10;
 /** Nombre max d’entrées épinglées dans la Mémoire. */
 export const MEMORY_PIN_MAX = 10;
 
-export type MemorySectionId = 'persona' | 'characters' | 'links' | 'places';
+export type MemorySectionId = 'persona' | 'characters' | 'links' | 'places' | 'factions';
 
 /** Catégories Personnages — LEGACY (bulles retirées t209u). Conservé pour migration. */
 export type MemoryCharacterCategory = 'principal' | 'secondaires' | 'enjeux' | 'anecdotiques';
@@ -255,6 +255,7 @@ export interface SimulationMemory {
   characters: SimulationMemoryItem[];
   links: SimulationMemoryItem[];
   places: SimulationMemoryItem[];
+  factions: SimulationMemoryItem[];
 }
 
 export const MEMORY_SECTION_META: Record<
@@ -284,6 +285,12 @@ export const MEMORY_SECTION_META: Record<
     icon: 'map',
     empty: 'Aucun lieu mémorisé pour l’instant.',
     addLabel: 'Ajouter un lieu',
+  },
+  factions: {
+    label: 'Factions',
+    icon: 'groups',
+    empty: 'Aucune faction mémorisée pour l’instant.',
+    addLabel: 'Ajouter une faction',
   },
 };
 
@@ -414,6 +421,7 @@ export function emptySimulationMemory(partial?: Partial<SimulationMemory>): Simu
     characters: Array.isArray(partial?.characters) ? partial!.characters! : [],
     links: Array.isArray(partial?.links) ? partial!.links! : [],
     places: Array.isArray(partial?.places) ? partial!.places! : [],
+    factions: Array.isArray(partial?.factions) ? partial!.factions! : [],
   };
 }
 
@@ -487,6 +495,7 @@ export function normalizeSimulationMemory(raw: any): SimulationMemory {
     characters: normalizeItemList(mem.characters),
     links: normalizeItemList(mem.links),
     places: normalizeItemList(mem.places),
+    factions: normalizeItemList(mem.factions),
   });
   // Si des sections existent déjà (données cloud), considérer comme initialisé
   if (
@@ -495,7 +504,8 @@ export function normalizeSimulationMemory(raw: any): SimulationMemory {
       base.persona.length > 0 ||
       base.characters.length > 0 ||
       base.links.length > 0 ||
-      base.places.length > 0
+      base.places.length > 0 ||
+      base.factions.length > 0
     )
   ) {
     base.initialized = true;
@@ -721,7 +731,8 @@ export function countPinnedMemory(memory: SimulationMemory): number {
     memory.persona.filter((it) => it.pinned).length +
     memory.characters.filter((it) => it.pinned).length +
     memory.links.filter((it) => it.pinned).length +
-    memory.places.filter((it) => it.pinned).length
+    memory.places.filter((it) => it.pinned).length +
+    memory.factions.filter((it) => it.pinned).length
   );
 }
 
@@ -730,7 +741,7 @@ export function listPinnedMemoryItems(
   memory: SimulationMemory,
 ): { section: MemorySectionId; item: SimulationMemoryItem }[] {
   const out: { section: MemorySectionId; item: SimulationMemoryItem }[] = [];
-  for (const section of ['persona', 'characters', 'links', 'places'] as MemorySectionId[]) {
+  for (const section of ['persona', 'characters', 'links', 'places', 'factions'] as MemorySectionId[]) {
     for (const item of memory[section]) {
       if (item.pinned) out.push({ section, item });
     }
@@ -772,7 +783,8 @@ export function memoryHasUnseen(memory: SimulationMemory | undefined | null): bo
     memory.persona.some((it) => it.isNew) ||
     memory.characters.some((it) => it.isNew) ||
     memory.links.some((it) => it.isNew) ||
-    memory.places.some((it) => it.isNew)
+    memory.places.some((it) => it.isNew) ||
+    memory.factions.some((it) => it.isNew)
   );
 }
 
@@ -833,7 +845,8 @@ export function formatMemoryForPrompt(memory: SimulationMemory, maxPerSection = 
   pushSection('Persona', memory.persona);
   pushSection('Personnages', memory.characters.filter((c) => !c.isPlayerPersona));
   pushSection('Liens', memory.links);
-  pushSection('Lieux clés', memory.places);
+  pushSection('Map', memory.places);
+  pushSection('Factions', memory.factions);
   if (!blocks.length && memory.entries.length) {
     blocks.push(
       '#### Notes libres\n' +
@@ -861,7 +874,7 @@ export function resolveMemoryWikilink(
   if (!memory) return null;
   const key = normalizeMemoryKey(target);
   if (!key) return null;
-  const sections: MemorySectionId[] = ['persona', 'characters', 'links', 'places'];
+  const sections: MemorySectionId[] = ['persona', 'characters', 'links', 'places', 'factions'];
   for (const section of sections) {
     const item = memory[section].find(
       (it) => it.key === key || normalizeMemoryKey(it.name) === key,
@@ -879,3 +892,6 @@ export function normalizeKind(raw: unknown, keys: readonly string[], fallback: s
   const hit = keys.find((k) => v === k || v.startsWith(k.replace(/s$/, '')));
   return hit ?? fallback;
 }
+
+export const MEMORY_FACTION_KINDS = ['populations', 'institutions', 'teams', 'lignees'] as const;
+export const MEMORY_FACTION_KIND_LABELS: Record<string, string> = { populations: 'Populations', institutions: 'Institutions', teams: 'Teams', lignees: 'Lignées' };
