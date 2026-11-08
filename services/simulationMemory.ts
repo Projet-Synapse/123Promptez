@@ -69,7 +69,7 @@ function itemsFromLlmArray(
       to: r.to ? String(r.to) : undefined,
       userEdited: false,
       isPlayerPersona: false,
-      age: r.age != null ? String(r.age) : undefined,
+      age: r.age != null ? (String(r.age).match(/\d+/)?.[0] ?? undefined) : undefined,
       physique: r.physique ?? r.physicalDescription ?? r.descriptionPhysique,
       personality: r.personality ?? r.personnalite,
       extraInfo: r.extraInfo ?? r.infosComplementaires ?? r.notes,
@@ -311,7 +311,7 @@ const EXTRACT_SYSTEM = `Tu es un extracteur de mémoire pour un roleplay.
 Tu renvoies UNIQUEMENT un JSON valide (pas de markdown hors éventuel fence), schéma:
 {
   "persona": [{"name":"string","summary":"string"}],
-  "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","age":"string?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
+  "characters": [{"name":"string","summary":"string","characterCategory":"principal|secondaires|enjeux|anecdotiques","age":"nombre en chiffres seulement, ex. 24?","physique":"string?","personality":"string?","extraInfo":"string?","location":"string?"}],
   "links": [{"name":"string","summary":"string?","linkSubsection":"objets|rapports|evenements|accords","owner":"string?","origin":"string?","interlocutors":"string?","dynamics":"string?","attitude":"string?","attachmentLevel":"string?","participants":"string?","time":"string?","location":"string?","proposedBy":"string?","completed":false}],
   "places": [{"name":"string","summary":"string","kind":"pays|villes|zones|lieux"}],
   "inventory": [{"name":"string","quantity":1,"description":"string?","carriedByPersona":true}],

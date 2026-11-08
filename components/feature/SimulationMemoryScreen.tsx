@@ -92,8 +92,10 @@ function Field({
   onChange,
   multiline,
   placeholder,
+  numeric,
   C,
 }: {
+  numeric?: boolean;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -108,7 +110,8 @@ function Field({
       </Text>
       <TextInput
         value={value}
-        onChangeText={onChange}
+        onChangeText={numeric ? (v) => onChange(v.replace(/\D+/g, '')) : onChange}
+        keyboardType={numeric ? 'number-pad' : undefined}
         multiline={!!multiline}
         placeholder={placeholder ?? '…'}
         placeholderTextColor={C.textMuted}
@@ -509,6 +512,8 @@ function ItemCard({
                   label={f.label}
                   value={String(it[f.key] ?? '')}
                   multiline={f.multiline}
+                  numeric={f.key === 'age'}
+                  placeholder={f.key === 'age' ? 'ex. 24' : undefined}
                   onChange={(v) => onEditItem(section, it.id, { [f.key]: v })}
                   C={C}
                 />
