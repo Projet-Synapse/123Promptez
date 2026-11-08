@@ -1120,6 +1120,9 @@ function SideDrawer({
 }
 
 // ─── Main Chat Screen ─────────────────────────────────────────────────────────
+const INVENTORY_KEYWORDS = /\b(ramass|obtien|obtenu|re[çc]oi[st]?|re[çc]u|achet|prend[sz]?|pris|empoch|r[ée]cup[èée]r|trouv|offr|donn[ée]|perd|perdu|vol[ée]|consomm|mang[ée]|bu|jet[ée]|range|sac|poche|inventaire)/i;
+const MESSAGE_KEYWORDS = /\b(sms|texto|message|t[ée]l[ée]phone|portable|vibre|notification|[ée]crit|num[ée]ro)/i;
+
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -2104,8 +2107,11 @@ export default function ChatScreen() {
     const wiki = shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant]);
     // Carnet d’acquisitions : passe régulière (≈ tous les 2 échanges) pour l’XP
     const skillsTick = (!!feats.skills || !!feats.needs) && count % 4 === 0;
-    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance && !skillsTick)) return;
-    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone });
+    // Mots-clés : objets acquis / perdus, messages reçus → passe mémoire
+    const invHit = !!feats.inventory && (INVENTORY_KEYWORDS.test(turn) || count % 4 === 0);
+    const msgHit = !!feats.messages && MESSAGE_KEYWORDS.test(turn);
+    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance && !skillsTick && !invHit && !msgHit)) return;
+    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone || msgHit });
   };
   maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;
 

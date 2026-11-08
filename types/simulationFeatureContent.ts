@@ -510,12 +510,16 @@ export function formatFeaturesForPrompt(
   const blocks: string[] = [];
   if (features.needs) blocks.push(formatNeedsForPrompt(emptyNeeds(content.needs)));
 
-  if (features.inventory && content.inventory.length) {
+  if (features.inventory) {
     const lines = content.inventory.slice(0, maxPer).map((it) => {
       const desc = it.description ? ` — ${it.description}` : '';
       return `- ${it.name} ×${it.quantity}${desc}`;
     });
-    blocks.push(`#### Inventaire\n${lines.join('\n')}`);
+    blocks.push([
+      '#### Inventaire du persona',
+      lines.length ? lines.join('\n') : '(vide pour l’instant)',
+      'Quand le persona obtient, ramasse, reçoit, achète, perd, donne ou consomme un objet, écris-le clairement dans le récit (ex. « Tu ranges la clé dans ta poche. ») : l’application met l’inventaire à jour automatiquement.',
+    ].join('\n'));
   }
   if (features.skills && content.skills.length) {
     const lines = content.skills.slice(0, maxPer).map((it) => {
@@ -561,6 +565,7 @@ export function formatFeaturesForPrompt(
       });
       blocks.push(`#### Messages d’interaction\n${lines.join('\n')}`);
     }
+    blocks.push('Les SMS / messages reçus sur le téléphone du persona ne s’écrivent PAS en entier dans le récit : mentionne seulement en une phrase que le téléphone vibre et qui écrit (ex. « Ton téléphone vibre : un message de Léa. »). L’application range le contenu dans la section Messages.');
   }
 
   if (!blocks.length) return '';
@@ -568,6 +573,7 @@ export function formatFeaturesForPrompt(
     '### MODULES GAMEPLAY ACTIFS — À RESPECTER',
     'Contenu géré par le joueur. Tiens-en compte dans la narration (objets possédés, compétences, messages reçus…).',
     'Ne crée pas d’objets / compétences hors inventaire sans que le joueur les ait acquis.',
+    'Encadre entre [[doubles crochets]] le nom des personnages, lieux et objets importants à leur première apparition ou quand ils évoluent (ex. [[Léa]], [[la clé rouillée]]).',
     ...blocks,
   ].join('\n');
 }
