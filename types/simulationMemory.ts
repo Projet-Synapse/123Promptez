@@ -196,6 +196,8 @@ export interface SimulationMemoryItem {
   isPlayerPersona?: boolean;
   /** Liens : Objets / Relationnels / Évènements / Accords */
   linkSubsection?: MemoryLinkSubsection;
+  /** Type générique (Map : pays/villes/zones/lieux ; Factions : …) */
+  kind?: string;
   /** Fiche personnage */
   age?: string;
   physique?: string;
@@ -278,9 +280,9 @@ export const MEMORY_SECTION_META: Record<
     addLabel: 'Ajouter un lien',
   },
   places: {
-    label: 'Lieux clés',
-    icon: 'place',
-    empty: 'Aucun lieu clé mémorisé pour l’instant.',
+    label: 'Map',
+    icon: 'map',
+    empty: 'Aucun lieu mémorisé pour l’instant.',
     addLabel: 'Ajouter un lieu',
   },
 };
@@ -332,6 +334,7 @@ export function emptyMemoryItem(
     characterCategory,
     isPlayerPersona: partial?.isPlayerPersona === true,
     linkSubsection,
+    kind: optStr(partial?.kind),
     age: optStr(partial?.age),
     physique: optStr(partial?.physique),
     personality: optStr(partial?.personality),
@@ -540,6 +543,7 @@ export function mergeMemoryItems(
         to: prev.to || item.to,
         characterCategory: prev.characterCategory ?? item.characterCategory,
         linkSubsection: prev.linkSubsection ?? item.linkSubsection,
+        kind: prev.kind ?? item.kind,
         isPlayerPersona: prev.isPlayerPersona || item.isPlayerPersona,
         age: prev.age || item.age,
         physique: prev.physique || item.physique,
@@ -573,6 +577,7 @@ export function mergeMemoryItems(
       to: item.to ?? prev.to,
       characterCategory: item.characterCategory ?? prev.characterCategory,
       linkSubsection: item.linkSubsection ?? prev.linkSubsection,
+      kind: item.kind ?? prev.kind,
       isPlayerPersona: prev.isPlayerPersona || item.isPlayerPersona,
       age: item.age || prev.age,
       physique: item.physique || prev.physique,
@@ -864,4 +869,13 @@ export function resolveMemoryWikilink(
     if (item) return { section, item };
   }
   return null;
+}
+
+export const MEMORY_PLACE_KINDS = ['pays', 'villes', 'zones', 'lieux'] as const;
+export const MEMORY_PLACE_KIND_LABELS: Record<string, string> = { pays: 'Pays', villes: 'Villes', zones: 'Zones', lieux: 'Lieux' };
+export function normalizeKind(raw: unknown, keys: readonly string[], fallback: string): string {
+  const v = String(raw ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (!v) return fallback;
+  const hit = keys.find((k) => v === k || v.startsWith(k.replace(/s$/, '')));
+  return hit ?? fallback;
 }
