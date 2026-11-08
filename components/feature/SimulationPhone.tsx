@@ -135,3 +135,71 @@ export function PhoneSimpleApp({ app, clock, content, onBack }: { app: 'contacts
     </View>
   );
 }
+
+/** Appli Messages : liste des conversations par contact, puis fil façon SMS. */
+export function PhoneMessagesApp({ content, onChange, onBack }: {
+  content: SimulationFeatureContent; onChange: (next: SimulationFeatureContent) => void; onBack: () => void;
+}) {
+  const [thread, setThread] = React.useState<string | null>(null);
+  const keyOf = (m: SimulationFeatureContent['messages'][number]) => senderLabel(m);
+  const groups = new Map<string, SimulationFeatureContent['messages']>();
+  for (const m of content.messages) {
+    const k = keyOf(m);
+    groups.set(k, [...(groups.get(k) ?? []), m]);
+  }
+  for (const c of content.contacts) if (!groups.has(c.name)) groups.set(c.name, []);
+  const open = (k: string) => {
+    setThread(k);
+    if (content.messages.some((m) => keyOf(m) === k && !m.read)) {
+      onChange({ ...content, messages: content.messages.map((m) => (keyOf(m) === k ? { ...m, read: true } : m)) });
+    }
+  };
+  const header = (label: string, back: () => void) => (
+    <Pressable onPress={back} style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+      <MaterialIcons name="chevron-left" size={22} color="#007AFF" />
+      <Text style={{ color: '#007AFF', fontSize: 15 }}>{label}</Text>
+    </Pressable>
+  );
+  if (thread !== null) {
+    const msgs = groups.get(thread) ?? [];
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        {header('Messages', () => setThread(null))}
+        <Text style={{ textAlign: 'center', fontWeight: '700', color: '#000', paddingVertical: 6 }}>{thread}</Text>
+        <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
+          {msgs.map((m) => (
+            <View key={m.id} style={{ alignSelf: 'flex-start', maxWidth: '80%', backgroundColor: '#E9E9EB', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 }}>
+              <Text style={{ color: '#000', fontSize: 14 }}>{m.content || '—'}</Text>
+            </View>
+          ))}
+          {!msgs.length ? <Text style={{ color: '#888', textAlign: 'center' }}>Pas encore de message.</Text> : null}
+        </ScrollView>
+      </View>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      {header('Accueil', onBack)}
+      <Text style={{ fontSize: 26, fontWeight: '800', color: '#000', paddingHorizontal: 14, marginBottom: 4 }}>Messages</Text>
+      <ScrollView>
+        {[...groups.entries()].map(([k, msgs]) => {
+          const last = msgs[msgs.length - 1];
+          const unread = msgs.some((m) => !m.read);
+          return (
+            <Pressable key={k} onPress={() => open(k)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: unread ? '#007AFF' : 'transparent' }} />
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#C7C7CC', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{k.slice(0, 1).toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#000', fontWeight: unread ? '800' : '600' }} numberOfLines={1}>{k}</Text>
+                <Text style={{ color: '#888', fontSize: 12 }} numberOfLines={1}>{last?.content || 'Aucun message'}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+        {!groups.size ? <Text style={{ color: '#888', textAlign: 'center', marginTop: 20 }}>Aucune conversation pour l’instant.</Text> : null}
+      </ScrollView>
+    </View>
+  );
+}

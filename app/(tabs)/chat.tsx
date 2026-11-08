@@ -46,7 +46,7 @@ import { downloadText, buildConversationMarkdown } from '@/services/exportServic
 import NewConversationModal from '@/components/feature/NewConversationModal';
 import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/feature/SimulationSetupScreen';
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
-import { PhoneFrame, PhoneLockScreen, PhoneHomeScreen, PhoneSimpleApp } from '@/components/feature/SimulationPhone';
+import { PhoneFrame, PhoneLockScreen, PhoneHomeScreen, PhoneSimpleApp, PhoneMessagesApp } from '@/components/feature/SimulationPhone';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
 import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
 import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
@@ -2285,7 +2285,7 @@ export default function ChatScreen() {
     );
   }
 
-  if (simFeatureScreen === 'messages' && (phoneScreen === 'home' || phoneScreen === 'contacts' || phoneScreen === 'clock') && isSimulation && simData) {
+  if (simFeatureScreen === 'messages' && phoneScreen !== 'lock' && isSimulation && simData) {
     const fcPhone = emptyFeatureContent(simData.featureContent);
     return (
       <PhoneFrame clock={simData.world?.clock} onClose={() => setSimFeatureScreen(null)}>
@@ -2297,6 +2297,12 @@ export default function ChatScreen() {
               if (app === 'photos') { setSimFeatureScreen('album'); return; }
               setPhoneScreen(app === 'messages' ? 'apps' : app);
             }}
+          />
+        ) : phoneScreen === 'apps' ? (
+          <PhoneMessagesApp
+            content={fcPhone}
+            onChange={(featureContent) => updateSimulation(activeWorkspace.id, activeConversation!.id, { ...simData, featureContent })}
+            onBack={() => setPhoneScreen('home')}
           />
         ) : (
           <PhoneSimpleApp app={phoneScreen} clock={simData.world?.clock} content={fcPhone} onBack={() => setPhoneScreen('home')} />
