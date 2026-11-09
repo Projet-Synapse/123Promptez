@@ -702,6 +702,47 @@ export function messagesHaveWikilinks(
   return texts.some((t) => !!t && /\[\[[^\]]+\]\]/.test(t));
 }
 
+/** Mots évoquant un objet gagné / perdu (module Inventaire). */
+export const INVENTORY_KEYWORDS = /\b(ramass|obtien|obtenu|re[çc]oi[st]?|re[çc]u|achet|prend[sz]?|pris|empoch|r[ée]cup[èée]r|trouv|offr|donn[ée]|perd|perdu|vol[ée]|consomm|mang[ée]|bu|jet[ée]|range|sac|poche|inventaire)/i;
+/** Mots évoquant un SMS / le téléphone (module Messages). */
+export const MESSAGE_KEYWORDS = /\b(sms|texto|message|t[ée]l[ée]phone|portable|vibre|notification|[ée]crit|num[ée]ro)/i;
+
+/**
+ * Faut-il lancer une passe mémoire automatique après ce tour ?
+ * Chaque passe est un appel IA complet (≈ 9 000 tokens) : on regroupe les
+ * tours au lieu d'en lancer une presque à chaque échange. La passe lit tous
+ * les messages depuis la précédente, donc regrouper ne perd aucun fait.
+ *  - immédiate : un numéro de téléphone est échangé (le téléphone doit suivre) ;
+ *  - après ≥ 2 échanges : un objet ou un message semble avoir changé ;
+ *  - après ≥ 3 échanges : nouveaux [[noms]], ou un contact peut écrire ;
+ *  - sinon après 5 échanges, pour garder la mémoire à jour.
+ */
+export function decideAutoMemoryPass(opts: {
+  memory: Pick<SimulationMemory, 'initialized'> & { messageCountAtLastUpdate?: number };
+  messageCount: number;
+  lastUser?: string;
+  lastAssistant?: string;
+  features: { inventory?: boolean; messages?: boolean; skills?: boolean; needs?: boolean };
+  pendingNumberCount?: number;
+  random?: () => number;
+}): { run: boolean; reason: string } {
+  if (!opts.memory.initialized) return { run: false, reason: 'mémoire non initialisée' };
+  const last = Math.min(opts.memory.messageCountAtLastUpdate ?? 0, opts.messageCount);
+  const fresh = opts.messageCount - last;
+  const turn = `${opts.lastUser ?? ''}\n${opts.lastAssistant ?? ''}`;
+  const f = opts.features;
+  if (f.messages && /\b\d{3}[-‐–]\d{3}\b/.test(turn)) return { run: true, reason: 'numéro échangé' };
+  if (fresh >= 4 && ((f.inventory && INVENTORY_KEYWORDS.test(turn)) || (f.messages && MESSAGE_KEYWORDS.test(turn)))) {
+    return { run: true, reason: 'objet ou message' };
+  }
+  const pendingChance = !!f.messages && (opts.pendingNumberCount ?? 0) > 0 && (opts.random ?? Math.random)() < 0.25;
+  if (fresh >= 6 && (messagesHaveWikilinks(opts.lastUser, opts.lastAssistant) || pendingChance)) {
+    return { run: true, reason: pendingChance ? 'contact' : 'nouveaux noms' };
+  }
+  if (fresh >= 10) return { run: true, reason: 'mise à jour régulière' };
+  return { run: false, reason: 'regroupé avec un prochain tour' };
+}
+
 /**
  * Déclencheur MAJ mémoire (t227u) : dès qu’un message joueur ou IA
  * contient des [[noms]] — plus tous les N messages.

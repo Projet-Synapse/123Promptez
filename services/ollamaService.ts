@@ -60,12 +60,18 @@ function unreachableError(): Error {
   );
 }
 
-/** Taille de contexte adaptée à la conversation (petite = rapide). */
-function pickNumCtx(messages: { content: string }[]): number {
+/** Dernière taille de contexte utilisée par modèle (pour cette session de l'app). */
+const ctxByModel = new Map<string, number>();
+
+/** Taille de contexte adaptée à la conversation. Ollama RECHARGE entièrement
+ *  le modèle quand elle change (jusqu'à 90 s, et le cache est perdu) : elle ne
+ *  fait donc que grandir, par paliers de 4096, au fil de la session. */
+function pickNumCtx(model: string, messages: { content: string }[]): number {
   const promptTokens = Math.ceil(messages.reduce((n, m) => n + m.content.length, 0) / CHARS_PER_TOKEN);
-  const needed = promptTokens + NUM_PREDICT;
-  const rounded = Math.ceil(needed / 2048) * 2048;
-  return Math.min(MAX_CTX, Math.max(MIN_CTX, rounded));
+  const needed = Math.ceil((promptTokens + NUM_PREDICT) / 4096) * 4096;
+  const ctx = Math.min(MAX_CTX, Math.max(MIN_CTX, needed, ctxByModel.get(model) ?? 0));
+  ctxByModel.set(model, ctx);
+  return ctx;
 }
 
 /** Si le prompt système dépasse le contexte maximal, on le raccourcit
@@ -100,8 +106,11 @@ export async function streamOllamaChat(opts: OllamaChatOptions): Promise<string>
     model: opts.model,
     messages,
     stream: true,
+    // Garder le modèle en mémoire 30 min après la dernière question : un
+    // rechargement depuis le disque coûte jusqu'à 90 s sur un PC classique.
+    keep_alive: '30m',
     options: {
-      num_ctx: pickNumCtx(messages),
+      num_ctx: pickNumCtx(opts.model, messages),
       num_predict: NUM_PREDICT,
       ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
     },

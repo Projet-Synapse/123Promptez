@@ -278,18 +278,32 @@ export async function completeOnce(opts: {
   return fullText;
 }
 
-function buildHistorySnippet(messages: ChatMsg[], maxChars = 7000): string {
+/**
+ * Extrait d'historique pour la passe mémoire ou le résumé de fin de partie.
+ * Remplit le budget en partant des messages les PLUS RÉCENTS (c'est là que sont
+ * les faits nouveaux), puis remet dans l'ordre chronologique.
+ * `sinceIndex` : ne prend que les messages à partir de cet indice (passe
+ * incrémentale : ce qui est arrivé depuis la passe précédente).
+ */
+function buildHistorySnippet(messages: ChatMsg[], maxChars = 7000, sinceIndex = 0): string {
   const usable = messages
+    .slice(Math.max(0, sinceIndex))
     .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .filter((m) => !m.content.startsWith('[RÉSULTATS D\'OUTILS') && !m.content.startsWith('[RÉPONSES AU QUESTIONNAIRE]'))
-    .slice(-40);
-  let out = '';
-  for (const m of usable) {
-    const line = `${m.role === 'user' ? 'JOUEUR' : 'NARRATION'}: ${m.content.trim()}\n\n`;
-    if (out.length + line.length > maxChars) break;
-    out += line;
+    .filter((m) => !m.content.startsWith('[RÉSULTATS D\'OUTILS') && !m.content.startsWith('[RÉPONSES AU QUESTIONNAIRE]'));
+  const picked: string[] = [];
+  let size = 0;
+  for (let i = usable.length - 1; i >= 0; i--) {
+    const m = usable[i];
+    let line = `${m.role === 'user' ? 'JOUEUR' : 'NARRATION'}: ${m.content.trim()}\n\n`;
+    if (size + line.length > maxChars) {
+      // Le message le plus récent passe toujours, tronqué si besoin.
+      if (picked.length === 0) line = `${line.slice(0, maxChars - 20)}…\n\n`;
+      else break;
+    }
+    picked.push(line);
+    size += line.length;
   }
-  return out.trim() || '(aucun message encore)';
+  return picked.reverse().join('').trim() || '(aucun message encore)';
 }
 
 function buildWorldSnippet(sim: SimulationData): string {
@@ -421,6 +435,14 @@ export async function generateOrRefreshMemory(opts: {
   let llmUnknown: { senderName?: string; number?: string; content: string; suspicious?: boolean }[] = [];
   let parsed = false;
 
+  // Passe incrémentale : messages arrivés depuis la passe précédente (+ 2 de
+  // recouvrement pour le contexte). Si l'historique a été raccourci entre-temps
+  // (édition, régénération), on repart des derniers messages.
+  const lastCount = current.messageCountAtLastUpdate ?? 0;
+  const historySince = lastCount > 0 && lastCount <= messages.length
+    ? Math.max(0, lastCount - 2)
+    : Math.max(0, messages.length - 8);
+
   try {
     const userPrompt = [
       mode === 'initial'
@@ -444,8 +466,6 @@ export async function generateOrRefreshMemory(opts: {
           tastes: p.tastes,
           background: p.background,
         })),
-        null,
-        2,
       ),
       '',
       '## MÉMOIRE ACTUELLE (à respecter / fusionner)',
@@ -497,12 +517,10 @@ export async function generateOrRefreshMemory(opts: {
             userEdited: c.userEdited,
           })),
         },
-        null,
-        2,
       ),
       '',
       features.inventory
-        ? `## INVENTAIRE ACTUEL\n${JSON.stringify((fc?.inventory ?? []).map((i) => ({ name: i.name, quantity: i.quantity, description: i.description })), null, 2)}\nN’ajoute que ce que le persona porte SUR LUI maintenant.`
+        ? `## INVENTAIRE ACTUEL\n${JSON.stringify((fc?.inventory ?? []).map((i) => ({ name: i.name, quantity: i.quantity, description: i.description })))}\nN’ajoute que ce que le persona porte SUR LUI maintenant.`
         : '## INVENTAIRE\nModule inactif — renvoie "inventory": [].',
       '',
       features.messages
