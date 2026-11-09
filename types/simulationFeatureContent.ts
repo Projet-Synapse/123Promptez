@@ -20,6 +20,8 @@ export interface SimulationInventoryItem {
   updatedAt: string;
   /** Date réelle d’ajout (absente pour les anciennes entrées) */
   createdAt?: string;
+  /** Acquis récemment en jeu — badge 🔴 jusqu’à consultation */
+  isNew?: boolean;
 }
 
 export interface SimulationAlbumItem {
@@ -54,6 +56,8 @@ export interface SimulationSkillItem {
   updatedAt: string;
   /** Date réelle d’ajout (absente pour les anciennes entrées) */
   createdAt?: string;
+  /** Nouvelle compétence ou niveau gagné récemment — badge 🔴 jusqu’à consultation */
+  isNew?: boolean;
 }
 
 /** Étape de vie du persona (impact sur son avenir) */
@@ -67,6 +71,8 @@ export interface SimulationLifeStage {
   updatedAt: string;
   /** Date réelle d’ajout (absente pour les anciennes entrées) */
   createdAt?: string;
+  /** Étape survenue récemment en jeu — badge 🔴 jusqu’à consultation */
+  isNew?: boolean;
 }
 
 export interface SimulationFeatureMessageItem {
@@ -498,6 +504,50 @@ export function removeInventoryItems(
 export function countUnreadMessages(content: SimulationFeatureContent | undefined | null): number {
   if (!content?.messages) return 0;
   return content.messages.filter((m) => !m.read).length;
+}
+
+export type FeatureModuleId = 'inventory' | 'album' | 'skills' | 'messages' | 'needs';
+
+/** Nombre d'éléments non consultés d'un module (badge 🔴).
+ *  messages = SMS non lus ; inventaire / compétences = nouveautés en jeu. */
+export function countNewFeatureItems(
+  content: SimulationFeatureContent | undefined | null,
+  id: FeatureModuleId,
+): number {
+  if (!content) return 0;
+  if (id === 'messages') return countUnreadMessages(content);
+  if (id === 'inventory') return content.inventory.filter((i) => i.isNew).length;
+  if (id === 'skills') {
+    return content.skills.filter((s) => s.isNew).length + (content.lifeStages ?? []).filter((l) => l.isNew).length;
+  }
+  return 0;
+}
+
+/** Marque le module comme consulté : messages lus, badges nouveautés retirés.
+ *  Renvoie null si rien ne change (pas de mise à jour inutile). */
+export function markFeatureSeen(
+  content: SimulationFeatureContent | undefined | null,
+  id: FeatureModuleId,
+): SimulationFeatureContent | null {
+  if (!content) return null;
+  if (id === 'messages') {
+    if (!content.messages.some((m) => !m.read)) return null;
+    return { ...content, messages: content.messages.map((m) => (m.read ? m : { ...m, read: true })) };
+  }
+  if (id === 'inventory') {
+    if (!content.inventory.some((i) => i.isNew)) return null;
+    return { ...content, inventory: content.inventory.map((i) => (i.isNew ? { ...i, isNew: false } : i)) };
+  }
+  if (id === 'skills') {
+    const touched = content.skills.some((s) => s.isNew) || (content.lifeStages ?? []).some((l) => l.isNew);
+    if (!touched) return null;
+    return {
+      ...content,
+      skills: content.skills.map((s) => (s.isNew ? { ...s, isNew: false } : s)),
+      lifeStages: (content.lifeStages ?? []).map((l) => (l.isNew ? { ...l, isNew: false } : l)),
+    };
+  }
+  return null;
 }
 
 /** Injection prompt — uniquement les modules activés.

@@ -72,6 +72,8 @@ import {
   emptySimulationFeatures,
   emptyFeatureContent,
   countUnreadMessages,
+  countNewFeatureItems,
+  markFeatureSeen,
   resolveMemoryWikilink,
   normalizeMemoryKey,
   parseAttachmentLevel,
@@ -359,7 +361,7 @@ function PlusPopover({
 /** Panneau « + » Simulation : soulève le bas avec les actions Roleplay. */
 function SimulationPlusPanel({
   view, onChangeView, onReset, onPersona, onRoleplay, onSelectModel, currentModelId,
-  features, onToggleFeature, onOpenFeature, unreadMessagesCount = 0,
+  features, onToggleFeature, onOpenFeature, unreadMessagesCount = 0, featureNewCounts,
   themeId, onSelectTheme, themeBackgroundUri, onPickThemeBackground, onClearThemeBackground, onOpenSaves, C,
 }: {
   onOpenSaves: () => void;
@@ -374,6 +376,7 @@ function SimulationPlusPanel({
   onToggleFeature: (id: SimulationFeatureId) => void;
   onOpenFeature: (id: SimulationFeatureId) => void;
   unreadMessagesCount?: number;
+  featureNewCounts?: Partial<Record<SimulationFeatureId, number>>;
   themeId: SimulationThemeId;
   onSelectTheme: (id: SimulationThemeId) => void;
   themeBackgroundUri?: string;
@@ -527,12 +530,14 @@ function SimulationPlusPanel({
                       <Text style={{ fontSize: FontSize.body, fontWeight: '700', color: on ? C.textPrimary : C.textSecondary }}>
                         {meta.label}
                       </Text>
-                      {id === 'messages' && unreadMessagesCount > 0 ? (
+                      {(featureNewCounts?.[id] ?? 0) > 0 || (id === 'messages' && unreadMessagesCount > 0) ? (
                         <View style={{
                           minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
                           backgroundColor: C.error, alignItems: 'center', justifyContent: 'center',
                         }}>
-                          <Text style={{ fontSize: 10, color: '#fff', fontWeight: '800' }}>{unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}</Text>
+                          <Text style={{ fontSize: 10, color: '#fff', fontWeight: '800' }}>
+                            {(featureNewCounts?.[id] ?? 0) > 9 ? '9+' : (featureNewCounts?.[id] ?? unreadMessagesCount)}
+                          </Text>
                         </View>
                       ) : null}
                     </View>
@@ -2046,6 +2051,14 @@ export default function ChatScreen() {
     }
   };
 
+  // Badge 🔴 retiré quand le module est ouvert (messages lus, nouveautés vues)
+  useEffect(() => {
+    if (!simFeatureScreen || !isSimulation || !simData) return;
+    const next = markFeatureSeen(simData.featureContent, simFeatureScreen);
+    if (!next) return;
+    updateSimulation(activeWorkspace.id, activeConversation!.id, { ...simData, featureContent: next });
+  }, [simFeatureScreen]);
+
   const openSimMemory = (focusId?: string | null) => {
     setMemoryFocusItemId(focusId ?? null);
     setShowSimMemory(true);
@@ -2422,18 +2435,31 @@ export default function ChatScreen() {
 
             {isSimulation && simData ? (Object.keys(SIMULATION_FEATURE_META) as SimulationFeatureId[])
               .filter((id) => !!(simData.features as any)?.[id])
-              .map((id) => (
-                <IconButton
-                  key={id}
-                  icon={(id === 'messages' ? 'smartphone' : SIMULATION_FEATURE_META[id].icon) as any}
-                  label={id === 'messages' ? 'Téléphone' : SIMULATION_FEATURE_META[id].label}
-                  onPress={() => { setPhoneScreen('lock'); setSimFeatureScreen(id); }}
-                  boxSize={32}
-                  backgroundColor="rgba(0,0,0,0.25)"
-                  borderColor={C.border}
-                  color="#9B59B6"
-                />
-              )) : null}
+              .map((id) => {
+                const newCount = countNewFeatureItems(simData.featureContent, id);
+                return (
+                <View key={id} style={{ position: 'relative' }}>
+                  <IconButton
+                    icon={(id === 'messages' ? 'smartphone' : SIMULATION_FEATURE_META[id].icon) as any}
+                    label={id === 'messages' ? 'Téléphone' : SIMULATION_FEATURE_META[id].label}
+                    onPress={() => { setPhoneScreen('lock'); setSimFeatureScreen(id); }}
+                    boxSize={32}
+                    backgroundColor="rgba(0,0,0,0.25)"
+                    borderColor={C.border}
+                    color="#9B59B6"
+                  />
+                  {newCount > 0 ? (
+                    <Text
+                      pointerEvents="none"
+                      accessibilityLabel={`Nouveautés ${SIMULATION_FEATURE_META[id].label}`}
+                      style={{ position: 'absolute', top: -2, right: -2, fontSize: 10, lineHeight: 12 }}
+                    >
+                      🔴
+                    </Text>
+                  ) : null}
+                </View>
+                );
+              }) : null}
 
             {isSimulation ? (
               <View style={{ position: 'relative' }}>
@@ -2905,6 +2931,11 @@ export default function ChatScreen() {
                 });
               }}
               unreadMessagesCount={countUnreadMessages(simData?.featureContent)}
+              featureNewCounts={{
+                inventory: countNewFeatureItems(simData?.featureContent, 'inventory'),
+                messages: countNewFeatureItems(simData?.featureContent, 'messages'),
+                skills: countNewFeatureItems(simData?.featureContent, 'skills'),
+              }}
               onOpenFeature={(id) => {
                 setShowPlusPopover(false);
                 setSimPlusView('menu');
