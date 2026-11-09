@@ -206,3 +206,216 @@ export async function pingOllamaModel(model: string): Promise<{ ok: boolean; mes
     return { ok: false, message: unreachableError().message };
   }
 }
+
+// ─── Studio IA locale : gestion complète des modèles ─────────────────────────
+
+export interface OllamaDetailedModel {
+  name: string;
+  model: string;
+  sizeBytes: number;
+  parameterSize?: string;
+  quantization?: string;
+  modifiedAt?: string;
+  /** Modèle hébergé chez ollama.com (quota de crédits) — pas exécutable en local */
+  isCloud: boolean;
+}
+
+/** Liste détaillée des modèles (locaux + cloud séparés). */
+export async function listDetailedModels(timeoutMs = 2500): Promise<{ local: OllamaDetailedModel[]; cloud: OllamaDetailedModel[] } | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const local: OllamaDetailedModel[] = [];
+    const cloud: OllamaDetailedModel[] = [];
+    for (const m of data?.models ?? []) {
+      const isCloud = !!m.remote_host || String(m.name ?? '').endsWith(':cloud');
+      const entry: OllamaDetailedModel = {
+        name: m.name, model: m.model ?? m.name,
+        sizeBytes: Number(m.size) || 0,
+        parameterSize: m.details?.parameter_size,
+        quantization: m.details?.quantization_level,
+        modifiedAt: m.modified_at,
+        isCloud,
+      };
+      (isCloud ? cloud : local).push(entry);
+    }
+    return { local, cloud };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface OllamaRunningModel {
+  name: string;
+  sizeBytes: number;
+  vramBytes: number;
+  cpuPct: number;
+  gpuPct: number;
+  expiresInSeconds?: number;
+}
+
+/** Modèles actuellement chargés en mémoire (GET /api/ps). */
+export async function listRunningModels(timeoutMs = 2500): Promise<OllamaRunningModel[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/ps`, { signal: ctrl.signal });
+    if (!res.ok) return [];
+    const data: any = await res.json();
+    return (data?.models ?? []).map((m: any): OllamaRunningModel => ({
+      name: m.name ?? m.model,
+      sizeBytes: Number(m.size) || 0,
+      vramBytes: Number(m.size_vram) || 0,
+      cpuPct: m.size_vram ? Math.round(100 - (Number(m.size_vram) / Number(m.size)) * 100) : 0,
+      gpuPct: m.size_vram ? Math.round((Number(m.size_vram) / Number(m.size)) * 100) : 0,
+      expiresInSeconds: m.expires_at ? Math.max(0, Math.round((new Date(m.expires_at).getTime() - Date.now()) / 1000)) : undefined,
+    }));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function ollamaVersion(timeoutMs = 2500): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/version`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    return data?.version ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface PullProgress { status: string; percent: number | null; error?: string }
+
+/** Télécharge un modèle avec progression en direct (POST /api/pull en NDJSON). */
+export async function pullModel(
+  model: string,
+  onProgress: (p: PullProgress) => void,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error?: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${OLLAMA_URL}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: true }),
+      signal,
+    });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return { ok: false, error: 'annulé' };
+    return { ok: false, error: unreachableError().message };
+  }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    return { ok: false, error: `Ollama ${res.status} : ${t.slice(0, 200)}` };
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return { ok: false, error: 'flux indisponible' };
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastError: string | undefined;
+  const handle = (line: string) => {
+    if (!line.trim()) return;
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { return; }
+    if (obj.error) { lastError = String(obj.error); return; }
+    if (typeof obj.total === 'number' && typeof obj.completed === 'number' && obj.total > 0) {
+      onProgress({ status: obj.status ?? 'téléchargement', percent: Math.round((obj.completed / obj.total) * 100) });
+    } else if (typeof obj.status === 'string') {
+      onProgress({ status: obj.status, percent: null });
+    }
+  };
+  while (true) {
+    if (signal?.aborted) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      return { ok: false, error: 'annulé' };
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    lines.forEach(handle);
+  }
+  handle(buffer);
+  if (lastError) return { ok: false, error: lastError };
+  onProgress({ status: 'terminé', percent: 100 });
+  return { ok: true };
+}
+
+/** Supprime un modèle local (libère son espace disque). */
+export async function deleteModel(model: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/delete`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (res.ok) return { ok: true };
+    const t = await res.text().catch(() => '');
+    return { ok: false, error: t.slice(0, 200) || `HTTP ${res.status}` };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'erreur réseau' };
+  }
+}
+
+/** Crée un modèle personnalisé : personnalité + règles gravées dans un modèle
+ *  local dérivé d'une base (ex. qwen2.5:7b). Le modèle apparaît ensuite dans
+ *  la liste du chat, prêt à l'emploi. */
+export async function createCustomModel(
+  newName: string,
+  baseModel: string,
+  systemPrompt: string,
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: newName, from: baseModel, system: systemPrompt, stream: true }),
+      signal,
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      return { ok: false, error: t.slice(0, 200) || `HTTP ${res.status}` };
+    }
+    const reader = res.body?.getReader();
+    if (!reader) return { ok: true };
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      if (signal?.aborted) {
+        try { await reader.cancel(); } catch { /* ignore */ }
+        return { ok: false, error: 'annulé' };
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let obj: any;
+        try { obj = JSON.parse(line); } catch { continue; }
+        if (obj.error) return { ok: false, error: String(obj.error) };
+        if (typeof obj.status === 'string' && onProgress) onProgress(obj.status);
+      }
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'erreur réseau' };
+  }
+}

@@ -545,6 +545,19 @@ export default function SettingsScreen() {
             </View>
 
             <LocalAISettings value={bot.llmConfig.localAI} onChange={localAI => updateLLMConfig({ localAI })} />
+            <Pressable
+              onPress={() => router.push('/local-ai')}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: C.accentGlow, borderRadius: Radius.md, borderWidth: 1, borderColor: C.accent + '44', padding: Spacing.md }, pressed && { opacity: 0.8 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Ouvrir le Studio IA locale"
+            >
+              <MaterialIcons name="auto-fix-high" size={18} color={C.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.body, color: C.accent, fontWeight: '700' }}>Studio IA locale</Text>
+                <Text style={{ fontSize: FontSize.xs, color: C.textSecondary }}>Gérez vos modèles : télécharger, supprimer, créer votre assistant personnalisé</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color={C.accent} />
+            </Pressable>
 
             {/* ── Model Selector ─────────────────────────────────────── */}
             <View style={{ backgroundColor: C.bgCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border, padding: Spacing.md, gap: Spacing.md }}>
