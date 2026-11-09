@@ -22,6 +22,7 @@ import {
   normalizeFeatureContent,
   type SimulationFeatureContent,
 } from '@/types/simulationFeatureContent';
+import { emptyNeeds, formatNeedsForPrompt } from '@/types/simulationNeeds';
 
 export type {
   SimulationFeatureContent,
@@ -401,11 +402,25 @@ export function getActivePersona(sim?: SimulationData | null): SimulationPersona
   return sim.personas.find((p) => p.id === sim.activePersonaId) ?? sim.personas[0];
 }
 
-/** Injection prompt pour le moteur de chat existant (une voix pour l'instant). */
+/** Injection prompt pour le moteur de chat existant (une voix pour l'instant).
+ *  `split: true` sépare ce qui ne change pas d'un tour à l'autre (règles, monde,
+ *  persona, mémoire) de l'état de la scène qui change à chaque tour (horloge,
+ *  besoins) : la partie stable reste identique d'un tour à l'autre, ce qui
+ *  permet aux moteurs (Gemini, Claude, Ollama) de réutiliser leur cache au
+ *  lieu de tout relire. */
 export function buildSimulationPromptInjection(
   sim: SimulationData,
-  opts?: { maxBotChars?: number },
-): string {
+  opts?: { maxBotChars?: number; split?: false },
+): string;
+export function buildSimulationPromptInjection(
+  sim: SimulationData,
+  opts: { maxBotChars?: number; split: true },
+): { stable: string; volatile: string };
+export function buildSimulationPromptInjection(
+  sim: SimulationData,
+  opts?: { maxBotChars?: number; split?: boolean },
+): string | { stable: string; volatile: string } {
+  const split = opts?.split === true;
   const w = sim.world;
   const persona = getActivePersona(sim);
   const lines: string[] = [
@@ -435,8 +450,8 @@ export function buildSimulationPromptInjection(
       w.rules.trim(),
     );
   }
-  // Temps in-game
-  lines.push(clockPromptBlock(w.clock));
+  // Temps in-game (change à chaque tour : en fin d'instructions si découpé)
+  if (!split) lines.push(clockPromptBlock(w.clock));
   // Style de narration (après les règles prioritaires)
   lines.push(DILEMMA_PROMPT_RULE);
   { const ob = objectivesPromptBlock(sim.world?.objectives); if (ob) lines.push(ob); }
@@ -445,10 +460,8 @@ export function buildSimulationPromptInjection(
   const memBlock = formatMemoryForPrompt(sim.memory);
   if (memBlock) lines.push(memBlock);
   // Modules gameplay actifs (contenu joueur)
-  const featBlock = formatFeaturesForPrompt(
-    sim.features ?? { inventory: false, album: false, skills: false, messages: false, needs: false },
-    sim.featureContent,
-  );
+  const features = sim.features ?? { inventory: false, album: false, skills: false, messages: false, needs: false };
+  const featBlock = formatFeaturesForPrompt(features, sim.featureContent, undefined, { needsInVolatile: split });
   if (featBlock) lines.push(featBlock);
   if (w.title?.trim()) lines.push(`### Monde — ${w.title.trim()}`);
   if (w.introduction?.trim()) lines.push(`Introduction :\n${w.introduction.trim()}`);
@@ -469,5 +482,9 @@ export function buildSimulationPromptInjection(
     }
   }
   if (sim.notes.trim()) lines.push(`### Notes\n${sim.notes.trim()}`);
-  return `\n\n${lines.join('\n')}`;
+  if (!split) return `\n\n${lines.join('\n')}`;
+
+  const scene: string[] = ['### ÉTAT ACTUEL DE LA SCÈNE (mis à jour à chaque tour)', clockPromptBlock(w.clock)];
+  if (features.needs) scene.push(formatNeedsForPrompt(emptyNeeds(sim.featureContent?.needs)));
+  return { stable: `\n\n${lines.join('\n')}`, volatile: scene.join('\n') };
 }

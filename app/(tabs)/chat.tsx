@@ -48,7 +48,9 @@ import SimulationSetupScreen, { type SimulationSetupMode } from '@/components/fe
 import { SimulationFeatureScreen } from '@/components/feature/SimulationFeatureScreen';
 import { PhoneFrame, PhoneLockScreen, PhoneHomeScreen, PhoneSimpleApp, PhoneMessagesApp } from '@/components/feature/SimulationPhone';
 import { SimulationNeedsScreen } from '@/components/feature/SimulationNeedsScreen';
-import { listKnowledgeFolderOptions, buildKnowledgePromptBlock } from '@/types/simulationKnowledge';
+import { listKnowledgeFolderOptions } from '@/types/simulationKnowledge';
+import { decideAutoMemoryPass } from '@/types/simulationMemory';
+import { buildRoleplayTurn } from '@/services/roleplayPrompt';
 import { parseDilemma, DILEMMA_PREFIX } from '@/types/simulationDilemma';
 import { parseEnding } from '@/types/simulationEnding';
 import { generateContinuationSummary ,
@@ -65,7 +67,6 @@ import { SimulationMemoryScreen } from '@/components/feature/SimulationMemoryScr
 import { Toggle } from '@/components/ui/Toggle';
 import type { ConversationKind, SimulationFeatureId, SimulationFeatures, SimulationThemeId } from '@/types/simulation';
 import {
-  buildSimulationPromptInjection,
   getActivePersona,
   SIMULATION_FEATURE_META,
   emptySimulationFeatures,
@@ -74,7 +75,6 @@ import {
   resolveMemoryWikilink,
   normalizeMemoryKey,
   parseAttachmentLevel,
-  shouldAutoUpdateMemory,
   emptySimulationMemory,
   markMemoryItemSeen,
   memoryHasUnseen,
@@ -1121,8 +1121,6 @@ function SideDrawer({
 }
 
 // ─── Main Chat Screen ─────────────────────────────────────────────────────────
-const INVENTORY_KEYWORDS = /\b(ramass|obtien|obtenu|re[çc]oi[st]?|re[çc]u|achet|prend[sz]?|pris|empoch|r[ée]cup[èée]r|trouv|offr|donn[ée]|perd|perdu|vol[ée]|consomm|mang[ée]|bu|jet[ée]|range|sac|poche|inventaire)/i;
-const MESSAGE_KEYWORDS = /\b(sms|texto|message|t[ée]l[ée]phone|portable|vibre|notification|[ée]crit|num[ée]ro)/i;
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
@@ -1420,6 +1418,16 @@ export default function ChatScreen() {
 
     try {
       let full = '';
+      // Roleplay : instructions découpées (stable en tête, état de la scène après
+      // l'historique) et sans les tâches du workspace (inutiles au narrateur).
+      const rpTurn = activeConversation?.kind === 'simulation' && activeConversation.simulation
+        ? buildRoleplayTurn(activeConversation.simulation, {
+            maxBotChars: getRoleplaySettings(profile).maxBotChars,
+            knowledgeFolders: (activeWorkspace.database?.folders ?? []) as any,
+            langInjection: systemInjection ?? '',
+            turnInjections: [modeInjection, ...autoInjections],
+          })
+        : null;
       await sendChatMessage(
         msg, history as any, adjustedBot, activeWorkspace,
         (token) => {
@@ -1427,20 +1435,11 @@ export default function ChatScreen() {
           pushActivity('gen', 'Rédaction de la réponse…', 'chat-bubble');
         },
         profile,
-        getDueTasks(activeWorkspace.id),
-        (systemInjection ?? '') + modeInjection + tasksInjection
-          + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : '')
-          + (activeConversation?.kind === 'simulation' && activeConversation.simulation
-            ? buildSimulationPromptInjection(activeConversation.simulation, {
-                maxBotChars: getRoleplaySettings(profile).maxBotChars,
-              }) + (() => {
-                const kb = buildKnowledgePromptBlock(
-                  (activeWorkspace.database?.folders ?? []) as any,
-                  activeConversation.simulation?.world?.knowledgeFolderIds ?? [],
-                );
-                return kb ? `\n\n${kb}` : '';
-              })()
-            : ''),
+        rpTurn ? [] : getDueTasks(activeWorkspace.id),
+        rpTurn
+          ? rpTurn.stable
+          : (systemInjection ?? '') + modeInjection + tasksInjection
+            + (autoInjections.length > 0 ? `\n\n${autoInjections.join('\n\n')}` : ''),
         controller.signal,
         {
           // Outils serveur réels : l'IA peut lire les dépôts GitHub connectés
@@ -1450,6 +1449,7 @@ export default function ChatScreen() {
           enabledTools: bot.agentTools.filter((t: any) => t.enabled).map((t: any) => t.id),
           // Raisonnement étendu visible : activé par le mode Réfléchie
           thinking: !isSimulation && responseMode === 'deep',
+          ...(rpTurn ? { roleplay: { volatile: rpTurn.volatile } } : {}),
           onThinking: (full) => {
             lastThinkingRef.current = full;
             setThinkingText(full);
@@ -1577,7 +1577,7 @@ export default function ChatScreen() {
       // L'IA demande des précisions à choix : on retire le marqueur du texte,
       // on attache la structure parsée à la bulle et on NE relance PAS l'IA —
       // elle reprendra quand l'utilisateur aura envoyé ses réponses.
-      const questionnaireData = parseQuestionnaire(finalContent);
+      const questionnaireData = activeConversation?.kind === 'simulation' ? null : parseQuestionnaire(finalContent);
       if (questionnaireData) {
         finalContent = stripQuestionnaire(finalContent);
       }
@@ -2101,19 +2101,16 @@ export default function ChatScreen() {
       : (activeConversation.messages?.length ?? 0);
     const fc = simData.featureContent;
     const feats = simData.features ?? emptySimulationFeatures();
-    const turn = `${opts?.lastUser ?? ''}\n${opts?.lastAssistant ?? ''}`;
-    // Numéros xxx-xxx (donnés / reçus) → passe d’extraction aussi
-    const hasPhone = !!feats.messages && /\b\d{3}[-‐–]\d{3}\b/.test(turn);
-    // Personnages ayant notre numéro : chance d’écrire « tôt ou tard »
-    const pendingChance = !!feats.messages && (fc?.pendingNumberGivenTo?.length ?? 0) > 0 && Math.random() < 0.25;
-    const wiki = shouldAutoUpdateMemory(mem, count, [opts?.lastUser, opts?.lastAssistant]);
-    // Carnet d’acquisitions : passe régulière (≈ tous les 2 échanges) pour l’XP
-    const skillsTick = (!!feats.skills || !!feats.needs) && count % 4 === 0;
-    // Mots-clés : objets acquis / perdus, messages reçus → passe mémoire
-    const invHit = !!feats.inventory && (INVENTORY_KEYWORDS.test(turn) || count % 4 === 0);
-    const msgHit = !!feats.messages && MESSAGE_KEYWORDS.test(turn);
-    if (!mem.initialized || (!wiki && !hasPhone && !pendingChance && !skillsTick && !invHit && !msgHit)) return;
-    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: wiki || hasPhone || msgHit });
+    const decision = decideAutoMemoryPass({
+      memory: mem,
+      messageCount: count,
+      lastUser: opts?.lastUser,
+      lastAssistant: opts?.lastAssistant,
+      features: feats,
+      pendingNumberCount: fc?.pendingNumberGivenTo?.length ?? 0,
+    });
+    if (!decision.run) return;
+    void runMemoryGeneration('refresh', { silentToast: true, fromWikilink: true });
   };
   maybeAutoUpdateMemoryRef.current = maybeAutoUpdateMemory;
 

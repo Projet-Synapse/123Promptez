@@ -14,8 +14,14 @@ export function buildSystemPrompt(
   workspace: Workspace,
   profile: UserProfile | null,
   dueTasks: any[],
-  langInjection?: string
+  langInjection?: string,
+  opts?: { roleplay?: boolean },
 ): string {
+  // Roleplay : le narrateur a ses propres mécanismes (mémoire de partie, dossiers
+  // de connaissances, [CHOIX:…], objectifs). Les outils de l'assistant (fichiers,
+  // questionnaire, bibliothèque du workspace, tâches) n'y servent pas et
+  // brouilleraient la narration : ils ne sont pas envoyés.
+  const roleplay = opts?.roleplay === true;
   let prompt = workspace.systemPrompt || bot.llmConfig.systemPrompt;
 
   // Inject language instruction first (highest priority)
@@ -42,10 +48,10 @@ export function buildSystemPrompt(
   }
 
   // Capacités RÉELLES de l'agent — source de vérité unique (services/agentCapabilities.ts)
-  prompt += buildCapabilitiesPrompt(workspace, bot);
+  if (!roleplay) prompt += buildCapabilitiesPrompt(workspace, bot);
 
   // Inject due tasks
-  if (dueTasks.length > 0) {
+  if (!roleplay && dueTasks.length > 0) {
     prompt += '## TÂCHES À FAIRE\n\n';
     prompt += 'Les tâches suivantes sont dues et doivent être exécutées dans cette session:\n\n';
     dueTasks.forEach(task => {
@@ -72,7 +78,7 @@ export function buildSystemPrompt(
 
   // Contexte du workspace : inventaire + contenus de fichiers, check-list
   // des tâches actives, automatisations (source de vérité : agentCapabilities)
-  prompt += buildWorkspaceContextPrompt(workspace);
+  if (!roleplay) prompt += buildWorkspaceContextPrompt(workspace);
 
   // FAQ
   if (bot.faqItems.length > 0) {
@@ -155,6 +161,23 @@ export interface ChatToolExtras {
   thinking?: boolean;
   /** Appelé à chaque fragment de raisonnement reçu (avec le total accumulé) */
   onThinking?: (fullThinking: string) => void;
+  /**
+   * Tour de roleplay : `volatile` = état de la scène qui change à chaque tour
+   * (horloge, besoins, mode…). Il est placé APRÈS l'historique, dans le dernier
+   * message : tout ce qui précède reste identique d'un tour à l'autre et peut
+   * être relu depuis le cache du moteur au lieu d'être retraité.
+   */
+  roleplay?: { volatile: string };
+}
+
+/** Fenêtre d'historique par paliers : son début ne bouge que tous les `step`
+ *  messages (au lieu de glisser à chaque tour), pour que le début de la
+ *  conversation envoyée reste identique d'un tour à l'autre. Avec 10/6, on
+ *  garde 10 à 15 messages (12 en moyenne, comme l'ancienne fenêtre glissante). */
+function stepWindow<T>(history: T[], min = 10, step = 6): T[] {
+  if (history.length <= min) return history;
+  const start = Math.floor((history.length - min) / step) * step;
+  return history.slice(start);
 }
 
 export async function sendChatMessage(
@@ -171,19 +194,35 @@ export async function sendChatMessage(
 ): Promise<string> {
   const resolvedProfile = profile ?? null;
   const resolvedDueTasks = dueTasks ?? [];
+  const roleplay = extra?.roleplay;
 
-  const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks, langInjection);
-  // Contexte limité aux 12 derniers messages : au-delà, on prévient le modèle
-  // explicitement pour qu'il ne prétende pas se souvenir de l'ancien fil.
-  const trimmedHistory = history.slice(-12);
-  const overflowCount = history.length - trimmedHistory.length;
-  const raw: ChatMessage[] = [
-    { role: 'system', content: overflowCount > 0
-      ? `${systemPrompt}\n\n[CONTEXTE TRONQUÉ : ${overflowCount} message(s) plus ancien(s) de cette conversation ne te sont plus transmis — ne prétends pas t'en souvenir.]`
-      : systemPrompt },
-    ...trimmedHistory,
-    { role: 'user', content: userMessage },
-  ];
+  const systemPrompt = buildSystemPrompt(bot, workspace, resolvedProfile, resolvedDueTasks, langInjection, { roleplay: !!roleplay });
+  let raw: ChatMessage[];
+  if (roleplay) {
+    const kept = stepWindow(history);
+    const dropped = history.length - kept.length;
+    const tail = [
+      roleplay.volatile.trim(),
+      dropped > 0 ? `[Seuls les ${kept.length} derniers messages te sont transmis ; la MÉMOIRE DE PARTIE résume ce qui précède.]` : '',
+    ].filter(Boolean).join('\n\n');
+    raw = [
+      { role: 'system', content: systemPrompt },
+      ...kept,
+      { role: 'user', content: tail ? `${userMessage}\n\n⟦CONTEXTE DE SCÈNE — fourni par l’application, ne pas y répondre⟧\n${tail}` : userMessage },
+    ];
+  } else {
+    // Contexte limité aux 12 derniers messages : au-delà, on prévient le modèle
+    // explicitement pour qu'il ne prétende pas se souvenir de l'ancien fil.
+    const trimmedHistory = history.slice(-12);
+    const overflowCount = history.length - trimmedHistory.length;
+    raw = [
+      { role: 'system', content: overflowCount > 0
+        ? `${systemPrompt}\n\n[CONTEXTE TRONQUÉ : ${overflowCount} message(s) plus ancien(s) de cette conversation ne te sont plus transmis — ne prétends pas t'en souvenir.]`
+        : systemPrompt },
+      ...trimmedHistory,
+      { role: 'user', content: userMessage },
+    ];
+  }
   // L'API Anthropic EXIGE des rôles alternés : deux messages consécutifs du
   // même rôle (ex. résultats d'outils [RÉSULTATS D'OUTILS] suivis du vrai
   // message utilisateur) provoquent une erreur 400 — « réponse vide au 2e

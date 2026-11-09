@@ -500,15 +500,23 @@ export function countUnreadMessages(content: SimulationFeatureContent | undefine
   return content.messages.filter((m) => !m.read).length;
 }
 
-/** Injection prompt — uniquement les modules activés. */
+/** Injection prompt — uniquement les modules activés.
+ *  `needsInVolatile` : les valeurs des besoins changent à chaque tour ; elles
+ *  sont alors envoyées dans « ÉTAT ACTUEL DE LA SCÈNE » (fin d'instructions)
+ *  et ce bloc-ci reste identique d'un tour à l'autre. */
 export function formatFeaturesForPrompt(
   features: { inventory: boolean; album: boolean; skills: boolean; messages: boolean; needs?: boolean },
   content: SimulationFeatureContent | undefined | null,
   maxPer = 20,
+  opts?: { needsInVolatile?: boolean },
 ): string {
   if (!content) return '';
   const blocks: string[] = [];
-  if (features.needs) blocks.push(formatNeedsForPrompt(emptyNeeds(content.needs)));
+  if (features.needs) {
+    blocks.push(opts?.needsInVolatile
+      ? '#### Besoins du persona\nValeurs actuelles (0–100) : voir « ÉTAT ACTUEL DE LA SCÈNE » en fin d’instructions.'
+      : formatNeedsForPrompt(emptyNeeds(content.needs)));
+  }
 
   if (features.inventory) {
     const lines = content.inventory.slice(0, maxPer).map((it) => {
