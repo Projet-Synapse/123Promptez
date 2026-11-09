@@ -604,7 +604,7 @@ export default function SettingsScreen() {
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md }}>Recherche d’Ollama…</Text>
                   ) : localModels === null ? (
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, lineHeight: 17 }}>
-                      Ollama n’est pas joignable d’ici. Les modèles locaux s’utilisent dans l’appli desktop, avec Ollama lancé sur le PC.
+                      Ollama n’est pas joignable d’ici. Sur desktop, les modèles locaux s’utilisent directement. Pour une IA locale depuis le mobile : configure « IA locale / xAI » ci-dessous avec l’adresse du PC sur ton Wi-Fi (ex. http://192.168.1.20:11434, Ollama lancé avec OLLAMA_HOST=0.0.0.0).
                     </Text>
                   ) : localModels.length === 0 ? (
                     <Text style={{ fontSize: FontSize.xs, color: C.textMuted, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, lineHeight: 17 }}>

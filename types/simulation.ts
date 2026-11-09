@@ -1,4 +1,5 @@
 import { type SimulationEnding, normalizeEnding, objectivesPromptBlock } from '@/types/simulationEnding';
+import { type SimulationNeeds } from '@/types/simulationNeeds';
 import { DILEMMA_PROMPT_RULE } from '@/types/simulationDilemma';
 import { type SimulationSave, normalizeSaves } from '@/types/simulationSaves';
 /** Types pour l'espace Simulation (roleplay) — worldbuilding, personas, chat. */
@@ -9,7 +10,7 @@ import {
   normalizeSimulationMemory,
   type SimulationMemory,
 } from '@/types/simulationMemory';
-import { normalizeClock, clockPromptBlock } from '@/types/simulationClock';
+import { normalizeClock, defaultClock, formatClockFr, CLOCK_MARKER_RULE, clockPromptBlock } from '@/types/simulationClock';
 import { formatNarrationStyleForPrompt } from '@/types/simulationNarrationStyles';
 import { SIMULATION_OUTPUT_FORMAT_INSTRUCTIONS } from '@/services/simulationRoleplayFormat';
 import {
@@ -40,6 +41,8 @@ export {
   normalizeFeatureContent,
   formatFeaturesForPrompt,
   countUnreadMessages,
+  countNewFeatureItems,
+  markFeatureSeen,
   mergeInventoryItems,
   removeInventoryItems,
   applySkillGains,
@@ -402,6 +405,17 @@ export function getActivePersona(sim?: SimulationData | null): SimulationPersona
   return sim.personas.find((p) => p.id === sim.activePersonaId) ?? sim.personas[0];
 }
 
+/** État de scène consolidé, recalculé par l'application à chaque tour. */
+export interface SceneState {
+  clock?: string;
+  needs?: SimulationNeeds;
+  inventory: string[];
+  newInventory: string[];
+  objective?: string;
+  latestStage?: string;
+  personaName?: string;
+}
+
 /** Injection prompt pour le moteur de chat existant (une voix pour l'instant).
  *  `split: true` sépare ce qui ne change pas d'un tour à l'autre (règles, monde,
  *  persona, mémoire) de l'état de la scène qui change à chaque tour (horloge,
@@ -415,11 +429,11 @@ export function buildSimulationPromptInjection(
 export function buildSimulationPromptInjection(
   sim: SimulationData,
   opts: { maxBotChars?: number; split: true },
-): { stable: string; volatile: string };
+): { stable: string; scene: SceneState };
 export function buildSimulationPromptInjection(
   sim: SimulationData,
   opts?: { maxBotChars?: number; split?: boolean },
-): string | { stable: string; volatile: string } {
+): string | { stable: string; scene: SceneState } {
   const split = opts?.split === true;
   const w = sim.world;
   const persona = getActivePersona(sim);
@@ -450,8 +464,10 @@ export function buildSimulationPromptInjection(
       w.rules.trim(),
     );
   }
-  // Temps in-game (change à chaque tour : en fin d'instructions si découpé)
+  // Temps in-game : la règle (stable) reste ici ; la date/heure actuelle part
+  // dans l'état de scène si découpé.
   if (!split) lines.push(clockPromptBlock(w.clock));
+  else lines.push(CLOCK_MARKER_RULE);
   // Style de narration (après les règles prioritaires)
   lines.push(DILEMMA_PROMPT_RULE);
   { const ob = objectivesPromptBlock(sim.world?.objectives); if (ob) lines.push(ob); }
@@ -484,7 +500,14 @@ export function buildSimulationPromptInjection(
   if (sim.notes.trim()) lines.push(`### Notes\n${sim.notes.trim()}`);
   if (!split) return `\n\n${lines.join('\n')}`;
 
-  const scene: string[] = ['### ÉTAT ACTUEL DE LA SCÈNE (mis à jour à chaque tour)', clockPromptBlock(w.clock)];
-  if (features.needs) scene.push(formatNeedsForPrompt(emptyNeeds(sim.featureContent?.needs)));
-  return { stable: `\n\n${lines.join('\n')}`, volatile: scene.join('\n') };
+  const scene: SceneState = {
+    clock: w.clock,
+    needs: sim.featureContent?.needs ? emptyNeeds(sim.featureContent.needs) : undefined,
+    inventory: (sim.featureContent?.inventory ?? []).filter((i) => !i.isNew).map((i) => (i.quantity > 1 ? `${i.name} ×${i.quantity}` : i.name)),
+    newInventory: (sim.featureContent?.inventory ?? []).filter((i) => i.isNew).map((i) => (i.quantity > 1 ? `${i.name} ×${i.quantity} (nouveau)` : i.name)),
+    objective: sim.world.objectives?.trim().split('\n')[0] || undefined,
+    latestStage: sim.featureContent?.lifeStages?.slice(-1)[0]?.title || undefined,
+    personaName: persona?.name || undefined,
+  };
+  return { stable: `\n\n${lines.join('\n')}`, scene };
 }

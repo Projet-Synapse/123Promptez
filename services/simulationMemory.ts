@@ -707,7 +707,8 @@ export async function generateOrRefreshMemory(opts: {
     const rem = removeInventoryItems(merged.next, llmRemoved);
     inventoryAdded = merged.added.filter((a) => !rem.removed.some((r) => r.id === a.id));
     inventoryRemoved = rem.removed.filter((r) => !addedKeys.has(r.id));
-    inventoryNext = rem.next;
+    // Badge 🔴 sur les objets acquis pendant cette passe (retiré à la consultation)
+    inventoryNext = rem.next.map((i) => (addedKeys.has(i.id) ? { ...i, isNew: true } : i));
   }
 
   const needsNext = features.needs ? applyNeedDeltas(emptyNeeds(fc?.needs), llmNeedDeltas) : undefined;
@@ -718,9 +719,15 @@ export async function generateOrRefreshMemory(opts: {
   let lifeStagesAdded: SimulationLifeStage[] = [];
   if (features.skills) {
     const sg = applySkillGains(fc?.skills ?? [], llmSkills);
-    skillsNext = sg.next; skillsCreated = sg.created; levelUps = sg.levelUps;
+    const gainedIds = new Set([...sg.created.map((c) => c.id), ...sg.levelUps.map((l) => {
+      const sk = sg.next.find((x) => x.name === l.name);
+      return sk?.id;
+    }).filter(Boolean)]);
+    skillsNext = sg.next.map((s2) => (gainedIds.has(s2.id) ? { ...s2, isNew: true } : s2));
+    skillsCreated = sg.created; levelUps = sg.levelUps;
     const ls = mergeLifeStages(fc?.lifeStages ?? [], llmLife);
-    lifeStagesNext = ls.next; lifeStagesAdded = ls.added;
+    lifeStagesNext = ls.next.map((l) => (ls.added.some((a) => a.id === l.id) ? { ...l, isNew: true } : l));
+    lifeStagesAdded = ls.added;
   }
 
   // Numéros découverts : LLM + regex texte IA récent + papiers d’inventaire

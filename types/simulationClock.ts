@@ -80,12 +80,18 @@ export function advanceClock(clock: string | undefined, minutes: number): string
   return serializeClock(new Date(d.getTime() + minutes * 60000));
 }
 
+
+/** Règle des marqueurs de temps — identique d'un tour à l'autre (cache-friendly). */
+export const CLOCK_MARKER_RULE = [
+  '### TEMPS IN-GAME',
+  'Tiens compte du moment (jour/nuit, horaires, délais, fatigue, ouverture des lieux…).',
+  'Si ta réponse fait passer du temps de façon notable (ex. le persona dort jusqu’au lendemain, voyage, ellipse), commence ta réponse par UNE ligne seule au format [TEMPS:+Xh] / [TEMPS:+Xh30] / [TEMPS:+Nj] / [TEMPS:+Nmin] (durée écoulée AVANT la scène que tu racontes), ou [TEMPS:=AAAA-MM-JJ HH:MM] pour une date précise. Pour de petits passages (quelques minutes), tu peux mettre [TEMPS:+Nmin]. N’écris jamais la date toi-même en tête : l’application l’affiche.',
+].join('\n');
+
 export function clockPromptBlock(clock?: string): string {
   const c = normalizeClock(clock) ?? defaultClock();
   return [
-    '### TEMPS IN-GAME',
+    CLOCK_MARKER_RULE,
     `Date et heure actuelles dans l’histoire : ${formatClockFr(c)}.`,
-    'Tiens compte du moment (jour/nuit, horaires, délais, fatigue, ouverture des lieux…).',
-    'Si ta réponse fait passer du temps de façon notable (ex. le persona dort jusqu’au lendemain, voyage, ellipse), commence ta réponse par UNE ligne seule au format [TEMPS:+Xh] / [TEMPS:+Xh30] / [TEMPS:+Nj] / [TEMPS:+Nmin] (durée écoulée AVANT la scène que tu racontes), ou [TEMPS:=AAAA-MM-JJ HH:MM] pour une date précise. Pour de petits passages (quelques minutes), tu peux mettre [TEMPS:+Nmin]. N’écris jamais la date toi-même en tête : l’application l’affiche.',
   ].join('\n');
 }
